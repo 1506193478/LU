@@ -3,9 +3,11 @@ import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/bean/settings/settings_dropdown_tile.dart';
 import 'package:XL/bean/settings/settings_list.dart';
 import 'package:XL/bean/widget/neu_dialog.dart';
+import 'package:XL/bean/widget/tonal_card.dart';
 import 'package:XL/services/update/auto_updater.dart';
 import 'package:XL/services/update/update_download_source.dart';
 import 'package:XL/utils/date_time.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 typedef UpdateDialogChoice = ({
   InstallationType type,
@@ -56,6 +58,8 @@ class _UpdateAvailableDialogState extends State<UpdateAvailableDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildHeader(context, downloadInApp),
+            const SizedBox(height: 14),
+            _buildReleaseNotes(context),
             const SizedBox(height: 14),
             if (downloadInApp) ...[
               const SizedBox(height: 20),
@@ -108,8 +112,9 @@ class _UpdateAvailableDialogState extends State<UpdateAvailableDialog> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final info = widget.updateInfo;
-    // 更新日志不再在推送页展示（用户要求）。releaseNotes 仍用作兜底"前往下载"
-    // 时打开的发布页地址，由 auto_updater 负责。
+    // 推送页重新展示更新日志（用户要求），但文本框改小了，别占大半个屏。
+    // releaseNotes 仍是兜底"前往下载"时打开的发布页地址，由 auto_updater 负责。
+    final showReleasePage = downloadInApp && info.releaseNotes.isNotEmpty;
 
     return Wrap(
       crossAxisAlignment: WrapCrossAlignment.center,
@@ -137,7 +142,47 @@ class _UpdateAvailableDialogState extends State<UpdateAvailableDialog> {
               color: colors.onSurfaceVariant,
             ),
           ),
+        if (showReleasePage)
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            onPressed: () => launchUrl(
+              Uri.parse(info.releaseNotes),
+              mode: LaunchMode.externalApplication,
+            ),
+            iconAlignment: IconAlignment.end,
+            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            label: const Text('更新日志'),
+          ),
       ],
+    );
+  }
+
+  Widget _buildReleaseNotes(BuildContext context) {
+    final theme = Theme.of(context);
+    // 比之前小很多：最多约占屏高的 14%，约 2~4 行，超出才滚动。
+    final maxHeight =
+        (MediaQuery.sizeOf(context).height * 0.14).clamp(72.0, 120.0);
+
+    return TonalCard(
+      padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Scrollbar(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(right: 12),
+            child: Text(
+              widget.updateInfo.description.trim(),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
