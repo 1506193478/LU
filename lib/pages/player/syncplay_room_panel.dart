@@ -5,6 +5,7 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/widget/empty_state_widget.dart';
 import 'package:XL/bean/widget/syncplay_notice.dart';
+import 'package:XL/bean/widget/syncplay_avatar.dart';
 import 'package:XL/bean/widget/syncplay_sticker_view.dart';
 import 'package:XL/pages/player/player_controller.dart';
 import 'package:XL/pages/syncplay/syncplay_chat_picker.dart';
@@ -171,6 +172,8 @@ class _SyncPlayRoomPanelState extends State<SyncPlayRoomPanel> {
                     itemBuilder: (context, index) {
                       final member = members[index];
                       final paused = member.paused ?? true;
+                      final String shownName =
+                          SyncPlayAvatar.displayName(member.username, self);
                       return Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 6),
@@ -184,6 +187,13 @@ class _SyncPlayRoomPanelState extends State<SyncPlayRoomPanel> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            SyncPlayAvatar(
+                              name: member.username,
+                              isSelf: member.username == self,
+                              size: 22,
+                              radius: 11,
+                            ),
+                            const SizedBox(width: 6),
                             Icon(
                               paused
                                   ? Icons.pause_rounded
@@ -196,8 +206,8 @@ class _SyncPlayRoomPanelState extends State<SyncPlayRoomPanel> {
                             const SizedBox(width: 6),
                             Text(
                               member.username == self
-                                  ? '${member.username} (你)'
-                                  : member.username,
+                                  ? '$shownName (你)'
+                                  : shownName,
                               style: theme.textTheme.labelMedium?.copyWith(
                                 color: member.username == self
                                     ? colors.onPrimaryContainer
@@ -241,7 +251,10 @@ class _SyncPlayRoomPanelState extends State<SyncPlayRoomPanel> {
                     padding: const EdgeInsets.all(12),
                     itemCount: messages.length,
                     itemBuilder: (context, index) =>
-                        _ChatBubble(message: messages[index]),
+                        _ChatBubble(
+                          message: messages[index],
+                          self: self,
+                        ),
                   ),
           ),
           // 快捷反应
@@ -414,9 +427,12 @@ class _SyncStatusStrip extends StatelessWidget {
 }
 
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message});
+  const _ChatBubble({required this.message, required this.self});
 
   final SyncPlayChatMessage message;
+
+  /// 本地用户名，用来判断「这是不是我发的」并取对应的头像/昵称。
+  final String self;
 
   @override
   Widget build(BuildContext context) {
@@ -429,6 +445,8 @@ class _ChatBubble extends StatelessWidget {
       );
     }
     final bool mine = !message.fromRemote;
+    final bool isSelf = message.username == self;
+    final String name = SyncPlayAvatar.displayName(message.username, self);
     // 反应只画一个 emoji，不套气泡、不加「说」的排版，否则看起来像句话。
     if (message.isReaction) {
       return Align(
@@ -439,16 +457,15 @@ class _ChatBubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              if (!mine)
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: Text(
-                    message.username,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
+              if (!mine) ...[
+                SyncPlayAvatar(
+                  name: message.username,
+                  isSelf: isSelf,
+                  size: 24,
+                  radius: 12,
                 ),
+                const SizedBox(width: 6),
+              ],
               Text(message.message, style: const TextStyle(fontSize: 26)),
             ],
           ),
@@ -462,67 +479,116 @@ class _ChatBubble extends StatelessWidget {
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            crossAxisAlignment:
-                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!mine)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    message.username,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colors.onSurfaceVariant,
+              if (!mine) ...[
+                SyncPlayAvatar(
+                  name: message.username,
+                  isSelf: isSelf,
+                  size: 32,
+                  radius: 16,
+                ),
+                const SizedBox(width: 8),
+              ],
+              Column(
+                crossAxisAlignment:
+                    mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  if (!mine)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        name,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
                     ),
+                  SyncPlayStickerView(
+                    sticker: SyncPlayStickerStore.instance.resolveMessage(
+                      stickerMessage.packId,
+                      stickerMessage.stickerId,
+                      stickerMessage.url,
+                    ),
+                    size: 92,
                   ),
-                ),
-              SyncPlayStickerView(
-                sticker: SyncPlayStickerStore.instance.resolveMessage(
-                  stickerMessage.packId,
-                  stickerMessage.stickerId,
-                  stickerMessage.url,
-                ),
-                size: 92,
+                ],
               ),
             ],
           ),
         ),
       );
     }
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: const BoxConstraints(maxWidth: 260),
-        decoration: BoxDecoration(
-          color: mine ? colors.primaryContainer : colors.surfaceContainerHigh,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(14),
-            topRight: const Radius.circular(14),
-            bottomLeft: Radius.circular(mine ? 14 : 4),
-            bottomRight: Radius.circular(mine ? 4 : 14),
-          ),
+    final Widget bubble = Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      constraints: const BoxConstraints(maxWidth: 232),
+      decoration: BoxDecoration(
+        color: mine ? colors.primaryContainer : colors.surfaceContainerHigh,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(14),
+          topRight: const Radius.circular(14),
+          bottomLeft: Radius.circular(mine ? 14 : 4),
+          bottomRight: Radius.circular(mine ? 4 : 14),
         ),
-        child: Column(
-          crossAxisAlignment:
-              mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            if (!mine)
-              Text(
-                message.username,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (!mine)
             Text(
-              message.message,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: mine ? colors.onPrimaryContainer : colors.onSurface,
+              name,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.onSurfaceVariant,
               ),
+            ),
+          Text(
+            message.message,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: mine ? colors.onPrimaryContainer : colors.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+    // 自己靠右、别人靠左；两边都带头像，昵称只在别人的气泡里标一次。
+    if (mine) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            bubble,
+            const SizedBox(width: 8),
+            SyncPlayAvatar(
+              name: message.username,
+              isSelf: isSelf,
+              size: 32,
+              radius: 16,
             ),
           ],
         ),
+      );
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SyncPlayAvatar(
+            name: message.username,
+            isSelf: isSelf,
+            size: 32,
+            radius: 16,
+          ),
+          const SizedBox(width: 8),
+          Flexible(child: bubble),
+        ],
       ),
     );
   }

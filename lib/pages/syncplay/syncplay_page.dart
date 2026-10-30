@@ -13,6 +13,7 @@ import 'package:XL/bean/widget/clay.dart';
 import 'package:XL/bean/widget/loading_indicator.dart';
 import 'package:XL/bean/widget/syncplay_activity_capsule.dart';
 import 'package:XL/bean/widget/syncplay_notice.dart';
+import 'package:XL/bean/widget/syncplay_avatar.dart';
 import 'package:XL/bean/widget/syncplay_sticker_view.dart';
 import 'package:XL/modules/bangumi/bangumi_item.dart';
 import 'package:XL/modules/roads/road_module.dart';
@@ -1021,28 +1022,51 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
           ],
           const SizedBox(height: 12),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              for (var i = 0; i < shown.length; i++)
-                Padding(
-                  padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
-                  child: GestureDetector(
-                    // 单击 = 敲一下；长按 = 屏蔽确认。
-                    onTap: () => _nudgeMember(shown[i].username),
-                    onLongPress: () => _showMemberActions(shown[i].username),
-                    child: _Avatar(
-                      label: shown[i].username,
-                      highlighted: shown[i].username == controller.username,
-                    ),
-                  ),
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    for (final m in shown)
+                      GestureDetector(
+                        // 单击 = 敲一下；长按 = 屏蔽确认。
+                        onTap: () => _nudgeMember(m.username),
+                        onLongPress: () => _showMemberActions(m.username),
+                        child: _MemberChip(
+                          username: m.username,
+                          isSelf: m.username == controller.username,
+                          selfName: controller.username,
+                        ),
+                      ),
+                    if (members.length > shown.length)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          '+${members.length - shown.length}',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: colors.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    if (members.isEmpty)
+                      _MemberChip(
+                        username: controller.username,
+                        isSelf: true,
+                        selfName: controller.username,
+                      ),
+                  ],
                 ),
-              if (members.length > shown.length)
-                Padding(
-                  padding: const EdgeInsets.only(left: 6),
-                  child: _Avatar(label: '+${members.length - shown.length}'),
-                ),
-              if (members.isEmpty)
-                _Avatar(label: controller.username, highlighted: true),
-              const Spacer(),
+              ),
+              const SizedBox(width: 8),
               _MetaChip(
                 icon: Icons.network_ping_rounded,
                 label: '${controller.rtt} ms',
@@ -1393,8 +1417,10 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                                 controller: _chatScrollController,
                                 padding: EdgeInsets.zero,
                                 itemCount: messages.length,
-                                itemBuilder: (context, index) =>
-                                    _ChatBubble(message: messages[index]),
+                                itemBuilder: (context, index) => _ChatBubble(
+                                  message: messages[index],
+                                  self: controller.username,
+                                ),
                               ),
                       ),
                       const SizedBox(height: 10),
@@ -1955,44 +1981,41 @@ class _RecentRoomTile extends StatelessWidget {
   }
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.label, this.highlighted = false});
+class _MemberChip extends StatelessWidget {
+  const _MemberChip({
+    required this.username,
+    required this.isSelf,
+    required this.selfName,
+  });
 
-  final String label;
-  final bool highlighted;
+  final String username;
+  final bool isSelf;
+  final String selfName;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final initial = label.isEmpty ? '?' : label.characters.first.toUpperCase();
-    final ClayToneColors accent = ClayToneColors.of(context, ClayTone.accent);
-    final ClayToneColors base = ClayToneColors.of(context, ClayTone.surface);
-    final ClayToneColors tone = highlighted ? accent : base;
-    final bool dark = theme.brightness == Brightness.dark;
+    final colors = theme.colorScheme;
+    final String name = SyncPlayAvatar.displayName(username, selfName);
     return Container(
-      width: 30,
-      height: 30,
-      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [tone.light, tone.dark],
-        ),
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: dark
-              ? Colors.white.withValues(alpha: 0.12)
-              : const Color(0xFF1A1C22).withValues(alpha: 0.06),
-          width: 0.5,
-        ),
+        color: isSelf ? colors.primaryContainer : colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Text(
-        initial,
-        style: theme.textTheme.labelMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: highlighted ? accent.fg : theme.colorScheme.onSurface,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SyncPlayAvatar(name: username, isSelf: isSelf, size: 22, radius: 11),
+          const SizedBox(width: 6),
+          Text(
+            isSelf ? '$name (你)' : name,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: isSelf ? colors.onPrimaryContainer : colors.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2041,9 +2064,12 @@ class _MetaChip extends StatelessWidget {
 }
 
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message});
+  const _ChatBubble({required this.message, required this.self});
 
   final SyncPlayChatMessage message;
+
+  /// 本地用户名，用来判断「这是不是我发的」并取对应的头像/昵称。
+  final String self;
 
   @override
   Widget build(BuildContext context) {
@@ -2057,6 +2083,8 @@ class _ChatBubble extends StatelessWidget {
       );
     }
     final bool mine = !message.fromRemote;
+    final bool isSelf = message.username == self;
+    final String name = SyncPlayAvatar.displayName(message.username, self);
     // 反应不套气泡，只画一个 emoji —— 套上气泡就成了「一句话」。
     if (message.isReaction) {
       return Align(
@@ -2065,17 +2093,17 @@ class _ChatBubble extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 3),
           child: Row(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              if (!mine)
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: Text(
-                    message.username,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
+              if (!mine) ...[
+                SyncPlayAvatar(
+                  name: message.username,
+                  isSelf: isSelf,
+                  size: 24,
+                  radius: 12,
                 ),
+                const SizedBox(width: 6),
+              ],
               Text(message.message, style: const TextStyle(fontSize: 24)),
             ],
           ),
@@ -2090,73 +2118,122 @@ class _ChatBubble extends StatelessWidget {
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            crossAxisAlignment:
-                mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!mine)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    message.username,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colors.onSurfaceVariant,
+              if (!mine) ...[
+                SyncPlayAvatar(
+                  name: message.username,
+                  isSelf: isSelf,
+                  size: 32,
+                  radius: 16,
+                ),
+                const SizedBox(width: 8),
+              ],
+              Column(
+                crossAxisAlignment:
+                    mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  if (!mine)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        name,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
                     ),
+                  SyncPlayStickerView(
+                    sticker: SyncPlayStickerStore.instance.resolveMessage(
+                      stickerMessage.packId,
+                      stickerMessage.stickerId,
+                      stickerMessage.url,
+                    ),
+                    size: 104,
                   ),
-                ),
-              SyncPlayStickerView(
-                sticker: SyncPlayStickerStore.instance.resolveMessage(
-                  stickerMessage.packId,
-                  stickerMessage.stickerId,
-                  stickerMessage.url,
-                ),
-                size: 104,
+                ],
               ),
             ],
           ),
         ),
       );
     }
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: const BoxConstraints(maxWidth: 240),
-        decoration: BoxDecoration(
-          // 自己的气泡用强调色染底、别人的用中性面；两者都只取一点点色，
-          // 让主题正文色压上去始终有对比度——浅色下直接写白色会整块消失。
-          color: mine
-              ? ClayToneColors.of(context, ClayTone.accent).tintSurface(context)
-              : (dark
-                  ? Colors.white.withValues(alpha: 0.07)
-                  : theme.colorScheme.surfaceContainerHigh),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(14),
-            topRight: const Radius.circular(14),
-            bottomLeft: Radius.circular(mine ? 14 : 4),
-            bottomRight: Radius.circular(mine ? 4 : 14),
-          ),
+    final Widget bubble = Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      constraints: const BoxConstraints(maxWidth: 232),
+      decoration: BoxDecoration(
+        // 自己的气泡用强调色染底、别人的用中性面；两者都只取一点点色，
+        // 让主题正文色压上去始终有对比度——浅色下直接写白色会整块消失。
+        color: mine
+            ? ClayToneColors.of(context, ClayTone.accent).tintSurface(context)
+            : (dark
+                ? Colors.white.withValues(alpha: 0.07)
+                : theme.colorScheme.surfaceContainerHigh),
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(14),
+          topRight: const Radius.circular(14),
+          bottomLeft: Radius.circular(mine ? 14 : 4),
+          bottomRight: Radius.circular(mine ? 4 : 14),
         ),
-        child: Column(
-          crossAxisAlignment:
-              mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            if (!mine)
-              Text(
-                message.username,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (!mine)
             Text(
-              message.message,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colors.onSurface,
+              name,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.onSurfaceVariant,
               ),
+            ),
+          Text(
+            message.message,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.onSurface,
+            ),
+          ),
+        ],
+      ),
+    );
+    // 自己靠右、别人靠左；两边都带头像，昵称只在别人的气泡里标一次。
+    if (mine) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            bubble,
+            const SizedBox(width: 8),
+            SyncPlayAvatar(
+              name: message.username,
+              isSelf: isSelf,
+              size: 32,
+              radius: 16,
             ),
           ],
         ),
+      );
+    }
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SyncPlayAvatar(
+            name: message.username,
+            isSelf: isSelf,
+            size: 32,
+            radius: 16,
+          ),
+          const SizedBox(width: 8),
+          Flexible(child: bubble),
+        ],
       ),
     );
   }
