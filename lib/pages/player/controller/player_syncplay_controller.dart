@@ -1,6 +1,7 @@
 // ignore_for_file: library_private_types_in_public_api
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -13,6 +14,7 @@ import 'package:XL/services/player/syncplay_drift.dart';
 import 'package:XL/services/player/syncplay_reaction.dart';
 import 'package:XL/services/player/syncplay_room_prompts.dart';
 import 'package:XL/services/player/syncplay_room_signals.dart';
+import 'package:XL/services/player/syncplay_avatar_message.dart';
 import 'package:XL/services/player/syncplay_sticker_message.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/storage/storage.dart';
@@ -159,6 +161,30 @@ abstract class _PlayerSyncPlayController with Store {
   final SyncPlayStickerAssembler _stickerAssembler =
       SyncPlayStickerAssembler();
 
+  /// 远端成员头像：按用户名索引，存解码后的内存字节。
+  ///
+  /// SyncPlay 协议不传头像，头像走 Chat 通道上的缩略图协议传过来（`LUSAV1|`）。
+  /// 这里故意用 [ValueNotifier] 而不是 MobX observable：改它不需要重新跑
+  /// build_runner 生成代码，渲染点用 [ValueListenableBuilder] 局部监听即可。
+  final SyncPlayAvatarAssembler _avatarAssembler =
+      SyncPlayAvatarAssembler();
+  final ValueNotifier<Map<String, Uint8List>> _avatarBytesNotifier =
+      ValueNotifier<Map<String, Uint8List>>(const {});
+
+  /// 远端成员的真实头像（解码后的内存字节），按用户名索引。
+  ///
+  /// 查不到说明对方还没发过、或没设头像，渲染时退回首字色块即可。
+  Map<String, Uint8List> get avatarBytes => _avatarBytesNotifier.value;
+
+  /// 上次广播出去的头像内容 + 时间，用来做冷却去重。
+  String _lastAvatarB64 = '';
+  DateTime? _lastAvatarBroadcastAt;
+  static const Duration _avatarBroadcastCooldown = Duration(seconds: 30);
+
+  /// 让渲染点局部监听头像变化的通知器。
+  ValueNotifier<Map<String, Uint8List>> get avatarBytesNotifier =>
+      _avatarBytesNotifier;
+
   void _publishActivity(
     SyncPlayActivityKind kind,
     String username, {
@@ -248,6 +274,8 @@ abstract class _PlayerSyncPlayController with Store {
     syncplayRoom = '';
     syncplayClientRtt = 0;
     syncplayMembers = ObservableList.of([]);
+    _avatarAssembler.reset();
+    _avatarBytesNotifier.value = const {};
     if (previousRoom != room) {
       chatMessages = ObservableList.of([]);
       // 换房间才清队列：断线重连回来还应该看见原来排的片。
@@ -361,6 +389,11 @@ abstract class _PlayerSyncPlayController with Store {
                 fromRemote: true,
               ),
             );
+            // 有人新进来：自己的头像再广播一次，让他那边也能显示真实头像。
+            // 自己进房那条（who == username）已经在 join 后广播过了，跳过。
+            if (who != username) {
+              unawaited(broadcastAvatar());
+            }
           }
         },
       );
@@ -500,6 +533,23 @@ abstract class _PlayerSyncPlayController with Store {
             ));
             return;
           }
+          // 远端头像：走 Chat 通道的缩略图协议传过来，不在聊天里显示。
+          // 分片拼齐后才存进内存，收一半就丢，避免聊天里冒出一串半截协议。
+          if (SyncPlayAvatarMessage.isAvatar(text)) {
+            final String? full = _avatarAssembler.add(sender, text);
+            if (full != null) {
+              try {
+                final bytes = base64Decode(full);
+                final next =
+                    Map<String, Uint8List>.from(_avatarBytesNotifier.value);
+                next[sender] = bytes;
+                _avatarBytesNotifier.value = next;
+              } catch (_) {
+                // 坏数据忽略，退回首字色块。
+              }
+            }
+            return;
+          }
           if (SyncPlayStickerMessage.isSticker(text)) {
             final SyncPlayStickerMessage? sticker =
                 _stickerAssembler.add(sender, text);
@@ -625,6 +675,8 @@ abstract class _PlayerSyncPlayController with Store {
         return;
       }
       syncplayRoom = room;
+      // 进房成功就广播一次自己的头像；对方据此显示真实头像，而不是首字色块。
+      unawaited(broadcastAvatar());
       // 连上了就把重试计数清零，下次断线重新给满额度。
       _autoReconnectAttempt = 0;
       // 进房前就知道自己的片源了（changeEpisode 会先 set），但那时还没有
@@ -1237,6 +1289,35 @@ abstract class _PlayerSyncPlayController with Store {
     return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
   }
 
+  /// 把自己的头像压成缩略图，通过 Chat 通道分片广播给房间里其他人。
+  ///
+  /// 协议本身不传头像，只能走这条「带外」通道。没设头像或编码失败就什么都不发，
+  /// 对方那边自然退回首字色块——这是预期行为，不是错误。
+  Future<void> broadcastAvatar() async {
+    final client = syncplayController;
+    if (client == null || syncplayRoom.isEmpty) return;
+    final String path =
+        GStorage.getSetting<String>(SettingsKeys.userAvatarPath);
+    final String? b64 = await encodeLocalAvatar(path);
+    if (b64 == null) return;
+    final DateTime now = DateTime.now();
+    if (b64 == _lastAvatarB64 &&
+        _lastAvatarBroadcastAt != null &&
+        now.difference(_lastAvatarBroadcastAt!) < _avatarBroadcastCooldown) {
+      return;
+    }
+    final List<String> chunks = SyncPlayAvatarMessage(b64).encodeChunks();
+    if (chunks.length > SyncPlayAvatarMessage.maxChunks) return;
+    _lastAvatarB64 = b64;
+    _lastAvatarBroadcastAt = now;
+    await _runBestEffortSync(() async {
+      for (final chunk in chunks) {
+        await client.sendChatMessage(chunk);
+        await Future<void>.delayed(SyncPlayAvatarMessage.chunkInterval);
+      }
+    });
+  }
+
   Future<void> _runBestEffortSync(Future<void> Function() operation) async {
     try {
       await operation();
@@ -1258,6 +1339,8 @@ abstract class _PlayerSyncPlayController with Store {
     playQueue.value = const <int>[];
     activity.value = null;
     _stickerAssembler.reset();
+    _avatarAssembler.reset();
+    _avatarBytesNotifier.value = const {};
     // 房间级的临时状态全部清掉：退房后还挂着倒计时/投票是最容易漏的 bug。
     _stallTimer?.cancel();
     _stallTimer = null;

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -8,6 +9,9 @@ import 'package:XL/services/storage/storage.dart';
 ///
 /// SyncPlay 协议本身不传头像，远端成员只能按名字首字生成确定性色块；自己则
 /// 直接读 `userAvatarPath`（「我的」页导入的本地相册副本），没有就退回首字。
+///
+/// 远端成员的真实头像走 Chat 通道上的缩略图协议（`syncplay_avatar_message.dart`）
+/// 传过来，存为内存字节；这里通过 [remoteImage] 接收并显示，查不到时退回首字。
 class SyncPlayAvatar extends StatelessWidget {
   const SyncPlayAvatar({
     super.key,
@@ -15,6 +19,7 @@ class SyncPlayAvatar extends StatelessWidget {
     this.isSelf = false,
     this.size = 32,
     this.radius = 16,
+    this.remoteImage,
   });
 
   /// 房间里的用户名（用来取首字、判颜色）。
@@ -25,6 +30,12 @@ class SyncPlayAvatar extends StatelessWidget {
 
   final double size;
   final double radius;
+
+  /// 远端成员的真实头像（已解码的内存字节）。
+  ///
+  /// 走 Chat 通道的缩略图协议传过来；为空说明对方还没发过、或没设头像，
+  /// 这时退回昵称首字色块。自己（[isSelf]）永远用本地文件，不读这个。
+  final Uint8List? remoteImage;
 
   /// 自己一套、别人一套的柔和色板，按名字 hash 取，保证同一个人颜色稳定。
   static const List<Color> _palette = <Color>[
@@ -67,14 +78,27 @@ class SyncPlayAvatar extends StatelessWidget {
         : '';
     final bool hasImage = avatarPath.isNotEmpty;
 
-    final Widget inner = hasImage
-        ? Image.file(
-            File(avatarPath),
-            key: ValueKey<String>(avatarPath),
-            fit: BoxFit.cover,
-            errorBuilder: (ctx, err, stack) => _letter(colors, initial),
-          )
-        : _letter(colors, initial);
+    final Widget inner;
+    if (isSelf && hasImage) {
+      // 自己：直接用「我的」页导入的本地相册副本，最清晰。
+      inner = Image.file(
+        File(avatarPath),
+        key: ValueKey<String>(avatarPath),
+        fit: BoxFit.cover,
+        errorBuilder: (ctx, err, stack) => _letter(colors, initial),
+      );
+    } else if (!isSelf && remoteImage != null) {
+      // 别人：优先显示对方通过协议传过来的真实头像缩略图。
+      inner = Image.memory(
+        remoteImage!,
+        key: ValueKey<Object>(remoteImage!),
+        fit: BoxFit.cover,
+        errorBuilder: (ctx, err, stack) => _letter(colors, initial),
+      );
+    } else {
+      // 都没拿到：退回「昵称首字 + 确定性色块」。
+      inner = _letter(colors, initial);
+    }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),

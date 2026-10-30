@@ -187,11 +187,15 @@ class _SyncPlayRoomPanelState extends State<SyncPlayRoomPanel> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            SyncPlayAvatar(
-                              name: member.username,
-                              isSelf: member.username == self,
-                              size: 22,
-                              radius: 11,
+                            ValueListenableBuilder<Map<String, Uint8List>>(
+                              valueListenable: syncplay.avatarBytesNotifier,
+                              builder: (ctx, avatars, _) => SyncPlayAvatar(
+                                name: member.username,
+                                isSelf: member.username == self,
+                                size: 22,
+                                radius: 11,
+                                remoteImage: avatars[member.username],
+                              ),
                             ),
                             const SizedBox(width: 6),
                             Icon(
@@ -254,6 +258,7 @@ class _SyncPlayRoomPanelState extends State<SyncPlayRoomPanel> {
                         _ChatBubble(
                           message: messages[index],
                           self: self,
+                          avatarBytes: syncplay.avatarBytesNotifier,
                         ),
                   ),
           ),
@@ -427,12 +432,22 @@ class _SyncStatusStrip extends StatelessWidget {
 }
 
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message, required this.self});
+  const _ChatBubble({
+    required this.message,
+    required this.self,
+    required this.avatarBytes,
+  });
 
   final SyncPlayChatMessage message;
 
   /// 本地用户名，用来判断「这是不是我发的」并取对应的头像/昵称。
   final String self;
+
+  /// 远端成员的真实头像通知器（用户名 -> 内存字节），查不到就退回首字色块。
+  ///
+  /// 用 [ValueListenableBuilder] 局部监听：头像往往是「进房后单独传来的一条
+  /// 协议」，不会写进聊天记录，所以得让头像自己能触发重建。
+  final ValueNotifier<Map<String, Uint8List>> avatarBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -447,6 +462,19 @@ class _ChatBubble extends StatelessWidget {
     final bool mine = !message.fromRemote;
     final bool isSelf = message.username == self;
     final String name = SyncPlayAvatar.displayName(message.username, self);
+    // 头像走单独的协议通道传来，不写进聊天记录，所以用通知器局部监听，
+    // 让「对方头像到了」能单独触发这一块重建，而不用等下一条聊天消息。
+    Widget avatar({required double size, required double radius}) =>
+        ValueListenableBuilder<Map<String, Uint8List>>(
+          valueListenable: avatarBytes,
+          builder: (ctx, avatars, _) => SyncPlayAvatar(
+            name: message.username,
+            isSelf: isSelf,
+            size: size,
+            radius: radius,
+            remoteImage: avatars[message.username],
+          ),
+        );
     // 反应只画一个 emoji，不套气泡、不加「说」的排版，否则看起来像句话。
     if (message.isReaction) {
       return Align(
@@ -458,12 +486,7 @@ class _ChatBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               if (!mine) ...[
-                SyncPlayAvatar(
-                  name: message.username,
-                  isSelf: isSelf,
-                  size: 24,
-                  radius: 12,
-                ),
+                avatar(size: 24, radius: 12),
                 const SizedBox(width: 6),
               ],
               Text(message.message, style: const TextStyle(fontSize: 26)),
@@ -484,12 +507,7 @@ class _ChatBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               if (!mine) ...[
-                SyncPlayAvatar(
-                  name: message.username,
-                  isSelf: isSelf,
-                  size: 32,
-                  radius: 16,
-                ),
+                avatar(size: 32, radius: 16),
                 const SizedBox(width: 8),
               ],
               Column(
@@ -564,12 +582,7 @@ class _ChatBubble extends StatelessWidget {
           children: [
             bubble,
             const SizedBox(width: 8),
-            SyncPlayAvatar(
-              name: message.username,
-              isSelf: isSelf,
-              size: 32,
-              radius: 16,
-            ),
+            avatar(size: 32, radius: 16),
           ],
         ),
       );
@@ -579,13 +592,8 @@ class _ChatBubble extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SyncPlayAvatar(
-            name: message.username,
-            isSelf: isSelf,
-            size: 32,
-            radius: 16,
-          ),
+          children: [
+          avatar(size: 32, radius: 16),
           const SizedBox(width: 8),
           Flexible(child: bubble),
         ],

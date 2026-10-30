@@ -424,6 +424,22 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
     KazumiDialog.showToast(message: '邀请文案已复制', context: context);
   }
 
+  /// 退出当前房间：先确认，避免误触把聊天和成员列表清掉。
+  Future<void> _confirmExitRoom() async {
+    final bool? ok = await ClayDialog.confirm(
+      context,
+      title: '退出房间',
+      message: '退出后聊天记录和成员列表会清空，需要时可从「最近进过」一键重回。',
+      confirmLabel: '退出',
+      destructive: true,
+    );
+    if (ok != true || !mounted) return;
+    KazumiHaptics.select();
+    await controller.leaveRoom();
+    if (!mounted) return;
+    KazumiDialog.showToast(message: '已退出房间', context: context);
+  }
+
   /// 打开「播放来源」面板，让用户挑规则源与具体条目。
   Future<void> _openSourceSheet(BangumiItem item) async {
     controller.selectBangumi(item);
@@ -980,6 +996,13 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                   KazumiDialog.showToast(message: '已复制房间号', context: context);
                 },
               ),
+              const SizedBox(width: 6),
+              ClayIconButton(
+                tooltip: '退出房间',
+                size: 34,
+                icon: Icons.logout_rounded,
+                onPressed: _confirmExitRoom,
+              ),
             ],
           ),
           const SizedBox(height: 2),
@@ -1039,6 +1062,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                           username: m.username,
                           isSelf: m.username == controller.username,
                           selfName: controller.username,
+                          avatars: controller.avatarBytes,
                         ),
                       ),
                     if (members.length > shown.length)
@@ -1062,6 +1086,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                         username: controller.username,
                         isSelf: true,
                         selfName: controller.username,
+                        avatars: controller.avatarBytes,
                       ),
                   ],
                 ),
@@ -1420,6 +1445,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                                 itemBuilder: (context, index) => _ChatBubble(
                                   message: messages[index],
                                   self: controller.username,
+                                  avatars: controller.avatarBytes,
                                 ),
                               ),
                       ),
@@ -1986,11 +2012,15 @@ class _MemberChip extends StatelessWidget {
     required this.username,
     required this.isSelf,
     required this.selfName,
+    required this.avatars,
   });
 
   final String username;
   final bool isSelf;
   final String selfName;
+
+  /// 远端成员的真实头像（用户名 -> 内存字节），查不到就退回首字色块。
+  final Map<String, Uint8List> avatars;
 
   @override
   Widget build(BuildContext context) {
@@ -2006,7 +2036,13 @@ class _MemberChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SyncPlayAvatar(name: username, isSelf: isSelf, size: 22, radius: 11),
+          SyncPlayAvatar(
+            name: username,
+            isSelf: isSelf,
+            size: 22,
+            radius: 11,
+            remoteImage: avatars[username],
+          ),
           const SizedBox(width: 6),
           Text(
             isSelf ? '$name (你)' : name,
@@ -2064,12 +2100,19 @@ class _MetaChip extends StatelessWidget {
 }
 
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message, required this.self});
+  const _ChatBubble({
+    required this.message,
+    required this.self,
+    required this.avatars,
+  });
 
   final SyncPlayChatMessage message;
 
   /// 本地用户名，用来判断「这是不是我发的」并取对应的头像/昵称。
   final String self;
+
+  /// 远端成员的真实头像（用户名 -> 内存字节），查不到就退回首字色块。
+  final Map<String, Uint8List> avatars;
 
   @override
   Widget build(BuildContext context) {
@@ -2101,6 +2144,7 @@ class _ChatBubble extends StatelessWidget {
                   isSelf: isSelf,
                   size: 24,
                   radius: 12,
+                  remoteImage: avatars[message.username],
                 ),
                 const SizedBox(width: 6),
               ],
@@ -2128,6 +2172,7 @@ class _ChatBubble extends StatelessWidget {
                   isSelf: isSelf,
                   size: 32,
                   radius: 16,
+                  remoteImage: avatars[message.username],
                 ),
                 const SizedBox(width: 8),
               ],
@@ -2214,6 +2259,7 @@ class _ChatBubble extends StatelessWidget {
               isSelf: isSelf,
               size: 32,
               radius: 16,
+              remoteImage: avatars[message.username],
             ),
           ],
         ),
@@ -2224,12 +2270,13 @@ class _ChatBubble extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+          children: [
           SyncPlayAvatar(
             name: message.username,
             isSelf: isSelf,
             size: 32,
             radius: 16,
+            remoteImage: avatars[message.username],
           ),
           const SizedBox(width: 8),
           Flexible(child: bubble),

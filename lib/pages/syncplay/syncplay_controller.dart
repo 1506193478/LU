@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -18,6 +19,7 @@ import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/player/syncplay_client.dart';
 import 'package:XL/services/player/syncplay_countdown.dart';
 import 'package:XL/services/player/syncplay_endpoint.dart';
+import 'package:XL/services/player/syncplay_avatar_message.dart';
 import 'package:XL/services/player/syncplay_reaction.dart';
 import 'package:XL/services/player/syncplay_recent_room.dart';
 import 'package:XL/services/player/syncplay_room_signals.dart';
@@ -110,6 +112,19 @@ class SyncPlayController extends ChangeNotifier {
 
   final SyncPlayStickerAssembler _stickerAssembler =
       SyncPlayStickerAssembler();
+
+  /// 远端成员头像：按用户名索引，存解码后的内存字节。
+  ///
+  /// SyncPlay 协议不传头像，头像走 Chat 通道上的缩略图协议传过来（`LUSAV1|`）。
+  /// 进房后双方各自广播一次；新人进来时现有成员会再广播一次，确保他能看到我们。
+  final SyncPlayAvatarAssembler _avatarAssembler =
+      SyncPlayAvatarAssembler();
+  final Map<String, Uint8List> _avatarBytes = {};
+
+  /// 上次广播出去的头像内容 + 时间，用来做冷却去重。
+  String _lastAvatarB64 = '';
+  DateTime? _lastAvatarBroadcastAt;
+  static const Duration _avatarBroadcastCooldown = Duration(seconds: 30);
 
   Stream<SyncPlayPlayRequest> get playRequests =>
       _playRequestController.stream;
@@ -233,6 +248,11 @@ class SyncPlayController extends ChangeNotifier {
   }
 
   List<SyncPlayChatMessage> get messages => List.unmodifiable(_messages);
+
+  /// 远端成员的真实头像（解码后的内存字节），按用户名索引。
+  ///
+  /// 查不到说明对方还没发过、或没设头像，渲染时退回首字色块即可。
+  Map<String, Uint8List> get avatarBytes => Map.unmodifiable(_avatarBytes);
 
   String? get error => _error;
 
@@ -402,6 +422,8 @@ class SyncPlayController extends ChangeNotifier {
     _messages.clear();
     _playRequestAssembler.reset();
     _stickerAssembler.reset();
+    _avatarAssembler.reset();
+    _avatarBytes.clear();
     _setError(null);
     notifyListeners();
 
@@ -434,6 +456,8 @@ class SyncPlayController extends ChangeNotifier {
                 : _selected!.name),
       );
       notifyListeners();
+      // 进房成功就广播一次自己的头像；对方据此显示真实头像，而不是首字色块。
+      unawaited(broadcastAvatar());
       return true;
     } catch (e) {
       if (!identical(_client, client)) {
@@ -558,6 +582,20 @@ class SyncPlayController extends ChangeNotifier {
         );
         return;
       }
+      // 远端头像：走 Chat 通道的缩略图协议传过来，不在聊天里显示。
+      // 分片拼齐后才存进内存，收一半就丢，避免聊天里冒出一串半截协议。
+      if (SyncPlayAvatarMessage.isAvatar(text)) {
+        final String? full = _avatarAssembler.add(sender, text);
+        if (full != null) {
+          try {
+            _avatarBytes[sender] = base64Decode(full);
+            notifyListeners();
+          } catch (_) {
+            // 坏数据忽略，退回首字色块。
+          }
+        }
+        return;
+      }
       if (SyncPlayStickerMessage.isSticker(text)) {
         final SyncPlayStickerMessage? sticker =
             _stickerAssembler.add(sender, text);
@@ -606,6 +644,11 @@ class SyncPlayController extends ChangeNotifier {
                 ? SyncPlayActivityKind.join
                 : SyncPlayActivityKind.leave,
           );
+        }
+        // 有人新进来：自己的头像再广播一次，让他那边也能显示真实头像。
+        // 自己进房那条（who == _username）已经在 joinRoom 里广播过了，跳过。
+        if (joined && who != _username) {
+          unawaited(broadcastAvatar());
         }
       }
     });
@@ -768,8 +811,46 @@ class SyncPlayController extends ChangeNotifier {
     _pinnedBy = '';
     _playRequestAssembler.reset();
     _stickerAssembler.reset();
+    _avatarAssembler.reset();
+    _avatarBytes.clear();
     _phase = SyncPlayPhase.lobby;
     notifyListeners();
+  }
+
+  /// 把自己的头像压成缩略图，通过 Chat 通道分片广播给房间里其他人。
+  ///
+  /// 协议本身不传头像，只能走这条「带外」通道。没设头像或编码失败就什么都不发，
+  /// 对方那边自然退回首字色块——这是预期行为，不是错误。
+  ///
+  /// 三道保险，缺一不可（踩过的坑：一次广播二三十条聊天消息会触发服务端刷屏
+  /// 保护，被踢下线 → 重连 → 再广播 → 死循环，聊天区刷满「重新连上房间了」）：
+  /// 1. 分片数超过上限就不发；2. 每片之间留间隔；3. 同样内容 30 秒内不重发。
+  Future<void> broadcastAvatar() async {
+    final client = _client;
+    if (client == null || !isInRoom) return;
+    final String path =
+        GStorage.getSetting<String>(SettingsKeys.userAvatarPath);
+    final String? b64 = await encodeLocalAvatar(path);
+    if (b64 == null) return;
+    final DateTime now = DateTime.now();
+    if (b64 == _lastAvatarB64 &&
+        _lastAvatarBroadcastAt != null &&
+        now.difference(_lastAvatarBroadcastAt!) < _avatarBroadcastCooldown) {
+      return;
+    }
+    final List<String> chunks = SyncPlayAvatarMessage(b64).encodeChunks();
+    if (chunks.length > SyncPlayAvatarMessage.maxChunks) return;
+    _lastAvatarB64 = b64;
+    _lastAvatarBroadcastAt = now;
+    try {
+      for (final String chunk in chunks) {
+        await client.sendChatMessage(chunk);
+        await Future<void>.delayed(SyncPlayAvatarMessage.chunkInterval);
+      }
+    } catch (e) {
+      if (!identical(_client, client)) return;
+      KazumiLogger().w('SyncPlay: broadcast avatar failed', error: e);
+    }
   }
 
   Future<void> _closeClient() async {
@@ -839,6 +920,8 @@ class SyncPlayController extends ChangeNotifier {
           ),
         );
         notifyListeners();
+        // 重连回来等于重新进房，把自己的头像再广播一次。
+        unawaited(broadcastAvatar());
       } catch (error) {
         if (!identical(_client, client)) return;
         KazumiLogger().w('SyncPlay: reconnect failed', error: error);

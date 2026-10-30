@@ -30,7 +30,9 @@ class SyncPlayPlayRequest {
   static const int maxChatLength = 150;
 
   /// 分片头 `id/序号/总数|` 预留的长度：4 位 id + 两位数字 + 分隔符。
-  static const int _headerReserve = 10;
+  /// 分片头 `<id>/<序号>/<总数>|` 最长 11 字符，必须按 11 以上留。
+  /// 留 10 的话分片数 ≥10 时每条会到 151 字符被服务端截断，末尾丢字符。
+  static const int _headerReserve = 12;
 
   static const int _chunkSize = maxChatLength - prefix.length - _headerReserve;
 
