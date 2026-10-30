@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 进程启动到 Flutter 画出第一帧之间显示的底色。
+     取开屏视频首帧的平均色，和 Dart 侧 kSplashBackground 保持一致。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+</layer-list>
