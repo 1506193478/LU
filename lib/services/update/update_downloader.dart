@@ -9,10 +9,17 @@ import 'package:XL/utils/crypto.dart';
 
 String getUpdateDownloadUrlFromAsset(
     Map<String, dynamic>? asset, UpdateDownloadSource source) {
-  final url = asset?[switch (source) {
+  if (asset == null) return '';
+  final field = switch (source) {
     UpdateDownloadSource.mirror => 'mirror_download_url',
     UpdateDownloadSource.github => 'browser_download_url',
-  }];
+  };
+  var url = asset[field];
+  // 本仓库的 Release 资产只有 browser_download_url，没有镜像字段。
+  // 镜像源拿不到链接时直接兜底用官方地址，否则会一直「没有找到下载链接」。
+  if (url == null || (url is String && url.isEmpty)) {
+    url = asset['browser_download_url'];
+  }
   return url is String ? url.trim() : '';
 }
 
@@ -103,8 +110,9 @@ Future<String> downloadUpdateFile({
     if (cancelToken.isCancelled) throw cancelToken.cancelError!;
   }
 
-  final hash = expectedHash.toLowerCase();
-  if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) {
+  final hash = expectedHash.trim().toLowerCase();
+  final verifyHash = RegExp(r'^[a-f0-9]{64}$').hasMatch(hash);
+  if (hash.isNotEmpty && !verifyHash) {
     throw ArgumentError('更新缺少有效的 SHA256 校验值');
   }
 
@@ -137,10 +145,13 @@ Future<String> downloadUpdateFile({
       },
     );
     checkCancelled();
-    final downloadedHash = await calculateFileHash(partial);
-    checkCancelled();
-    if (downloadedHash != hash) {
-      throw UpdateIntegrityException(hash, downloadedHash);
+    // GitHub Release 资产不带 SHA256，没有校验值时跳过完整性校验。
+    if (verifyHash) {
+      final downloadedHash = await calculateFileHash(partial);
+      checkCancelled();
+      if (downloadedHash != hash) {
+        throw UpdateIntegrityException(hash, downloadedHash);
+      }
     }
     await partial.rename(filePath);
     onReceiveProgress(1, 1);

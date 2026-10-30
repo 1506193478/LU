@@ -292,15 +292,15 @@ class SettingsKeys {
     'ech',
     group: SettingGroup.proxy,
   );
-  // Unset modes inherit the old mirror switches (enabled by default).
+  // 新安装默认走 ECH（番剧条目）与 gh-proxy（规则仓库），与引导页一致。
   static const bangumiAcceleration = SettingKey<String>(
     'bangumiAcceleration',
-    '',
+    'ech',
     group: SettingGroup.proxy,
   );
   static const rulesMirror = SettingKey<String>(
     'rulesMirror',
-    '',
+    'ghProxy',
     group: SettingGroup.proxy,
   );
   static const enableSystemProxy = SettingKey<bool>(
