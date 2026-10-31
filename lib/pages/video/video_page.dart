@@ -88,6 +88,10 @@ class _VideoPageState extends State<VideoPage>
     super.initState();
     videoPageController.applyPlaybackArgs(widget.args);
     windowManager.addListener(this);
+    // iOS：路由转场期间旧页面的输入焦点不会被自动释放，键盘会一路跟着
+    // 进播放器（一起看跟播最常见，大厅的房间号输入框正拿着焦点），而且
+    // 播放器里没有任何能收起它的地方。进来时无条件收一次。
+    FocusManager.instance.primaryFocus?.unfocus();
 
     tabController = TabController(length: 3, vsync: this);
 

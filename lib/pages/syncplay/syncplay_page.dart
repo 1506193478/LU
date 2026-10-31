@@ -636,6 +636,9 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   }
 
   Future<void> _startWatching() async {
+    // 同 _followRemotePlay：跳转前收键盘，别把它带进播放器。
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_showJoinField) setState(() => _showJoinField = false);
     final args = controller.buildPlaybackArgs();
     if (args == null) {
       KazumiDialog.showToast(message: '请先选择播放来源', context: context);
@@ -694,6 +697,12 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   /// 这样两边的线路结构与进度都对得上，也不用把可能上千条的剧集塞进聊天消息。
   Future<void> _followRemotePlay(SyncPlayPlayRequest request) async {
     if (_isFollowingRemotePlay || !mounted || !controller.isInRoom) return;
+    // iOS：如果键盘正开着（比如正在输房间号），直接跳转播放器会把键盘
+    // 带过去，且播放器里没有能收起它的地方 —— 表现是「竖屏强制拉起系统
+    // 键盘关不掉」。跳转前先收焦点，顺带把「加入房间」的输入框收起来，
+    // 免得从播放器退回大厅时 autofocus 又把键盘弹出来。
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_showJoinField) setState(() => _showJoinField = false);
     final String signature = '${request.pluginName}#${request.src}';
     final DateTime now = DateTime.now();
     if (signature == _lastRemotePlaySignature &&
