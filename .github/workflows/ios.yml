@@ -1,0 +1,60 @@
+name: iOS IPA
+
+# 只在手动点击时跑，不占每次 push 的额度，也方便反复重试。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 版本必须和 pubspec.yaml 里 environment.flutter 一致，
+      # 不一致时 pub 会直接报版本约束不满足。
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+
+      - name: Pub get
+        run: flutter pub get
+
+      # --no-codesign：没有签名证书也能出 .app，后续用 Sideloadly 自签。
+      # 这里不单独跑 pod install —— Generated.xcconfig 要 flutter build 才生成，
+      # 提前手动跑 pod install 会找不到它。
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          set -e
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')
+          mkdir -p build/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
+          cd build/ipa
+          zip -qry "LU_${VERSION}_ios.ipa" Payload
+          ls -lh "LU_${VERSION}_ios.ipa"
+          echo "IPA_NAME=LU_${VERSION}_ios.ipa" >> "$GITHUB_ENV"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LU-ios-ipa
+          path: build/ipa/*.ipa
+          retention-days: 7
+          if-no-files-found: error
