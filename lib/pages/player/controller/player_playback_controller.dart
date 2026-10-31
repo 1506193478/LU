@@ -432,6 +432,15 @@ abstract class _PlayerPlaybackController with Store {
             isBuffering: playerBuffering,
           );
           if (actionableMessage != null) {
+            // 光一句「加载失败，请更换来源」没法定位：把平台、识别到的封装、
+            // 当前解码器和地址一起落日志，下次再遇到（尤其是 iOS 上某些番剧
+            // 独有）能直接看出是封装识别错、还是解码器不支持。
+            KazumiLogger().e(
+              'Player: open failed on ${Platform.operatingSystem} '
+              'format=${videoSourceFormat.name} '
+              'hwdec=${hAenable ? hardwareDecoder : 'no'} '
+              'url=${videoUrl()}',
+            );
             KazumiDialog.showToast(
                 message: actionableMessage, showActionButton: true);
           } else if (showPlayerError) {

@@ -2,6 +2,7 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
+import 'package:XL/utils/immersive_theme.dart';
 import 'package:XL/utils/motion.dart';
 
 /// 一个导航目标。
@@ -37,13 +38,15 @@ class KazumiTabBar extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelected;
 
-  static const double height = 66;
+  static const double height = immersiveTabBarHeight;
   static const double _sideMargin = 14;
-  static const double _bottomGap = 14;
+
+  /// 离屏距离统一走 [immersiveTabBarGap]，别再各自写死。
+  static const double _bottomGap = immersiveTabBarGap;
 
   /// 内容区需要给导航条留出的高度，页面底部留白可以直接引用。
   static double reservedHeight(BuildContext context) =>
-      height + _bottomGap + MediaQuery.paddingOf(context).bottom;
+      immersiveTabBarInset(context);
 
   @override
   Widget build(BuildContext context) {

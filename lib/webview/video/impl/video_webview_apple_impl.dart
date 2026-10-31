@@ -35,7 +35,14 @@ class VideoWebviewAppleImpl
         ]),
         initialSettings: InAppWebViewSettings(
           userAgent: getRandomUA(),
-          mediaPlaybackRequiresUserGesture: true,
+          // WKWebView 默认 true：没有用户手势就不许 `<video>` 起播。
+          // 但这个 webview 是**无头**的，全程没有任何手势可给，于是走
+          // "页面自己 JS 起播 → 我们去嗅流地址" 这条链的源就永远拿不到
+          // m3u8/mp4 —— 表现为 iOS 上「有的番剧点进去一直转圈 / 加载不出」，
+          // 而同一部番在安卓正常（安卓 WebView 对无手势的限制宽松得多）。
+          mediaPlaybackRequiresUserGesture: false,
+          // 内联播放，别让 WKWebView 把视频推去全屏原生播放器。
+          allowsInlineMediaPlayback: true,
           useOnLoadResource: false,
           cacheEnabled: false,
           isInspectable: false,

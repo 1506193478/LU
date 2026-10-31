@@ -32,7 +32,14 @@ const double immersiveRadiusLarge = 24;
 ///
 /// 页面底部留白要按 [immersiveTabBarInset] 算，不然内容会被导航条压住。
 const double immersiveTabBarHeight = 66;
-const double immersiveTabBarGap = 14;
+
+/// 导航条底边到「安全区上沿」的距离。
+///
+/// 原来给的是 14，加上 iPhone 的 34 底部安全区，整条离屏幕底 48 —— 视觉上
+/// 飘在半空。收到 6 之后 iPhone 是 40、安卓手势导航是 30，都落回「浮起来但
+/// 贴着底」的区间；三键导航（安全区 48）时这条会被压到 0，正好贴着按键栏，
+/// 不会重叠。
+const double immersiveTabBarGap = 6;
 
 /// 底部导航条实际占掉的高度（含系统安全区）。
 double immersiveTabBarInset(BuildContext context) =>

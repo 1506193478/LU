@@ -28,6 +28,11 @@ final videoModule = createModule(
           downloadController: inject<DownloadController>(),
         );
       },
+      // 播放页刻意不走全局的 Cupertino 转场：那个 builder 会在左边 20dp 挂
+      // 返回手势，而播放器自己的「横向拖动 = 快进快退」正好从屏幕边缘起手，
+      // 两个手势会抢。这里换成纯淡入（PageRouteBuilder，天生没有返回手势），
+      // 退出仍然走返回按钮 / 系统返回键。
+      transition: TransitionType.fade,
     );
   },
 );

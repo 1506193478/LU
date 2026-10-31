@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:XL/request/config/api_endpoints.dart';
 
@@ -25,11 +26,24 @@ const SliderThemeData sliderTheme2024 = SliderThemeData(
   showValueIndicator: ShowValueIndicator.onDrag,
 );
 
+/// 页面转场。
+///
+/// 手机端（含 macOS）改用 [CupertinoPageTransitionsBuilder]，因为**只有它
+/// 会在路由上挂边缘返回手势**（内部是 `_CupertinoBackGestureDetector`）。
+/// `FadeForwards` / `Zoom` 这些纯视觉 builder 都不带手势，之前五端统一用
+/// FadeForwards，结果就是「只能点返回按钮，滑不动」。
+///
+/// 安卓那条「屏幕边缘滑动返回」是系统手势，走 `onBackPressed`，跟这里无关；
+/// 三键导航或者被系统手势抢掉的场景下就没有了，所以这里给它补一个应用内的，
+/// 两端行为才一致。
+///
+/// 桌面端（Windows / Linux）保持 FadeForwards：鼠标没有边缘返回的习惯，
+/// 换成横向滑入反而突兀。
 const _pageTransitionBuilders = <TargetPlatform, PageTransitionsBuilder>{
-  TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
-  TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),
+  TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+  TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
   TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
-  TargetPlatform.macOS: FadeForwardsPageTransitionsBuilder(),
+  TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
   TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
 };
 
