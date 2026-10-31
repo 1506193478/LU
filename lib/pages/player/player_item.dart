@@ -93,6 +93,15 @@ class _PlayerItemState extends State<PlayerItem>
 
   final _danmuKey = GlobalKey();
   final _videoSurfaceKey = GlobalKey();
+
+  /// 上一次真正发过弹幕的「片源秒」。
+  ///
+  /// 弹幕是靠 1 秒一次的定时器驱动的，每次只发「当前这一秒」的那一批。只要
+  /// 有一拍被拖慢（起播那几秒解码器初始化、切集、iOS 上尤其明显），
+  /// `currentPosition` 就会从 0s 直接跳到 3s，1s/2s 那两批就永远发不出去。
+  /// 少数几拍拖慢在安卓上看不出来，但 iOS 上起播慢一拍就会连着丢好几秒，
+  /// 观感上就是「弹幕根本没出来」。记下上一次的秒数，把漏掉的补上。
+  int? _lastDanmakuSecond;
   late bool _border;
   late double _opacity;
   double get _fontSize => GStorage.getSetting(
@@ -591,6 +600,7 @@ class _PlayerItemState extends State<PlayerItem>
 
   void handleDanmaku() {
     playerController.danmaku.canvasController.clear();
+    _lastDanmakuSecond = null;
     if (playerController.danmaku.danmakuOn) {
       playerController.danmaku.setDanmakuEnabled(false);
       GStorage.putSetting(SettingsKeys.danmakuEnabledByDefault, false);
@@ -690,6 +700,7 @@ class _PlayerItemState extends State<PlayerItem>
     playerController.panel.lockPanel = false;
     _releasePlayerPanelHolds();
     playerController.danmaku.canvasController.clear();
+    _lastDanmakuSecond = null;
     _scheduleAndroidPIPSourceRectSync();
 
     await _syncHistoryWithWebDav();
@@ -1161,8 +1172,27 @@ class _PlayerItemState extends State<PlayerItem>
       return;
     }
 
-    final danmakus = playerController.danmaku
-        .danmakusForPlaybackPosition(playerController.playback.currentPosition);
+    final int? second = playerController.danmaku
+        .resolveDanmakuSecond(playerController.playback.currentPosition);
+    if (second == null) {
+      return;
+    }
+    final int? last = _lastDanmakuSecond;
+    _lastDanmakuSecond = second;
+    // 正常推进只发当前这一秒；漏拍（或一起看被同步卡了一下）就把中间几秒
+    // 补回来。跨度过大说明是跳了进度条，只发当前这一秒，别一次性炸屏。
+    final int fromSecond =
+        (last == null || second <= last || second - last > 3)
+            ? second
+            : last + 1;
+    for (int s = fromSecond; s <= second; s++) {
+      _emitDanmakusAtSecond(s);
+    }
+  }
+
+  void _emitDanmakusAtSecond(int second) {
+    final danmakus =
+        playerController.danmaku.danDanmakus[second] ?? const <DanmakuEntry>[];
     final danmakuCount = danmakus.length;
     for (final entry in danmakus.asMap().entries) {
       final idx = entry.key;
@@ -1358,6 +1388,7 @@ class _PlayerItemState extends State<PlayerItem>
   @override
   void onWindowRestore() {
     playerController.danmaku.canvasController.clear();
+    _lastDanmakuSecond = null;
   }
 
   @override

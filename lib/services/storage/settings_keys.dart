@@ -402,10 +402,12 @@ class SettingsKeys {
     false,
     group: SettingGroup.theme,
   );
-  /// 无边框圆角窗口（只对 Windows 生效）。
+  /// 无边框窗口（只对 Windows 生效）。
   ///
-  /// 打开后窗口去掉系统标题栏、背景透明，由 [WindowShell] 自绘 26px 圆角外壳，
-  /// 拖拽/缩放/窗口按钮全部接管。关掉就退回系统标题栏，改完要重启才生效。
+  /// 打开后窗口去掉系统标题栏，由 [WindowShell] 接管八向缩放热区和窗口按钮。
+  /// 注意窗口背景是**不透明**的：早先为了让圆角透出桌面开过透明窗口，结果
+  /// Win11 会在四周叠一层背景模糊（"玻璃边"），拖拽缩放也要每帧跟桌面做
+  /// alpha 合成，掉帧明显，已经去掉了。改完要重启才生效。
   static final framelessWindow = SettingKey<bool>(
     _SettingBoxKey.framelessWindow,
     true,

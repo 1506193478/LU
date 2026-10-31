@@ -81,8 +81,14 @@ void main() async {
       size: lowResolution ? const Size(840, 600) : const Size(1280, 860),
       center: true,
       skipTaskbar: false,
-      // 透明背景是无边框圆角的前提：外壳裁出来的四个角要能透出桌面。
-      backgroundColor: frameless ? Colors.transparent : null,
+      // 窗口背景**不要**设成透明。
+      //
+      // 透明是为了让外壳裁出来的四个圆角能透出桌面，代价有两个：
+      // 1. 整窗每一帧都要和桌面做一次 alpha 合成，拖拽缩放时掉帧特别明显；
+      // 2. Windows 11 的 DWM 会给透明窗口区域叠一层背景模糊，于是四周出现
+      //    一圈"莫名其妙的玻璃"——用户看到的就是这个。
+      // 改成实色之后圆角不再透桌面，但那圈也就彻底没了。
+      backgroundColor: null,
       // macOS embeds native buttons in the Flutter view.
       titleBarStyle: frameless || Platform.isMacOS || !showWindowButton
           ? TitleBarStyle.hidden
@@ -92,9 +98,8 @@ void main() async {
     );
     windowManager.waitUntilReadyToShow(windowOptions, () async {
       if (frameless) {
-        // 去掉系统边框，缩放交给 WindowShell 的八向热区。
+        // 只去系统边框，缩放交给 WindowShell 的八向热区；背景保持不透明。
         await windowManager.setAsFrameless();
-        await windowManager.setBackgroundColor(Colors.transparent);
       }
       // window_manager controls desktop visibility to avoid startup flicker.
       await windowManager.show();

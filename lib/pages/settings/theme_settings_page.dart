@@ -252,8 +252,8 @@ class _ThemeSettingsPageState extends State<ThemeSettingsPage> {
                           SettingsKeys.framelessWindow, framelessWindow);
                       setState(() {});
                     },
-                    title: Text('无边框圆角窗口'),
-                    description: Text('透明背景 + 26px 圆角，重启应用生效'),
+                    title: Text('无边框窗口'),
+                    description: Text('去掉系统标题栏，自绘缩放热区，重启应用生效'),
                     initialValue: framelessWindow,
                   ),
                 if (!framelessWindow)

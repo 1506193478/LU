@@ -5,14 +5,17 @@ import 'package:XL/services/platform/desktop_window_config.dart';
 
 /// 无边框窗口的外壳。
 ///
-/// 窗口本身是透明的（`main.dart` 里设了 `backgroundColor: transparent` +
-/// `setAsFrameless()`），这里负责三件事：
+/// 窗口是**不透明**的（`main.dart` 里刻意不再设透明背景）。这里负责三件事：
 ///
-/// 1. 把内容裁成 26px 圆角，四周留 8px 透明边距——这层边距就是"窗口浮在桌面上"
-///    的那圈空隙；
+/// 1. 整窗先铺一层实色底，再让内容内缩 [gutter]——这层边距现在是实色的，
+///    看上去就是窗口自己的留白，不再是"透出桌面的玻璃边"；
 /// 2. 在边距里铺八向缩放热区。frameless 之后系统不再给隐形边框，
 ///    不自己接管的话窗口就只能最大化、不能拖大小；
-/// 3. 最大化 / 全屏时把边距和圆角收掉，避免内容被裁。
+/// 3. 最大化 / 全屏时把边距收掉，避免内容被裁。
+///
+/// 历史上这里是「透明窗口 + ClipRRect 圆角」，两个都是缩放卡顿的元凶：
+/// 透明窗口每帧要跟桌面做 alpha 合成，整窗 ClipRRect 每帧要开一次
+/// saveLayer。现在两样都去掉了。
 class WindowShell extends StatefulWidget {
   const WindowShell({super.key, required this.child});
 
@@ -21,11 +24,11 @@ class WindowShell extends StatefulWidget {
   /// 只有 Windows 且设置里开着才启用。
   static bool get supported => DesktopWindowConfig.frameless;
 
-  /// 四周的透明边距，同时也是缩放热区宽度。
+  /// 四周留白，同时也是缩放热区宽度。
+  ///
+  /// 这块**不是透明的**，铺的是主题的 scaffold 底色，所以看起来是窗口自己的
+  /// 内边距，而不是"透出桌面的一圈玻璃"。最大化 / 全屏时收成 0。
   static const double gutter = 8;
-
-  /// 窗口圆角。跟预览里调的 26 一致。
-  static const double radius = 26;
 
   @override
   State<WindowShell> createState() => _WindowShellState();
@@ -90,20 +93,24 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
     final bool flush = _maximized || _fullScreen;
     final Color backdrop = Theme.of(context).scaffoldBackgroundColor;
 
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Padding(
-            padding: EdgeInsets.all(flush ? 0 : WindowShell.gutter),
-            child: ClipRRect(
-              borderRadius:
-                  BorderRadius.circular(flush ? 0 : WindowShell.radius),
-              child: ColoredBox(color: backdrop, child: widget.child),
+    // 整窗先铺实色底：窗口本身已经不透明了，这块负责把 [gutter] 那圈边距
+    // 涂成主题底色，否则那块区域没人绘制，缩放时会闪白。
+    return ColoredBox(
+      color: backdrop,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.all(flush ? 0 : WindowShell.gutter),
+              // 不再 ClipRRect。整窗裁剪每帧都要开一次 saveLayer，窗口尺寸变化
+              // 时还要按新尺寸重建，是拖拽缩放掉帧的主要开销之一；窗口背景已经
+              // 不透明，圆角也透不出桌面，留着只是白付代价。
+              child: widget.child,
             ),
           ),
-        ),
-        if (!flush) ..._resizeZones(),
-      ],
+          if (!flush) ..._resizeZones(),
+        ],
+      ),
     );
   }
 

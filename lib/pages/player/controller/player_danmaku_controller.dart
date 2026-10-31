@@ -85,6 +85,32 @@ class DanmakuTimeline {
   }
 }
 
+/// 画布还没建好时用的空控制器。
+///
+/// 所有方法都是空实现，`option` 返回一份默认配置。这样在 `DanmakuScreen` 回调
+/// 之前发生的 `pause` / `resume` / `clear` / `addDanmaku` 都变成无害的空操作，
+/// 而不是抛 `LateInitializationError` 把调用方（换集、起播、聊天）一起带崩。
+/// 这段窗口期里本来也不可能有弹幕可画 —— 播放器还没出画面。
+canvas.DanmakuController _createNullDanmakuController() {
+  const canvas.DanmakuOption option = canvas.DanmakuOption();
+  return canvas.DanmakuController(
+    addDanmaku: (_) {},
+    updateOption: (_) {},
+    pause: () {},
+    resume: () {},
+    clear: () {},
+    getOption: () => option,
+    isRunning: () => false,
+    findDanmaku: (_) => const <canvas.DanmakuItem>[],
+    findSingleDanmaku: (_) => null,
+    getViewWidth: () => 0,
+    getViewHeight: () => 0,
+    scrollDanmaku: const <canvas.DanmakuItem>[],
+    staticDanmaku: const <canvas.DanmakuItem>[],
+    specialDanmaku: const <canvas.DanmakuItem>[],
+  );
+}
+
 abstract class _PlayerDanmakuController with Store {
   _PlayerDanmakuController({
     required this.isLocalPlayback,
@@ -94,7 +120,18 @@ abstract class _PlayerDanmakuController with Store {
   final bool Function() isLocalPlayback;
   final DownloadController downloadController;
 
-  late canvas.DanmakuController canvasController;
+  /// 弹幕画布控制器。
+  ///
+  /// `DanmakuScreen` 要等播放页真正建起来之后才回调 `createdController`，而
+  /// `pause` / `resume` / `clear` / `addDanmaku` 这些调用散落在换集、拖进度条、
+  /// 一起看聊天等**可能早于播放页构建**的路径上（`player_seek_controller`、
+  /// `player_controller.setPlaying`、`video_page` 的聊天监听都会碰它）。
+  ///
+  /// 原来这里是个裸 `late`，谁先抢跑谁抛 `LateInitializationError`：轻则弹幕
+  /// 从此不出来，重则换集/起播这条链路直接中断（表现就是"拉不起播放器"）。
+  /// iOS 首帧更慢、转场更长，撞上的概率比安卓高得多。先挂一个空实现兜底，
+  /// 画布建好再换成真的。
+  canvas.DanmakuController canvasController = _createNullDanmakuController();
 
   final Map<int, List<DanmakuEntry>> danDanmakus = {};
 
