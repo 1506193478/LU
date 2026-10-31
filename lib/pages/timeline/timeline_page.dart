@@ -18,6 +18,7 @@ import 'package:XL/pages/timeline/timeline_controller.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/utils/anime_season.dart';
 import 'package:XL/utils/immersive_theme.dart';
+import 'package:XL/utils/scroll_behavior.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 
 part 'timeline_options.dart';
@@ -231,7 +232,7 @@ class _TimelinePageState extends State<TimelinePage> {
                 : LayoutBuilder(
                 builder: (context, viewport) => NestedScrollView(
                       // Keep the outer viewport clamped and unstretched so tabs stay fixed.
-                      physics: const ClampingScrollPhysics(),
+                      physics: kazumiScrollPhysics,
                       scrollBehavior: ScrollConfiguration.of(context).copyWith(
                         overscroll: false,
                         scrollbars: false,

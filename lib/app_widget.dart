@@ -19,6 +19,7 @@ import 'package:XL/navigation.dart';
 import 'package:XL/pages/splash/app_splash_gate.dart';
 import 'package:XL/utils/device.dart';
 import 'package:XL/utils/immersive_theme.dart';
+import 'package:XL/utils/scroll_behavior.dart';
 import 'package:XL/utils/theme.dart';
 
 class AppWidget extends StatefulWidget {
@@ -306,6 +307,8 @@ class _AppWidgetState extends State<AppWidget>
           darkTheme: effectiveDarkTheme,
           themeMode: themeProvider.themeMode,
           scaffoldMessengerKey: rootScaffoldMessengerKey,
+          // 全局滚动手感统一，见 utils/scroll_behavior.dart。
+          scrollBehavior: const KazumiScrollBehavior(),
           routerConfig: ModularApp.routerConfigOf(context),
           // 开屏动画盖在首页之上：首页照常构建，播完把这一层淡掉即可。
           // 无边框模式下再套一层圆角外壳（透明窗口 + 自绘圆角 + 缩放热区）。

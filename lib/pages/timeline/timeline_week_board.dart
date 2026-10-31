@@ -32,7 +32,7 @@ class _TimelineWeekBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomScrollView(
-      physics: const ClampingScrollPhysics(),
+      physics: kazumiScrollPhysics,
       slivers: [
         if (header != null)
           SliverToBoxAdapter(

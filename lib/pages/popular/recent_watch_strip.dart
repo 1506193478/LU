@@ -12,6 +12,7 @@ import 'package:XL/services/player/history_playback_service.dart';
 import 'package:XL/services/plugin/rule_engine_models.dart' show RuleCancelToken;
 import 'package:XL/utils/constants.dart';
 import 'package:XL/utils/device.dart';
+import 'package:XL/utils/scroll_behavior.dart';
 
 /// 推荐页顶部的「继续观看」横滑卡片。
 ///
@@ -138,7 +139,7 @@ class _RecentWatchStripState extends State<RecentWatchStrip>
               padding: const EdgeInsets.symmetric(
                 horizontal: StyleString.cardSpace,
               ),
-              physics: const BouncingScrollPhysics(),
+              physics: kazumiScrollPhysics,
               itemCount: items.length,
               separatorBuilder: (_, __) => const SizedBox(width: 10),
               itemBuilder: (BuildContext context, int index) {

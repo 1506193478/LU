@@ -145,13 +145,15 @@ class _NeuTabButton extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 3),
+            // 同玻璃导航条：字重固定，只动颜色。FontWeight 会被逐级 lerp，
+            // 选中切换时文字每帧重排一次，标签宽度跟着变，看着会抖。
             AnimatedDefaultTextStyle(
               duration: duration,
               curve: KazumiMotion.standard,
               style: TextStyle(
                 fontSize: 11,
                 height: 1.1,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                fontWeight: FontWeight.w500,
                 color: selected ? active : inactive,
               ),
               child: Text(item.label),

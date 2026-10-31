@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 
+import 'package:XL/utils/motion.dart';
+
 BoxConstraints _adaptiveBottomSheetConstraints(
   BuildContext context, {
   required double maxHeightFactor,
@@ -28,11 +30,16 @@ BoxConstraints _adaptiveBottomSheetConstraints(
 }
 
 // Native route motion and the extra surface entrance spring are separate.
+//
+// 路由这一段以前是 250/200ms + Easing.legacyDecelerate，跟全局节奏表
+// （240/160/320）对不上，同一个 App 里弹层的"进出速度"和页面切换、按钮
+// 反馈是三种手感。现在直接取 KazumiMotion 的 token，曲线也用同一套：
+// 进场用 emphasized（起步快、收尾稳），退场用 standard（不拖尾巴）。
 const AnimationStyle _materialSheetAnimationStyle = AnimationStyle(
-  duration: Duration(milliseconds: 250),
-  reverseDuration: Duration(milliseconds: 200),
-  curve: Easing.legacyDecelerate,
-  reverseCurve: Easing.legacyDecelerate,
+  duration: KazumiMotion.base,
+  reverseDuration: KazumiMotion.fast,
+  curve: KazumiMotion.emphasized,
+  reverseCurve: KazumiMotion.standard,
 );
 
 Future<T?> showAdaptiveBottomSheet<T>({
