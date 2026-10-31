@@ -5,7 +5,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # 需要 write 才能在最后把 IPA 挂到 Release 上（原来只有 read）。
+  contents: write
 
 jobs:
   build:
@@ -50,6 +51,25 @@ jobs:
           zip -qry "LU_${VERSION}_ios.ipa" Payload
           ls -lh "LU_${VERSION}_ios.ipa"
           echo "IPA_NAME=LU_${VERSION}_ios.ipa" >> "$GITHUB_ENV"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      # IPA 必须跟着 Release 走，不能只躺在 Actions 的 artifact 里
+      # （artifact 7 天就过期，而且下载要先登录）。
+      #
+      # 应用内更新在 iOS 上是「检测到新版 → 跳发布页」的策略：IPA 没法在应用内
+      # 静默安装，所以「发布页上有没有 IPA」就等于「iOS 用户能不能更新」。
+      # 安卓/Windows 走 assets 直链下载，iOS 走发布页，三端资产必须齐。
+      - name: Attach IPA to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "::warning::Release $VERSION 还没建，IPA 这次只留 artifact；发版后重跑本工作流即可挂上"
+            exit 0
+          fi
+          gh release upload "$VERSION" "build/ipa/$IPA_NAME" --clobber
+          gh release view "$VERSION" --json assets --jq '.assets[].name'
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
