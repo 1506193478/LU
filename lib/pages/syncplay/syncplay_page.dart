@@ -10,6 +10,7 @@ import 'package:XL/bean/dialog/adaptive_bottom_sheet.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/widget/circular_reveal.dart';
 import 'package:XL/bean/widget/clay.dart';
+import 'package:XL/bean/widget/desktop_window_controls.dart';
 import 'package:XL/bean/widget/loading_indicator.dart';
 import 'package:XL/bean/widget/syncplay_activity_capsule.dart';
 import 'package:XL/bean/widget/syncplay_notice.dart';
@@ -33,10 +34,13 @@ import 'package:XL/services/player/syncplay_recent_room.dart';
 import 'package:XL/services/player/syncplay_room_signals.dart';
 import 'package:XL/services/player/syncplay_sticker_message.dart';
 import 'package:XL/services/storage/storage.dart';
+import 'package:XL/services/platform/desktop_window_config.dart';
+import 'package:XL/utils/device.dart';
 import 'package:XL/utils/immersive_theme.dart';
 import 'package:XL/utils/motion.dart';
 import 'package:XL/utils/title_match.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
+import 'package:window_manager/window_manager.dart';
 
 /// 一起看。
 ///
@@ -71,6 +75,11 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   /// 别人发起「开始一起看」时自动跟播用的订阅。
   StreamSubscription<SyncPlayPlayRequest>? _playRequestSubscription;
   bool _isFollowingRemotePlay = false;
+  /// 上一次处理的播放请求签名 + 时间。发送方会用同一个消息 id 原样重发
+  /// 一轮来补丢失的分片，收齐的组会重复解出同一个请求；同一部片短时间
+  /// 内只处理一次，免得重复弹 toast（15 秒足够盖过重发窗口）。
+  String _lastRemotePlaySignature = '';
+  DateTime _lastRemotePlayAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// 来源面板是不是开着；跟播时要先把它收掉，免得播放器退出后露出过期的面板。
   bool _isSourceSheetOpen = false;
@@ -85,10 +94,32 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   /// 别人开始播放时是否自动跟播；关掉只提示不跳转。
   bool _autoFollow = true;
 
-  /// 开场倒计时剩余秒数；null 表示没有在倒数。
-  int? _countdown;
-  int _countdownGeneration = 0;
-  StreamSubscription<int>? _countdownSubscription;
+  // ---- 标题栏拖动（桌面） --------------------------------------------
+  // 这页的标题栏是 SliverAppBar，套在 CustomScrollView 里，pan 手势会被
+  // 滚动抢走竞技场，表现为「窗口拖不动」。跟 SysAppBar 同一套解法：
+  // Listener 在命中分发阶段直接拿指针事件，位移超阈值就进系统拖动循环。
+  Offset? _titleBarDragStart;
+  bool _titleBarDragStarted = false;
+  static const double _titleBarDragThreshold = 8.0;
+
+  void _titleBarPointerDown(PointerDownEvent event) {
+    _titleBarDragStart = event.position;
+    _titleBarDragStarted = false;
+  }
+
+  void _titleBarPointerMove(PointerMoveEvent event) {
+    final Offset? start = _titleBarDragStart;
+    if (_titleBarDragStarted || start == null) return;
+    if ((event.position - start).distance < _titleBarDragThreshold) return;
+    _titleBarDragStarted = true;
+    windowManager.startDragging();
+  }
+
+  void _titleBarPointerEnd() {
+    _titleBarDragStart = null;
+    _titleBarDragStarted = false;
+  }
+
   StreamSubscription<String>? _nudgeSubscription;
   StreamSubscription<bool>? _hostTakeoverSubscription;
 
@@ -122,10 +153,6 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
         GStorage.getSetting<bool>(SettingsKeys.syncPlayPresenceNotice);
     _playRequestSubscription =
         controller.playRequests.listen(_followRemotePlay);
-    _countdownSubscription = controller.countdowns.listen((seconds) {
-      // 别人发起的倒计时：这里只是把遮罩弹出来，真正起播由随后的播放请求驱动。
-      unawaited(_runCountdown(seconds));
-    });
     _nudgeSubscription = controller.nudges.listen((from) {
       if (!mounted) return;
       KazumiHaptics.select();
@@ -150,8 +177,6 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
 
   @override
   void dispose() {
-    _countdownGeneration++;
-    _countdownSubscription?.cancel();
     _nudgeSubscription?.cancel();
     _hostTakeoverSubscription?.cancel();
     _playRequestSubscription?.cancel();
@@ -175,6 +200,138 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   }
 
   // ---------------------------------------------------------------- 房间
+  /// 广播一条「求同步」：正在播放的成员会把自己的番剧定向发回来，
+  /// 这边收到播放请求后走 [_followRemotePlay] 自动拉起播放器。
+  Future<void> _requestPlaybackSync() async {
+    if (!controller.isInRoom) return;
+    final ok = await controller.requestPlaybackSync();
+    if (!mounted) return;
+    KazumiHaptics.select();
+    KazumiDialog.showToast(
+      message: ok ? '已请求同步，正在播放的成员会发来片源' : '请求失败，请稍后再试',
+      context: context,
+      duration: const Duration(seconds: 3),
+    );
+  }
+
+  /// 把这一页散落的开关汇总成一个面板：自动跟播（会话内）、聊天弹幕 /
+  /// 进出提醒（持久化，原本在「更多」卡片里）、跟随进度条拖动（持久化，
+  /// 原本只在播放器设置里）。
+  ///
+  /// 面板是独立 route，页面 setState 刷不到它，所以用 StatefulBuilder
+  /// 让对话框自己重建；页面侧的 [_autoFollow] 再补一次 setState 保持
+  /// 两边一致。
+  Future<void> _showSyncPlaySettings() async {
+    KazumiHaptics.select();
+    await KazumiDialog.show<void>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            Widget tile(
+              String title,
+              String subtitle,
+              bool value,
+              ValueChanged<bool> onChanged,
+            ) {
+              final colors = Theme.of(ctx).colorScheme;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: Theme.of(ctx).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            style: Theme.of(ctx)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    ClaySwitch(value: value, onChanged: onChanged),
+                  ],
+                ),
+              );
+            }
+
+            return ClayDialog(
+              title: '一起看设置',
+              message: '只影响自己这台设备，房间里的其他人不受影响。',
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  tile(
+                    '自动跟播',
+                    '别人开始播放时自动进入同一部番',
+                    _autoFollow,
+                    (v) {
+                      setDialogState(() => _autoFollow = v);
+                      if (mounted) setState(() {});
+                    },
+                  ),
+                  tile(
+                    '聊天弹幕',
+                    _chatDanmaku
+                        ? '房间里的聊天飘在播放画面上'
+                        : '只在聊天记录里显示',
+                    _chatDanmaku,
+                    (v) {
+                      setDialogState(() => _chatDanmaku = v);
+                      GStorage.putSetting<bool>(
+                        SettingsKeys.syncPlayChatDanmaku,
+                        v,
+                      );
+                    },
+                  ),
+                  tile(
+                    '进出提醒',
+                    _presenceNotice
+                        ? '有人进出房间时在顶部提示'
+                        : '不提示，聊天记录里还留着',
+                    _presenceNotice,
+                    (v) {
+                      setDialogState(() => _presenceNotice = v);
+                      GStorage.putSetting<bool>(
+                        SettingsKeys.syncPlayPresenceNotice,
+                        v,
+                      );
+                    },
+                  ),
+                  tile(
+                    '跟随进度条拖动',
+                    '别人拖进度条时把我也拽过去',
+                    GStorage.getSetting<bool>(
+                      SettingsKeys.syncPlayFollowRemoteSeek,
+                    ),
+                    (v) {
+                      setDialogState(() {});
+                      GStorage.putSetting<bool>(
+                        SettingsKeys.syncPlayFollowRemoteSeek,
+                        v,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _createRoom() async {
     final username = _usernameController.text.trim();
     if (username.isEmpty) {
@@ -478,24 +635,6 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
     }
   }
 
-  /// 弹 3-2-1 遮罩并数完。
-  ///
-  /// 用自增的 generation 而不是 Timer：连续来两次倒计时时，前一次循环会在
-  /// 下一次检查点自己退出，不会两个循环抢着改同一个 [_countdown]。
-  Future<void> _runCountdown(int seconds) async {
-    final int generation = ++_countdownGeneration;
-    if (!mounted) return;
-    setState(() => _countdown = seconds);
-    for (int remaining = seconds; remaining > 0; remaining--) {
-      if (!mounted || generation != _countdownGeneration) return;
-      setState(() => _countdown = remaining);
-      KazumiHaptics.select();
-      await Future<void>.delayed(const Duration(seconds: 1));
-    }
-    if (!mounted || generation != _countdownGeneration) return;
-    setState(() => _countdown = null);
-  }
-
   Future<void> _startWatching() async {
     final args = controller.buildPlaybackArgs();
     if (args == null) {
@@ -508,14 +647,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
     }
     final room = controller.room;
     final username = controller.username;
-    // 先广播「3 秒后开始」，房间里所有人各自数完再起播。
-    //
-    // 这一步不能省：各自 seek 到同一个 position 会有 1~2 秒的错位，倒数
-    // 把「大家都准备好了」这件事对齐，剩下的抖动交给播放器里的同步逻辑。
-    await controller.announceCountdown(3);
-    await _runCountdown(3);
-    if (!mounted) return;
-    // 再把「播什么」广播出去，然后断开大厅连接交给播放器接管。
+    // 把「播什么」广播出去，然后断开大厅连接交给播放器接管。
     // 顺序不能反：离开房间会断开 socket，消息就发不出去了。
     await controller.announcePlayback(
       SyncPlayPlayRequest(
@@ -562,6 +694,14 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   /// 这样两边的线路结构与进度都对得上，也不用把可能上千条的剧集塞进聊天消息。
   Future<void> _followRemotePlay(SyncPlayPlayRequest request) async {
     if (_isFollowingRemotePlay || !mounted || !controller.isInRoom) return;
+    final String signature = '${request.pluginName}#${request.src}';
+    final DateTime now = DateTime.now();
+    if (signature == _lastRemotePlaySignature &&
+        now.difference(_lastRemotePlayAt) < const Duration(seconds: 15)) {
+      return;
+    }
+    _lastRemotePlaySignature = signature;
+    _lastRemotePlayAt = now;
     final reqTitle = request.title.isEmpty ? request.name : request.title;
     if (!_autoFollow) {
       KazumiDialog.showToast(
@@ -781,59 +921,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
               );
             },
           ),
-          // 开场倒计时压在整页之上，盖住按钮，避免倒计时期间重复点「开始」。
-          if (_countdown != null) _buildCountdownOverlay(context),
         ],
-      ),
-    );
-  }
-
-  Widget _buildCountdownOverlay(BuildContext context) {
-    final theme = Theme.of(context);
-    final int seconds = _countdown ?? 0;
-    return Positioned.fill(
-      // 用 opaque 的 GestureDetector 而不是 IgnorePointer：倒计时期间要把
-      // 下面「开始一起看」的点击吞掉，否则倒数还没走完就被重复触发。
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {},
-        child: ColoredBox(
-          color: Colors.black.withValues(alpha: 0.55),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '马上开始',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: Colors.white70,
-                    letterSpacing: 4,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                AnimatedSwitcher(
-                  duration: KazumiMotion.scale(
-                    context,
-                    KazumiMotion.base,
-                  ),
-                  transitionBuilder: (child, animation) => ScaleTransition(
-                    scale: animation,
-                    child: FadeTransition(opacity: animation, child: child),
-                  ),
-                  child: Text(
-                    '$seconds',
-                    key: ValueKey<int>(seconds),
-                    style: theme.textTheme.displayLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -886,6 +974,37 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
 
   Widget _buildAppBar(BuildContext context) {
     final theme = Theme.of(context);
+    final bool desktop = isDesktop();
+    final appBarActions = <Widget>[
+      Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: ClayIconButton(
+          tooltip: '一起看设置',
+          size: 38,
+          icon: Icons.tune_rounded,
+          onPressed: _showSyncPlaySettings,
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: ClayIconButton(
+          tooltip: '实测服务器延迟',
+          size: 38,
+          icon: Icons.network_ping_rounded,
+          onPressed: controller.isProbing ? null : controller.probeLatency,
+        ),
+      ),
+    ];
+    if (desktop) {
+      // 无边框模式下系统标题栏没了，三个窗口按钮得自己画。
+      // 和 SysAppBar 同一套规则：无边框画全套；留了系统边框但隐藏了
+      // 窗口按钮的只给一个关闭。
+      if (DesktopWindowConfig.frameless) {
+        appBarActions.add(const DesktopWindowControls());
+      } else if (!DesktopWindowConfig.showWindowButton) {
+        appBarActions.add(CloseButton(onPressed: () => windowManager.close()));
+      }
+    }
     return SliverAppBar(
       pinned: true,
       floating: true,
@@ -900,17 +1019,19 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
           fontWeight: FontWeight.w700,
         ),
       ),
-      actions: [
-        Padding(
-          padding: const EdgeInsets.only(right: 12),
-          child: ClayIconButton(
-            tooltip: '实测服务器延迟',
-            size: 38,
-            icon: Icons.network_ping_rounded,
-            onPressed: controller.isProbing ? null : controller.probeLatency,
-          ),
-        ),
-      ],
+      // 拖动窗口用的透明层，铺在标题栏整条上（含标题文字和按钮下面的
+      // 空白）。Listener 不参与手势竞技场，按钮照常点，按住拖动就换窗口。
+      flexibleSpace: desktop
+          ? Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: _titleBarPointerDown,
+              onPointerMove: _titleBarPointerMove,
+              onPointerUp: (_) => _titleBarPointerEnd(),
+              onPointerCancel: (_) => _titleBarPointerEnd(),
+              child: const SizedBox.expand(),
+            )
+          : null,
+      actions: appBarActions,
     );
   }
 
@@ -973,6 +1094,13 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                 ),
               ),
               const Spacer(),
+              ClayIconButton(
+                tooltip: '拉取正在播放',
+                size: 34,
+                icon: Icons.connect_without_contact_rounded,
+                onPressed: _requestPlaybackSync,
+              ),
+              const SizedBox(width: 6),
               ClayIconButton(
                 tooltip: '置顶公告',
                 size: 34,
@@ -1099,15 +1227,6 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
             ],
           ),
           const SizedBox(height: 12),
-          ClayFollowToggle(
-            title: '自动跟播',
-            subtitle: _autoFollow
-                ? '对方开始时自动进入播放'
-                : '只提示，不自动跳转',
-            value: _autoFollow,
-            count: members.length,
-            onChanged: (v) => setState(() => _autoFollow = v),
-          ),
         ],
       ),
     );
@@ -1826,34 +1945,10 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
           ),
           const SizedBox(height: 10),
           const Divider(height: 1),
-          const SizedBox(height: 4),
-          // 降噪：人多的时候房间进出会一直弹，聊天也会一直飘到画面上。
-          // 两条都只影响「飘出来的」，聊天记录本身一条不少。
-          ClayFollowToggle(
-            title: '聊天弹幕',
-            subtitle: _chatDanmaku ? '别人的消息会飘在画面上' : '只在聊天记录里显示',
-            value: _chatDanmaku,
-            onChanged: (value) {
-              setState(() => _chatDanmaku = value);
-              GStorage.putSetting<bool>(
-                SettingsKeys.syncPlayChatDanmaku,
-                value,
-              );
-            },
-          ),
-          ClayFollowToggle(
-            title: '进出提醒',
-            subtitle: _presenceNotice ? '有人进出时顶部弹一条' : '不弹，聊天记录里还留着',
-            value: _presenceNotice,
-            onChanged: (value) {
-              setState(() => _presenceNotice = value);
-              GStorage.putSetting<bool>(
-                SettingsKeys.syncPlayPresenceNotice,
-                value,
-              );
-            },
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
+          // 聊天弹幕 / 进出提醒 / 自动跟播这些开关收进了右上角的
+          // 「一起看设置」（_showSyncPlaySettings），这里只留一次性的
+          // 服务器选择和排障工具，免得首屏被开关占满。
           ClayButton(
             height: 46,
             expand: true,

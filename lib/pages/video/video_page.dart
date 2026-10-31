@@ -30,6 +30,7 @@ import 'package:XL/pages/video/video_page_layout.dart';
 import 'package:XL/pages/video/video_side_panel.dart';
 import 'package:XL/pages/video/video_system_bars.dart';
 import 'package:XL/services/player/pip_utils.dart';
+import 'package:XL/services/player/syncplay_play_request.dart';
 import 'package:XL/services/player/timed_shutdown_service.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/utils/device.dart';
@@ -99,6 +100,27 @@ class _VideoPageState extends State<VideoPage>
           videoPageController.playbackEpisode.episode,
           currentRoad: road,
         );
+    // 一起看「拉取正在播放」：房间里有新成员求同步时，把当前番剧信息
+    // 定向回给他。播放器控制器只有 id 和集号，拼不出能跟播的完整信息，
+    // 必须由页面提供；离线 / Emby 播放没有可分享的片源，返回 null。
+    playerController.syncplay.currentPlayRequestProvider = () {
+      if (videoPageController.isOfflineMode ||
+          videoPageController.isEmbyMode) {
+        return null;
+      }
+      final item = videoPageController.bangumiItem;
+      return SyncPlayPlayRequest(
+        bangumiId: item.id,
+        name: item.name,
+        nameCn: item.nameCn,
+        coverUrl: item.images['large'] ?? '',
+        pluginName: videoPageController.currentPlugin.name,
+        title: videoPageController.title.isNotEmpty
+            ? videoPageController.title
+            : (item.nameCn.isNotEmpty ? item.nameCn : item.name),
+        src: videoPageController.src,
+      );
+    };
     _pipModeListener = mobx.reaction<bool>(
       (_) => videoPageController.isPip,
       _syncDesktopPipHistory,
@@ -261,6 +283,8 @@ class _VideoPageState extends State<VideoPage>
 
   @override
   void dispose() {
+    // 闭包里抓着 videoPageController，页面没了就不能再让它被调用。
+    playerController.syncplay.currentPlayRequestProvider = null;
     clearExternalNavigationMark(_route);
     try {
       windowManager.removeListener(this);

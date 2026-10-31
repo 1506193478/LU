@@ -21,6 +21,7 @@ class SyncPlayPlayRequest {
     required this.pluginName,
     required this.title,
     required this.src,
+    this.target = '',
   });
 
   /// 协议标记，改版本时改这里；收到不认识的前缀一律当普通聊天忽略。
@@ -28,6 +29,10 @@ class SyncPlayPlayRequest {
 
   /// 官方服务器对单条聊天内容的长度上限（字符数，非字节数）。
   static const int maxChatLength = 150;
+
+  /// 分片之间的发送间隔。服务端有刷屏保护，一次灌太快整批消息会被丢，
+  /// 接收方凑不齐分片就永远拉不起播放器（和头像广播共用同一个节拍）。
+  static const Duration chunkInterval = Duration(milliseconds: 80);
 
   /// 分片头 `id/序号/总数|` 预留的长度：4 位 id + 两位数字 + 分隔符。
   /// 分片头 `<id>/<序号>/<总数>|` 最长 11 字符，必须按 11 以上留。
@@ -50,6 +55,14 @@ class SyncPlayPlayRequest {
   /// 条目地址，接收方据此重新拉取剧集列表。
   final String src;
 
+  /// 定向接收者的用户名；空串表示广播给全房间。
+  ///
+  /// 「后来的人点『拉取正在播放』」时，正在播放的成员把当前番剧**定向**
+  /// 回给请求者，其他成员（往往也在看同一部）不该被这条请求拽着重新拉起
+  /// 播放器。聊天通道本身是广播的，定向只能靠 payload 里带上对方名字，
+  /// 收到的人自己判断这条是不是发给自己的。
+  final String target;
+
   Map<String, dynamic> _toJson() => {
         'b': bangumiId,
         'n': name,
@@ -58,6 +71,8 @@ class SyncPlayPlayRequest {
         'p': pluginName,
         't': title,
         's': src,
+        // 只在定向时写这个键，普通广播的 payload 和旧版本完全一致。
+        if (target.isNotEmpty) 'o': target,
       };
 
   /// 切成若干条不超过 [maxChatLength] 的聊天消息。
@@ -82,6 +97,10 @@ class SyncPlayPlayRequest {
     return List.generate(4, (_) => chars[random.nextInt(chars.length)]).join();
   }
 
+  /// 生成一个随机的消息 id。发送方先生成 id、用同一个 id 发两轮（原样重发），
+  /// 接收方按 `sender#id` 归位，重发正好把可能丢掉的分片补上。
+  static String randomMessageId() => _randomId();
+
   /// 不是播放请求（或者是别的版本）时返回 null。
   static SyncPlayPlayRequest? tryDecodePayload(String payload) {
     try {
@@ -98,6 +117,7 @@ class SyncPlayPlayRequest {
         pluginName: plugin,
         title: json['t']?.toString() ?? '',
         src: src,
+        target: json['o']?.toString() ?? '',
       );
     } catch (_) {
       return null;
@@ -172,18 +192,56 @@ class SyncPlayPlayRequestAssembler {
   /// 最多同时跟踪的分片组数量，防止异常流量把内存撑爆。
   static const int _maxPendingGroups = 16;
 
+  /// 一组分片最多等多久。正常一轮分片 80ms 一条、几条就收完；
+  /// 超过这个时间还收不齐，说明中间的分片被服务端丢了，而发送方的
+  /// 重发窗口（约 1.2s 后原样重发一轮）也早就过了，再挂着没意义。
+  static const Duration _pendingTimeout = Duration(seconds: 10);
+
   final Map<String, Map<int, String>> _parts = {};
   final Map<String, int> _totals = {};
+  final Map<String, DateTime> _createdAt = {};
+
+  /// 清掉等了太久的挂起分组。之前是溢出时整表清空——那会把正在慢慢
+  /// 收分片的组也一起扔掉，等于别人正常广播到一半被一句话全作废。
+  void _pruneStale() {
+    final DateTime now = DateTime.now();
+    for (final String key in List<String>.of(_createdAt.keys)) {
+      final DateTime at = _createdAt[key]!;
+      if (now.difference(at) > _pendingTimeout) {
+        _parts.remove(key);
+        _totals.remove(key);
+        _createdAt.remove(key);
+      }
+    }
+  }
+
+  /// 挂起分组满了就淘汰最早创建的一组，而不是整表清空。
+  void _evictOldest() {
+    String? oldestKey;
+    DateTime? oldestAt;
+    for (final MapEntry<String, DateTime> entry in _createdAt.entries) {
+      if (oldestAt == null || entry.value.isBefore(oldestAt)) {
+        oldestAt = entry.value;
+        oldestKey = entry.key;
+      }
+    }
+    if (oldestKey != null) {
+      _parts.remove(oldestKey);
+      _totals.remove(oldestKey);
+      _createdAt.remove(oldestKey);
+    }
+  }
 
   /// 收齐一个完整请求时返回它，否则返回 null。
   SyncPlayPlayRequest? add(String sender, String text) {
     final part = SyncPlayPlayRequestPart.tryParse(text);
     if (part == null) return null;
     final key = '$sender#${part.messageId}';
+    _pruneStale();
     if (_parts.length >= _maxPendingGroups && !_parts.containsKey(key)) {
-      _parts.clear();
-      _totals.clear();
+      _evictOldest();
     }
+    _createdAt.putIfAbsent(key, () => DateTime.now());
     final buffer = _parts.putIfAbsent(key, () => {});
     _totals[key] = part.total;
     buffer[part.index] = part.payload;
@@ -197,11 +255,13 @@ class SyncPlayPlayRequestAssembler {
     }
     _parts.remove(key);
     _totals.remove(key);
+    _createdAt.remove(key);
     return SyncPlayPlayRequest.tryDecodePayload(joined.toString());
   }
 
   void reset() {
     _parts.clear();
     _totals.clear();
+    _createdAt.clear();
   }
 }

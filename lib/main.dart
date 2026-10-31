@@ -19,6 +19,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:XL/pages/error/storage_error_page.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:XL/utils/device.dart';
+import 'package:XL/utils/window_corner.dart';
 import 'package:XL/services/platform/desktop_window_config.dart';
 import 'package:XL/services/platform/webview_feature_service.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
@@ -100,6 +101,9 @@ void main() async {
       if (frameless) {
         // 只去系统边框，缩放交给 WindowShell 的八向热区；背景保持不透明。
         await windowManager.setAsFrameless();
+        // frameless 之后 Win11 不再自动给窗口画圆角，四角露出直角的留白。
+        // 让 DWM 按系统主题补回圆角（Win10 无此属性，静默保持直角）。
+        applyWindowRoundCorner();
       }
       // window_manager controls desktop visibility to avoid startup flicker.
       await windowManager.show();

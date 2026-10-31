@@ -13,9 +13,10 @@ import 'package:XL/services/platform/desktop_window_config.dart';
 ///    不自己接管的话窗口就只能最大化、不能拖大小；
 /// 3. 最大化 / 全屏时把边距收掉，避免内容被裁。
 ///
-/// 历史上这里是「透明窗口 + ClipRRect 圆角」，两个都是缩放卡顿的元凶：
-/// 透明窗口每帧要跟桌面做 alpha 合成，整窗 ClipRRect 每帧要开一次
-/// saveLayer。现在两样都去掉了。
+/// 圆角分两层：窗口形状的圆角由 DWM 画（`main.dart` 的
+/// `applyWindowRoundCorner`），内容四角的同心弧线在这里用 ClipRRect 裁出。
+/// 历史上「透明窗口 + 整窗 ClipRRect」慢是因为透明窗口每帧要跟桌面做
+/// alpha 合成；窗口改成不透明后，一层 antiAlias 的路径裁剪不再是大头。
 class WindowShell extends StatefulWidget {
   const WindowShell({super.key, required this.child});
 
@@ -95,6 +96,12 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
 
     // 整窗先铺实色底：窗口本身已经不透明了，这块负责把 [gutter] 那圈边距
     // 涂成主题底色，否则那块区域没人绘制，缩放时会闪白。
+    // 窗口四角的圆角由 DWM 画（main.dart 的 applyWindowRoundCorner），
+    // 内容这层把四角裁出同心弧线——不裁的话直角的内容贴在圆角窗口上，
+    // 四个角会露出月牙状的加宽底色。
+    // 之前去掉的 ClipRRect 慢在「透明窗口 + 整窗每帧合成」，现在窗口是
+    // 不透明的；antiAlias 只是按路径裁剪，不会开 saveLayer，代价可以忽略。
+    // 最大化 / 全屏时窗口是方的，圆角和留白一起收掉。
     return ColoredBox(
       color: backdrop,
       child: Stack(
@@ -102,10 +109,13 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
           Positioned.fill(
             child: Padding(
               padding: EdgeInsets.all(flush ? 0 : WindowShell.gutter),
-              // 不再 ClipRRect。整窗裁剪每帧都要开一次 saveLayer，窗口尺寸变化
-              // 时还要按新尺寸重建，是拖拽缩放掉帧的主要开销之一；窗口背景已经
-              // 不透明，圆角也透不出桌面，留着只是白付代价。
-              child: widget.child,
+              child: flush
+                  ? widget.child
+                  : ClipRRect(
+                      borderRadius:
+                          BorderRadius.circular(WindowShell.gutter),
+                      child: widget.child,
+                    ),
             ),
           ),
           if (!flush) ..._resizeZones(),
@@ -159,18 +169,29 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
       }
     }
 
-    return <Widget>[
-      // 四条边
-      zone(
-        edge: ResizeEdge.top,
-        cursor: SystemMouseCursors.resizeUpDown,
-        left: corner,
-        right: corner,
-        top: 0,
-        height: g,
-        // 顶上这 8px 是唯一一条"像标题栏"的空白，双击最大化跟系统行为一致。
-        onDoubleTap: toggleMaximize,
+    // 顶边留白是整扇窗口里最像「标题栏」的一条，拿它当拖动手柄。
+    // 这块区域在内容内缩的边距里，没有任何手势跟它抢竞技场，所以一定
+    // 能触发 —— 之前只能靠各页面自带的标题栏拖动，标题栏一旦套在可滚动
+    // 容器里，pan 手势就会被滚动抢走，表现为「窗口拖不动」。
+    // 双击最大化跟系统行为一致。
+    final Widget dragHandle = Positioned(
+      left: corner,
+      right: corner,
+      top: 0,
+      height: g,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.move,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (_) => windowManager.startDragging(),
+          onDoubleTap: toggleMaximize,
+        ),
       ),
+    );
+
+    return <Widget>[
+      // 顶边：拖动窗口。缩放交给四角 + 其余三边。
+      dragHandle,
       zone(
         edge: ResizeEdge.bottom,
         cursor: SystemMouseCursors.resizeUpDown,

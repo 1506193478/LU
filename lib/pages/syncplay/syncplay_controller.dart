@@ -17,8 +17,8 @@ import 'package:XL/plugins/plugins_controller.dart';
 import 'package:XL/request/apis/bangumi_api.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/player/syncplay_client.dart';
-import 'package:XL/services/player/syncplay_countdown.dart';
 import 'package:XL/services/player/syncplay_endpoint.dart';
+import 'package:XL/services/player/syncplay_pull_request.dart';
 import 'package:XL/services/player/syncplay_avatar_message.dart';
 import 'package:XL/services/player/syncplay_reaction.dart';
 import 'package:XL/services/player/syncplay_recent_room.dart';
@@ -128,12 +128,6 @@ class SyncPlayController extends ChangeNotifier {
 
   Stream<SyncPlayPlayRequest> get playRequests =>
       _playRequestController.stream;
-
-  /// 房主发起开场倒计时时在这里广播秒数，页面据此弹 3-2-1 遮罩。
-  final StreamController<int> _countdownController =
-      StreamController<int>.broadcast();
-
-  Stream<int> get countdowns => _countdownController.stream;
 
   /// 本次会话里被屏蔽的成员。只在内存里，退出房间即清空。
   final Set<String> _blocked = <String>{};
@@ -527,6 +521,9 @@ class SyncPlayController extends ChangeNotifier {
         // 播放请求是内部信令，不当作聊天内容显示；服务端会回显给发送者，
         // 自己发的那条要跳过，否则会重复拉起播放器。
         if (sender == _username) return;
+        // 定向播放请求（「拉取正在播放」的响应）只给指定的那个人：
+        // 其他人多半正在看同一部，不该被拽着重进播放器。
+        if (request.target.isNotEmpty && request.target != _username) return;
         final title = request.title.isEmpty ? request.name : request.title;
         _appendMessage(
           SyncPlayChatMessage(
@@ -541,15 +538,12 @@ class SyncPlayController extends ChangeNotifier {
         return;
       }
       if (SyncPlayPlayRequest.isPlayRequest(text)) return;
-      // 开场倒计时：不进聊天记录，只推给页面弹遮罩。
-      final countdown = SyncPlayCountdown.tryParse(text);
-      if (countdown != null) {
-        if (sender == _username) return;
-        if (!_countdownController.isClosed) {
-          _countdownController.add(countdown);
-        }
-        return;
-      }
+      // 「求同步」信令：不进聊天记录。正在播放的成员在播放器端响应它，
+      // 大厅这边只需要保证它不显示成一串乱码。
+      if (SyncPlayPullRequest.isPull(text)) return;
+      // 旧版本的开场倒计时信令：3-2-1 遮罩已经移除，但老版本还可能
+      // 在房间里发它，静默吞掉，别把协议原文显示成一条聊天。
+      if (text.startsWith('XLC1|')) return;
       // 置顶公告：不进聊天正文，钉在房间卡片顶上。
       //
       // 用 isPin 而不是 tryParse 判断：取消置顶发的是一条空公告（`XLP1|`），
@@ -760,15 +754,19 @@ class SyncPlayController extends ChangeNotifier {
     }
   }
 
-  /// 广播开场倒计时，让房间里所有人一起数完再起播。
-  Future<bool> announceCountdown(int seconds) async {
+  /// 广播一条「求同步」：房间里正在播放的成员会把自己的番剧信息
+  /// 定向发回来，这边收到播放请求后自动拉起播放器。
+  ///
+  /// 给后来加入的人用——不用去问「你们在看什么」，点一下就有了。
+  /// 单条消息（没有分片），不会触发服务端的刷屏保护。
+  Future<bool> requestPlaybackSync() async {
     final client = _client;
     if (client == null || !isInRoom) return false;
     try {
-      await client.sendChatMessage(SyncPlayCountdown.encode(seconds));
+      await client.sendChatMessage(SyncPlayPullRequest.encode());
       return true;
     } catch (e) {
-      KazumiLogger().w('SyncPlay: announce countdown failed', error: e);
+      KazumiLogger().w('SyncPlay: request playback sync failed', error: e);
       return false;
     }
   }
@@ -777,14 +775,44 @@ class SyncPlayController extends ChangeNotifier {
   ///
   /// 必须在 [leaveRoom] **之前**调用：离开房间会断开连接，消息就发不出去了。
   /// 返回是否成功写进 socket。
+  ///
+  /// 分片之间必须留间隔（服务端有刷屏保护，灌太快整批被丢），而且要**用
+  /// 同一个消息 id 原样重发一轮**：接收方按 `sender#id` 归位分片，第一轮
+  /// 只要丢一片，那组就永远凑不齐——之前没有重试也没有超时，表现为
+  /// 「偶尔一起看的时候拉不起画面」。重发只覆盖已有的分片、补齐缺的，
+  /// 收齐的组会重复解出同一个请求，由页面侧的跟随逻辑去重。
   Future<bool> announcePlayback(SyncPlayPlayRequest request) async {
     final client = _client;
     if (client == null || !isInRoom) return false;
+    final SyncplayClient sendClient = client;
     try {
       // 服务器把单条聊天截到 150 字符，必须按分片逐条发。
-      for (final chunk in request.encodeChunks()) {
-        await client.sendChatMessage(chunk);
+      final String messageId = SyncPlayPlayRequest.randomMessageId();
+      final List<String> chunks =
+          request.encodeChunks(messageId: messageId);
+      Future<void> sendRounds() async {
+        for (final String chunk in chunks) {
+          await sendClient.sendChatMessage(chunk);
+          await Future<void>.delayed(SyncPlayPlayRequest.chunkInterval);
+        }
       }
+
+      await sendRounds();
+      // 稍等片刻再重发一轮，给服务端丢片留出被接收方察觉的时间。
+      // 不能等太久：房主广播完很快就会离开大厅去起播，重发窗口一旦
+      // 关了就再也发不出去了。
+      unawaited(Future<void>(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        if (!identical(_client, sendClient) || !isInRoom) return;
+        try {
+          await sendRounds();
+        } catch (e) {
+          KazumiLogger().w(
+            'SyncPlay: announce playback retry failed',
+            error: e,
+          );
+        }
+      }));
       return true;
     } catch (e) {
       KazumiLogger().w('SyncPlay: announce playback failed', error: e);
@@ -1049,7 +1077,6 @@ class SyncPlayController extends ChangeNotifier {
     _errorClearTimer?.cancel();
     _reconnectTimer?.cancel();
     unawaited(_playRequestController.close());
-    unawaited(_countdownController.close());
     unawaited(_nudgeController.close());
     unawaited(_hostTakeoverController.close());
     unawaited(_closeClient());

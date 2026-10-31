@@ -9,7 +9,7 @@ import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/pages/player/controller/player_models.dart';
 import 'package:XL/services/player/syncplay_play_request.dart';
 import 'package:XL/services/player/syncplay_catch_up.dart';
-import 'package:XL/services/player/syncplay_countdown.dart';
+import 'package:XL/services/player/syncplay_pull_request.dart';
 import 'package:XL/services/player/syncplay_drift.dart';
 import 'package:XL/services/player/syncplay_reaction.dart';
 import 'package:XL/services/player/syncplay_room_prompts.dart';
@@ -184,6 +184,19 @@ abstract class _PlayerSyncPlayController with Store {
   /// 让渲染点局部监听头像变化的通知器。
   ValueNotifier<Map<String, Uint8List>> get avatarBytesNotifier =>
       _avatarBytesNotifier;
+
+  /// 当前播放内容的信息提供者，由视频页注入（播放器控制器不持有
+  /// videoPageController，拿不到完整的番剧 / 片源信息）。
+  ///
+  /// 房间里有人点「拉取正在播放」时用它构造定向播放请求回给他。
+  /// 返回 null（离线 / Emby 播放等没有可分享的片源）就当作没听见。
+  /// 视频页 dispose 时必须置回 null，闭包里抓着的是页面状态。
+  SyncPlayPlayRequest? Function()? currentPlayRequestProvider;
+
+  /// 上次响应「求同步」的时间，冷却去重：请求是广播的，房间里有几个人
+  /// 在看就有几个人响应；而有人手滑连点按钮时也不该把聊天通道灌满。
+  DateTime? _lastPullAnswerAt;
+  static const Duration _pullAnswerCooldown = Duration(seconds: 10);
 
   void _publishActivity(
     SyncPlayActivityKind kind,
@@ -463,8 +476,16 @@ abstract class _PlayerSyncPlayController with Store {
             return;
           }
           final bool fromRemote = message['username'] != username;
-          // 开场倒计时和播放请求一样是内部信令，不进聊天记录。
-          if (SyncPlayCountdown.isCountdown(text)) {
+          // 「求同步」：新加入的成员想要当前播放内容，定向回给他。
+          if (SyncPlayPullRequest.isPull(text)) {
+            if (fromRemote) {
+              unawaited(_answerPullRequest(sender));
+            }
+            return;
+          }
+          // 旧版本的开场倒计时信令：遮罩已移除，老版本还可能发它，
+          // 静默吞掉，别在播放器聊天里显示成一串协议原文。
+          if (text.startsWith('XLC1|')) {
             return;
           }
           // 置顶公告：钉在房间面板顶部，不进聊天正文。
@@ -839,6 +860,47 @@ abstract class _PlayerSyncPlayController with Store {
     await _runBestEffortSync(
       () => client.sendChatMessage(SyncPlayNudge.encode(target)),
     );
+  }
+
+  /// 响应「求同步」：把当前播放的番剧**定向**发给请求者。
+  ///
+  /// 请求是广播的，房间里有几个人在看就有几个人收到；只有自己真的挂着
+  /// 播放内容时才响应，而且带冷却——有人手滑连点按钮时不能把聊天通道
+  /// 灌满触发服务端刷屏保护。响应走 [SyncPlayPlayRequest] 的分片协议，
+  /// payload 里带 `target`，房间里其他人收到后不会跟着重进播放器。
+  Future<void> _answerPullRequest(String requester) async {
+    final client = syncplayController;
+    if (client == null || syncplayRoom.isEmpty) return;
+    final String me = client.username ?? '';
+    if (requester.isEmpty || requester == me) return;
+    final DateTime? last = _lastPullAnswerAt;
+    if (last != null &&
+        DateTime.now().difference(last) < _pullAnswerCooldown) {
+      return;
+    }
+    final SyncPlayPlayRequest? current = currentPlayRequestProvider?.call();
+    if (current == null) return;
+    if (current.src.isEmpty || current.pluginName.isEmpty) return;
+    _lastPullAnswerAt = DateTime.now();
+    // 定向构造一份带 target 的请求；当前实例本身是广播语义的，不能改。
+    final SyncPlayPlayRequest targeted = SyncPlayPlayRequest(
+      bangumiId: current.bangumiId,
+      name: current.name,
+      nameCn: current.nameCn,
+      coverUrl: current.coverUrl,
+      pluginName: current.pluginName,
+      title: current.title,
+      src: current.src,
+      target: requester,
+    );
+    final List<String> chunks =
+        targeted.encodeChunks(messageId: SyncPlayPlayRequest.randomMessageId());
+    await _runBestEffortSync(() async {
+      for (final String chunk in chunks) {
+        await client.sendChatMessage(chunk);
+        await Future<void>.delayed(SyncPlayPlayRequest.chunkInterval);
+      }
+    });
   }
 
   /// 把整份播放队列推给房间。
