@@ -633,10 +633,10 @@ class _HomeBody extends StatelessWidget {
                 )
               : embyImageUrl(
                   serverUrl: server.url,
-                  itemId: item.id,
+                  itemId: item.coverItemId,
                   accessToken: server.accessToken,
                   maxHeight: 900,
-                  tag: item.primaryImageTag,
+                  tag: item.coverTag,
                 ),
           headers: embyAuthHeaders(server),
           title: item.name,
@@ -990,10 +990,10 @@ class _PosterRail extends StatelessWidget {
           item: item,
           imageUrl: embyImageUrl(
             serverUrl: server.url,
-            itemId: item.id,
+            itemId: item.coverItemId,
             accessToken: server.accessToken,
             maxHeight: 480,
-            tag: item.primaryImageTag,
+            tag: item.coverTag,
           ),
           headers: embyAuthHeaders(server),
           // 预览稿海报右上角是集数徽标、右下角是评分。

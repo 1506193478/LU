@@ -229,10 +229,10 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
           item: item,
           imageUrl: embyImageUrl(
             serverUrl: server.url,
-            itemId: item.id,
+            itemId: item.coverItemId,
             accessToken: server.accessToken,
             maxHeight: 420,
-            tag: item.primaryImageTag,
+            tag: item.coverTag,
           ),
           headers: embyAuthHeaders(server),
           onTap: () => context.pushNamed('/emby/detail', arguments: item),

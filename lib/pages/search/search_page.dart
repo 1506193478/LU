@@ -660,10 +660,10 @@ class _EmbyHitsSection extends StatelessWidget {
                   ? ''
                   : embyImageUrl(
                       serverUrl: server.url,
-                      itemId: item.id,
+                      itemId: item.coverItemId,
                       accessToken: server.accessToken,
                       maxHeight: 400,
-                      tag: item.primaryImageTag,
+                      tag: item.coverTag,
                     );
               return GestureDetector(
                 onTap: () => onTap(item),

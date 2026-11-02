@@ -35,6 +35,11 @@ String _mediaSourceParam(String? mediaSourceId) =>
 ///
 /// `tag` 一定要带上：Emby 拿它做缓存键，不带的话每次请求都会重新生成缩略图，
 /// 一个几十集的列表滚起来服务端会很难受。
+///
+/// 不要再加 `quality`。Emby 的 `quality` 只对 `format=jpg` 的重编码生效，
+/// 遇到 PNG 封面（国剧、综艺的竖版海报大量是 PNG）部分版本会直接 500，
+/// 表现就是「有的剧有图、很多剧是灰块」。缩略图本身已经按 `maxHeight`
+/// 缩过了，这个参数没带来任何收益。
 String embyImageUrl({
   required String serverUrl,
   required String itemId,
@@ -46,7 +51,6 @@ String embyImageUrl({
   final base = '$serverUrl/Items/$itemId/Images/$type';
   return _withQuery(base, [
     'maxHeight=$maxHeight',
-    'quality=90',
     if (tag != null && tag.isNotEmpty) 'tag=$tag',
     _tokenParam(accessToken),
   ]);
@@ -63,7 +67,6 @@ String embyBackdropUrl({
   final base = '$serverUrl/Items/$itemId/Images/Backdrop';
   return _withQuery(base, [
     'maxWidth=$maxWidth',
-    'quality=85',
     if (tag != null && tag.isNotEmpty) 'tag=$tag',
     _tokenParam(accessToken),
   ]);

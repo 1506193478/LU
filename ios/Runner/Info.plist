@@ -48,8 +48,10 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>读取相册里的视频，用于「相册视频」和「本地私密」两个本地入口。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string></string>
+	<string>把视频保存到相册。</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.pravera.flutter_foreground_task.refresh</string>

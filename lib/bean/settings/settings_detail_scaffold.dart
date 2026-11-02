@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/bean/appbar/sys_app_bar.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 
@@ -45,6 +46,18 @@ class SettingsDetailScaffold extends StatelessWidget {
   final Widget? floatingActionButton;
   final Widget? bottomNavigationBar;
 
+  /// 兜底返回：先让最近的 Navigator 退，退不动再交给 modular 的栈，
+  /// 最后退回「我的」。Windows 没有手势返回，卡在二级页是最难受的。
+  static void _fallbackBack(BuildContext context) {
+    final NavigatorState nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.maybePop();
+      return;
+    }
+    if (context.maybePop()) return;
+    context.navigate('/tab/my');
+  }
+
   @override
   Widget build(BuildContext context) {
     final scope = SettingsPaneScope.of(context);
@@ -58,13 +71,18 @@ class SettingsDetailScaffold extends StatelessWidget {
     // 被认作「会关掉页面」。两头都不成立，结果就是「我的 / 设置」里点开的
     // 每一页都只剩手势返回，Windows 上更是完全退不出去。
     //
-    // 现在的顺序：显式 leading > 分类栏给的 onBack > 能 pop 就给返回键 >
-    // 路由自己说能关。
+    // 再后来改成「canPop 就给」还是漏：RouterOutlet 里的根路由被 navigate
+    // 替换时 canPop 也是 false。所以别猜了，按布局判：
+    //   · 窄屏（没有左侧分类栏）→ 这类页面一定是从别处点进来的，一律给返回；
+    //   · 宽屏（embedded，左边分类栏还在）→ 只有开了二级路由才需要返回，
+    //     否则左侧导航本来就摆在那儿。
     final bool canPop = Navigator.of(context).canPop();
+    final bool embedded = scope?.embedded ?? false;
     final bool showBack = leading != null ||
         (scope?.showBackButton ?? false) ||
         canPop ||
-        (route?.impliesAppBarDismissal ?? false);
+        (route?.impliesAppBarDismissal ?? false) ||
+        !embedded;
 
     final PreferredSizeWidget appBar = SysAppBar(
       title: title,
@@ -73,7 +91,7 @@ class SettingsDetailScaffold extends StatelessWidget {
           (showBack
               ? IconButton(
                   tooltip: '返回',
-                  onPressed: scope?.onBack ?? () => Navigator.of(context).maybePop(),
+                  onPressed: scope?.onBack ?? () => _fallbackBack(context),
                   icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
                 )
               : null),

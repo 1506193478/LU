@@ -747,22 +747,23 @@ class EmbyPlayerController extends ChangeNotifier {
     _notify();
   }
 
-  /// 把「字幕设置」真正落到引擎上。
+  /// 把「字幕设置」落到引擎上。
   ///
-  /// 之前这个面板只是改了个数字，画面一点没变——因为没人把值写进 mpv。
-  /// 这里直接改 mpv 的四个属性：延迟 / 垂直位置 / 缩放 / 不透明度。
+  /// 注意分工（这是之前「怎么改都没用」的根源）：
+  /// media_kit 这个分支默认 `libass = false`，mpv 只负责解码，字幕是由
+  /// media_kit 的 Flutter `SubtitleView` 画出来的。所以
+  ///   · 时间轴（延迟）→ 写 mpv 的 `sub-delay`，会改变 `sub-text` 的时序；
+  ///   · 字号 / 位置 / 透明度 → **必须**走 `SubtitleViewConfiguration`，
+  ///     在 `emby_player_page.dart` 里的 `_subtitleViewConfig()` 现算。
+  /// 以前把后三项也写进 mpv（还包含根本不存在的 `sub-opacity`），自然是
+  /// 石沉大海，用户看到的就是「面板在动、画面不变」。
   void _applySubtitleSettings() {
     // mpv 的属性只挂在 NativePlayer 上（Web 端没有），所以先判类型。
     final platform = playback.mediaPlayer?.platform;
     if (platform is! NativePlayer) return;
-    final s = subtitleSettings;
-    unawaited(platform.setProperty('sub-delay', s.delay.toStringAsFixed(2)));
-    unawaited(platform.setProperty(
-      'sub-pos',
-      (100 - s.verticalOffset).clamp(0, 150).toStringAsFixed(1),
-    ));
-    unawaited(platform.setProperty('sub-scale', s.scale.toStringAsFixed(2)));
-    unawaited(platform.setProperty('sub-opacity', s.opacity.toStringAsFixed(2)));
+    unawaited(
+      platform.setProperty('sub-delay', subtitleSettings.delay.toStringAsFixed(2)),
+    );
   }
 
   // ------------------------------------------------------------ 片头片尾

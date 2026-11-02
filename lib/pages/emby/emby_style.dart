@@ -54,7 +54,7 @@ class EmbyImage extends StatefulWidget {
 }
 
 class _EmbyImageState extends State<EmbyImage> {
-  /// 0 = 原样；1 = 去掉 tag 重试过了，不再重试，免得死循环。
+  /// 已经降级到第几级（0~2），到顶就不再重试，免得死循环。
   int _attempt = 0;
   late String _url = widget.url;
 
@@ -67,26 +67,47 @@ class _EmbyImageState extends State<EmbyImage> {
     }
   }
 
-  /// 把 `tag=xxx` 从查询串里摘掉，其余参数原样保留。
-  static String _stripTag(String url) {
+  /// 逐级降级重试。
+  ///
+  /// 一张封面加载不出来，现实里只有三种原因，按代价从小到大退：
+  ///   1. `tag` 过期——服务端重新生成过缩略图，旧 tag 会 400/404；
+  ///   2. 尺寸参数被拒——个别反代把 `maxHeight` 改坏，或者老版本对
+  ///      非 JPG 的图直接 500；
+  ///   3. 图真的不存在——这时候再退也没用，交给占位图。
+  ///
+  /// 以前只做到第 1 步就停了，所以「大部分能出、少数灰块」的情况看起来
+  /// 像是随机失败。现在一直退到只剩 `api_key`。
+  static String _degrade(String url, int attempt) {
     final uri = Uri.tryParse(url);
     if (uri == null) return url;
-    if (!uri.queryParameters.containsKey('tag')) return url;
-    final kept = Map<String, String>.from(uri.queryParameters)..remove('tag');
+    final kept = Map<String, String>.from(uri.queryParameters);
+    if (attempt >= 1) kept.remove('tag');
+    if (attempt >= 2) {
+      kept.remove('maxHeight');
+      kept.remove('maxWidth');
+      kept.remove('quality');
+    }
     return uri.replace(queryParameters: kept).toString();
   }
 
   void _onError(Object error) {
     KazumiLogger().w('EmbyImage: load failed ($_url)', error: error);
-    if (_attempt != 0) return;
-    final stripped = _stripTag(_url);
-    if (stripped == _url) return;
+    if (_attempt >= 2) return;
+    // 一级一级往下退。注意不能「退化后没变化就直接放弃」：地址里本来就没有
+    // tag 时，第 1 级等于原地不动，得继续走到第 2 级去摘尺寸参数。
+    int level = _attempt + 1;
+    String next = _degrade(widget.url, level);
+    while (next == _url && level < 2) {
+      level++;
+      next = _degrade(widget.url, level);
+    }
+    if (next == _url) return;
     // errorListener 可能在构建期间被调用，推迟一帧再 setState。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       setState(() {
-        _attempt = 1;
-        _url = stripped;
+        _attempt = level;
+        _url = next;
       });
     });
   }

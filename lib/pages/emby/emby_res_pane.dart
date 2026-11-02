@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_cloud_browse_page.dart';
@@ -108,6 +112,43 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   // ------------------------------------------------------------ 本地来源
 
+  static String _vaultTitle(String kind) => switch (kind) {
+        'private' => '本地私密',
+        'gallery' => '相册视频',
+        'link' => '网络链接',
+        _ => '本地文件',
+      };
+
+  /// 把相册/临时目录里的文件搬进应用私有目录。
+  ///
+  /// 相册选出来的是**临时文件**：系统清理缓存、重启、或者用户清一次存储，
+  /// 列表里那条就指向一个不存在的路径，点开直接报「文件不存在」。私密内容
+  /// 也不该留在公共目录里。复制失败就退回原路径，保证这一次能播。
+  Future<String> _persistCopy(String kind, String src, String name) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final target = Directory('${dir.path}/vault/$kind');
+      if (!await target.exists()) {
+        await target.create(recursive: true);
+      }
+      final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final dest = '${target.path}/${DateTime.now().millisecondsSinceEpoch}_$safe';
+      await File(src).copy(dest);
+      return dest;
+    } catch (_) {
+      return src;
+    }
+  }
+
+  Future<void> _openVault(String kind) async {
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => EmbyVaultBrowsePage(title: _vaultTitle(kind), kind: kind),
+    ));
+    if (mounted) setState(() {});
+  }
+
+  /// 「本地文件」：只走系统文件选择器，浏览手机/平板里的目录。
   Future<void> _importLocal(String kind) async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -120,30 +161,91 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
           .where((f) => f.path != null)
           .map((f) => (name: f.name, source: f.path!))
           .toList();
-      if (picked.isEmpty) return;
+      if (picked.isEmpty) {
+        _toast('选中的文件读不到路径，换个目录再试');
+        return;
+      }
       await LuMediaVault.instance.addEntries(kind, picked);
-      if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => EmbyVaultBrowsePage(
-          title: kind == 'private' ? '本地私密' : '本地文件',
-          kind: kind,
-        ),
-      ));
-      if (mounted) setState(() {});
+      await _openVault(kind);
     } catch (e) {
       _toast('导入失败：${e.toString().split('\n').first}');
     }
   }
 
-  Future<void> _importGallery() async {
+  /// 「本地私密」：来源可以是文件夹，也可以是相册——两条路都进同一个私密
+  /// 列表，让用户自己选，而不是像以前那样跟「本地文件」完全一样。
+  Future<void> _importPrivate() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: PvColors.card(context),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Row(
+                children: [
+                  Text('添加到本地私密', style: PvText.rowTitle(context)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open_rounded),
+              title: const Text('从文件夹选择'),
+              subtitle: const Text('浏览手机存储里的目录，挑视频文件'),
+              onTap: () => Navigator.of(ctx).pop('file'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('从相册选择'),
+              subtitle: const Text('打开系统相册，挑一段视频'),
+              onTap: () => Navigator.of(ctx).pop('gallery'),
+            ),
+            const SizedBox(height: 6),
+            ListTile(
+              leading: const Icon(Icons.list_rounded),
+              title: const Text('只看已导入的'),
+              onTap: () => Navigator.of(ctx).pop('open'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'file':
+        await _importLocal('private');
+      case 'gallery':
+        await _importGallery(kind: 'private');
+      case 'open':
+        await _openVault('private');
+    }
+  }
+
+  /// 「相册视频」：直接打开系统默认相册挑视频，导入后进列表（原来选完就
+  /// 直接播，用户下次想再找它根本翻不到）。
+  Future<void> _importGallery({String kind = 'gallery'}) async {
     try {
-      final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
+      final picker = ImagePicker();
+      final file = await picker.pickVideo(source: ImageSource.gallery);
       if (file == null) return;
-      await LuMediaVault.instance.addEntries('gallery', [
-        (name: file.name, source: file.path),
+      final String stored =
+          await _persistCopy(kind, file.path, file.name);
+      await LuMediaVault.instance.addEntries(kind, [
+        (name: file.name, source: stored),
       ]);
-      if (!mounted) return;
-      luPlay(context, title: file.name, url: file.path);
+      await _openVault(kind);
+    } on PlatformException catch (e) {
+      // 相册权限被拒时 iOS / Android 都会抛这个，直接说清楚怎么开。
+      if (e.code == 'photo_access_denied' || e.code == 'camera_access_denied') {
+        _toast('没有相册权限，去系统设置里允许 LU 访问照片后重试');
+      } else {
+        _toast('读取相册失败：${e.message ?? e.code}');
+      }
     } catch (e) {
       _toast('读取相册失败：${e.toString().split('\n').first}');
     }
@@ -320,7 +422,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                     ),
               ],
               onLocalFiles: () => _importLocal('local'),
-              onPrivate: () => _importLocal('private'),
+              onPrivate: _importPrivate,
               onGallery: _importGallery,
               onLink: _addLink,
               onServer: (entry) {

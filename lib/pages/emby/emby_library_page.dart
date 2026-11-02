@@ -254,10 +254,10 @@ class _EmbyLibraryPageState extends State<EmbyLibraryPage> {
             item: item,
             imageUrl: embyImageUrl(
               serverUrl: server.url,
-              itemId: item.id,
+              itemId: item.coverItemId,
               accessToken: server.accessToken,
               maxHeight: 480,
-              tag: item.primaryImageTag,
+              tag: item.coverTag,
             ),
             headers: embyAuthHeaders(server),
             onTap: () => context.pushNamed('/emby/detail', arguments: item),

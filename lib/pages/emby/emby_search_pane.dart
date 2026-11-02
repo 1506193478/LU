@@ -422,10 +422,10 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
               ? ''
               : embyImageUrl(
                   serverUrl: server.url,
-                  itemId: item.id,
+                  itemId: item.coverItemId,
                   accessToken: server.accessToken,
                   maxHeight: 300,
-                  tag: item.primaryImageTag,
+                  tag: item.coverTag,
                 ),
           headers: embyAuthHeaders(server),
           dark: dark,

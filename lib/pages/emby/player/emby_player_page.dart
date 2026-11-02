@@ -754,6 +754,53 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     );
   }
 
+  /// 字幕样式：必须从这里传给 `Video`。
+  ///
+  /// media_kit 的字幕是 **Flutter 层画的**（`SubtitleView`），不是 libass
+  /// 直接叠在画面上。不传配置时它用默认样式，里面写着
+  /// `backgroundColor: Color(0xaa000000)`——用户看到的那条「黑边」就是它。
+  /// 同理，面板里的字号/位置/透明度改的是 mpv 的 `sub-*` 属性，对 Flutter
+  /// 画的这一层没有任何作用，所以「怎么改都没有用」。
+  ///
+  /// 这里按 [EmbySubtitleSettings] 现算一份：透明底 + 一圈柔和描边（比黑底
+  /// 不挡画面，白字压在亮背景上也读得清），字号走缩放，整体透明度走 alpha，
+  /// 底部留白走垂直偏移。
+  SubtitleViewConfiguration _subtitleViewConfig() {
+    final s = controller.subtitleSettings;
+    final double opacity = s.opacity.clamp(0.0, 1.0);
+    final double scale = s.scale.clamp(0.5, 2.0);
+    final Color ink = Colors.white.withValues(alpha: opacity);
+    final Color halo = Colors.black.withValues(alpha: 0.62 * opacity);
+    const List<Offset> ring = [
+      Offset(-1.6, -1.6),
+      Offset(1.6, -1.6),
+      Offset(-1.6, 1.6),
+      Offset(1.6, 1.6),
+      Offset(0, -2.2),
+      Offset(0, 2.2),
+      Offset(-2.2, 0),
+      Offset(2.2, 0),
+    ];
+    return SubtitleViewConfiguration(
+      style: TextStyle(
+        color: ink,
+        fontSize: 30 * scale,
+        height: 1.26,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.2,
+        // 关键：透明底。留这一行是为了防止以后有人又退回默认样式。
+        backgroundColor: Colors.transparent,
+        shadows: [
+          for (final o in ring)
+            Shadow(offset: o, blurRadius: 2.6, color: halo),
+        ],
+      ),
+      textAlign: TextAlign.center,
+      // 垂直偏移 0~100 当成「往上抬多少」：0 贴底，100 抬到画面中下部。
+      padding: EdgeInsets.fromLTRB(22, 0, 22, 18 + s.verticalOffset * 2.6),
+    );
+  }
+
   Widget _buildVideoSurface() {
     final videoController = controller.videoController;
     if (videoController == null) {
@@ -764,6 +811,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       controls: NoVideoControls,
       fit: _videoBoxFit,
       fill: Colors.black,
+      subtitleViewConfiguration: _subtitleViewConfig(),
     );
     final ratio = _videoAspect;
     if (ratio == null) return child;

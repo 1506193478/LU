@@ -105,6 +105,21 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   /// 别人开始播放时是否自动跟播；关掉只提示不跳转。
   bool _autoFollow = true;
 
+  /// 「拉取房主画面」是用户**主动**点的，这一下必须放行。
+  ///
+  /// `_autoFollow` 是「别人开播时要不要自动把我拽进播放器」的降噪开关，
+  /// 默认开；很多人为了不被突然打断会关掉它。可关掉之后再用按钮去拉，
+  /// 就被同一个开关挡住，只弹一句提示、画面不动——用户看到的就是
+  /// 「点了没反应」。显式点击应该永远有效，这里用一个一次性放行标记区分。
+  bool _forceFollowOnce = false;
+
+  /// 拉取之后等回音的超时提示，别让按钮点下去像石沉大海。
+  Timer? _pullTimeout;
+
+  /// 「拉取播放」正等着房主回画面。有它胶囊才会转圈——点下去立刻有反馈，
+  /// 用户不会以为没点上而反复戳。
+  bool _pullPending = false;
+
   // ---- 标题栏拖动（桌面） --------------------------------------------
   // 这页的标题栏是 SliverAppBar，套在 CustomScrollView 里，pan 手势会被
   // 滚动抢走竞技场，表现为「窗口拖不动」。跟 SysAppBar 同一套解法：
@@ -189,6 +204,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
 
   @override
   void dispose() {
+    _pullTimeout?.cancel();
     _nudgeSubscription?.cancel();
     _hostTakeoverSubscription?.cancel();
     _playRequestSubscription?.cancel();
@@ -246,16 +262,41 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
     );
   }
 
-  Future<void> _requestPlaybackSync() async {
+  /// 向房间里正在播放的人要一份「当前片源 + 进度」，收到后自动拉起播放器。
+  ///
+  /// [explicit] 表示这一下是用户自己点的（拉取房主画面 / 跟上对方的播放），
+  /// 此时无视「自动跟播」开关。
+  Future<void> _requestPlaybackSync({bool explicit = true}) async {
     if (!controller.isInRoom) return;
-    final ok = await controller.requestPlaybackSync();
+    _forceFollowOnce = explicit;
+    final bool ok = await controller.requestPlaybackSync();
     if (!mounted) return;
     KazumiHaptics.select();
-    KazumiDialog.showToast(
-      message: ok ? '已请求同步，正在播放的成员会发来片源' : '请求失败，请稍后再试',
-      context: context,
-      duration: const Duration(seconds: 3),
-    );
+    if (!ok) {
+      _forceFollowOnce = false;
+      if (_pullPending) setState(() => _pullPending = false);
+      KazumiDialog.showToast(
+        message: '请求没发出去，检查一下网络再试',
+        context: context,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
+    setState(() => _pullPending = true);
+    // 8 秒没有回音基本就是对方已经退出播放器（人还在房间，但没人在放），
+    // 这时候把转圈收掉、明说一句，别让用户盯着按钮猜。
+    _pullTimeout?.cancel();
+    _pullTimeout = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      _forceFollowOnce = false;
+      if (_isFollowingRemotePlay) return;
+      setState(() => _pullPending = false);
+      KazumiDialog.showToast(
+        message: '房主没有响应。对方可能已经退出播放器，让 TA 重新打开一集再试',
+        context: context,
+        duration: const Duration(seconds: 4),
+      );
+    });
   }
 
   /// 把这一页散落的开关汇总成一个面板：自动跟播（会话内）、聊天弹幕 /
@@ -765,6 +806,44 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
     });
   }
 
+  /// 重新打开播放器（已经选好源的情况）。
+  ///
+  /// 「不小心退出了，想回到画面」——这时候手里本来就有片源，最省事的做法
+  /// 是**直接重开**，而不是绕一圈去问房主要。播放器进房后会走正常的
+  /// SyncPlay 对齐流程，位置自己会追到房主那边，不用额外广播：
+  /// 广播会把全房间拽着重开，反而打扰别人。
+  Future<void> _reopenPlayer() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_showJoinField) setState(() => _showJoinField = false);
+    final args = controller.buildPlaybackArgs();
+    if (args == null) {
+      KazumiDialog.showToast(message: '请先选择播放来源', context: context);
+      return;
+    }
+    if (!controller.isInRoom) {
+      KazumiDialog.showToast(message: '先创建或加入房间', context: context);
+      return;
+    }
+    final String room = controller.room;
+    final String username = controller.username;
+    // 大厅连接要交给播放器，留着两个 socket 会互相抢消息。
+    await controller.leaveRoom();
+    if (!mounted) return;
+    KazumiHaptics.success();
+    context.pushNamed(
+      '/video/',
+      arguments: OnlineVideoPlaybackArgs(
+        bangumiItem: args.bangumiItem,
+        plugin: args.plugin,
+        title: args.title,
+        src: args.src,
+        roads: args.roads,
+        syncPlayRoom: room,
+        syncPlayUserName: username,
+      ),
+    );
+  }
+
   /// 房间里有人点了「开始一起看」，自动跟播同一部番、同一个片源。
   ///
   /// 对方只广播了「规则源 + 条目地址」，剧集列表在这里重新拉一遍，
@@ -779,14 +858,25 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
     if (_showJoinField) setState(() => _showJoinField = false);
     final String signature = '${request.pluginName}#${request.src}';
     final DateTime now = DateTime.now();
-    if (signature == _lastRemotePlaySignature &&
+    final reqTitle = request.title.isEmpty ? request.name : request.title;
+    // 用户手动点过「拉取播放」就放行一次；之后仍按用户设的开关来。
+    final bool forced = _forceFollowOnce;
+    _forceFollowOnce = false;
+    _pullTimeout?.cancel();
+    if (mounted && _pullPending) setState(() => _pullPending = false);
+    // 去重只拦「自动跟播」。
+    //
+    // 服务端会把同一份请求重发一轮补丢包的分片，自动跟播必须防重复进场；
+    // 但手动点击不能拦——用户连点第二下，往往正因为第一下看起来没反应
+    // （房主没开播放器时要等满 8 秒才提示）。拦掉就成了「按了没反应」。
+    if (!forced &&
+        signature == _lastRemotePlaySignature &&
         now.difference(_lastRemotePlayAt) < const Duration(seconds: 15)) {
       return;
     }
     _lastRemotePlaySignature = signature;
     _lastRemotePlayAt = now;
-    final reqTitle = request.title.isEmpty ? request.name : request.title;
-    if (!_autoFollow) {
+    if (!_autoFollow && !forced) {
       KazumiDialog.showToast(
         message: '《$reqTitle》开始了，点「正在看」加入',
         context: context,
@@ -1442,6 +1532,18 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                       .copyWith(fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
+                // 「拉取正在播放」放在「正在看」这一行右侧。
+                //
+                // 这一块讲的就是「房间现在在播什么」，拉取属于同一件事，放这里
+                // 语义最顺，也不用多占一行；做成带图标的胶囊，比 13px 文字链
+                // 显眼，又不像整宽按钮那样抢「开始一起看」的主视觉。
+                if (controller.isInRoom) ...[
+                  _PullNowChip(
+                    pending: _pullPending,
+                    onTap: _requestPlaybackSync,
+                  ),
+                  if (hasSource) const SizedBox(width: 10),
+                ],
                 if (hasSource)
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -1454,32 +1556,23 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
               ],
             ),
             const SizedBox(height: 8),
-            // 「加入一起看」：房主已经开播、你后进来的时候，这一颗就是入口。
-            // 原来它只是标题右边一个 13px 的「拉取播放」文字链，藏得太深，
-            // 后进房间的人根本不知道能点——这次改成整宽按钮，文案也说清楚
-            // 对方在看第几话。
-            if (remotePlaying) ...[
-              if (!hasSource)
-                _SyncPrimaryButton(
-                  label: '加入一起看',
-                  icon: Icons.play_arrow_rounded,
-                  height: 46,
-                  onTap: _requestPlaybackSync,
-                )
-              else
-                _SyncPrimaryButton(
-                  label: '跟上对方的播放',
-                  icon: Icons.sync_rounded,
-                  height: 44,
-                  tone: _SyncButtonTone.subtle,
-                  onTap: _requestPlaybackSync,
-                ),
+            // 已经选好源的人只需要一条「回到播放器」的快捷方式。
+            // 没选源的请点上面那颗「拉取」胶囊，这里不再重复摆一个大按钮
+            // ——同一件事两个入口，看着像两个功能，反而不知道该点哪个。
+            if (hasSource) ...[
+              _SyncPrimaryButton(
+                label: '回到播放器',
+                icon: Icons.sync_rounded,
+                height: 44,
+                tone: _SyncButtonTone.subtle,
+                onTap: _reopenPlayer,
+              ),
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   remoteEpisode == null
-                      ? '房间正在播放，点一下把画面拉过来'
-                      : '对方正在看第 $remoteEpisode 话，点一下把画面拉过来',
+                      ? '误退出播放器了？点这里回去，进度会自动跟上房主'
+                      : '正在看第 $remoteEpisode 话，点这里回到画面',
                   textAlign: TextAlign.center,
                   style: PvText.rowSub(context).copyWith(fontSize: 12),
                 ),
@@ -2160,6 +2253,67 @@ class _RoomChip extends StatelessWidget {
             fontSize: 11.5,
             fontWeight: FontWeight.w600,
             color: filled ? Colors.white : PvColors.blue,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 「拉取正在播放」胶囊。
+///
+/// 放在「正在看 / 选择番剧」这一行右侧：房间在播什么，这一块说的就是这个，
+/// 拉取属于同一件事。做成带图标的胶囊而不是整宽按钮，是为了不跟下面那颗
+/// 「开始一起看」抢主视觉——后者才是这一页的主操作。
+///
+/// 常驻可点（只要在房间里）：房主没开播放器时点下去会等 8 秒再提示，
+/// 那也比「按钮时有时无」好判断。
+class _PullNowChip extends StatelessWidget {
+  const _PullNowChip({required this.onTap, this.pending = false});
+
+  final VoidCallback onTap;
+
+  /// 正在等房主回画面。转圈 + 改文案，让「点了」这件事肉眼可见。
+  final bool pending;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '拉取房主正在播放的画面',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: 26,
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          decoration: BoxDecoration(
+            color: PvColors.blue.withValues(alpha: pending ? 0.2 : 0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (pending)
+                const SizedBox(
+                  width: 11,
+                  height: 11,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.6,
+                    color: PvColors.blue,
+                  ),
+                )
+              else
+                const Icon(Icons.sync_rounded, size: 13, color: PvColors.blue),
+              const SizedBox(width: 3),
+              Text(
+                pending ? '等待房主' : '拉取播放',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: PvColors.blue,
+                ),
+              ),
+            ],
           ),
         ),
       ),

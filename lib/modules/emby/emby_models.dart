@@ -152,6 +152,9 @@ class EmbyItem {
     this.communityRating,
     this.primaryImageTag,
     this.backdropImageTag,
+    this.parentId,
+    this.seriesPrimaryImageTag,
+    this.parentPrimaryImageTag,
     this.runTimeTicks,
     this.genres = const [],
     this.officialRating,
@@ -191,6 +194,14 @@ class EmbyItem {
   /// 背景大图。详情页主视觉用，没有时退回封面。
   final String? backdropImageTag;
 
+  /// 上一级条目 id（Season 的剧、Episode 的季）。
+  final String? parentId;
+
+  /// 剧集自己没有封面时，服务端会给这两样——它们属于**上一级条目**，
+  /// 必须配上级 id 去取，配自己的 id 一定是 404。
+  final String? seriesPrimaryImageTag;
+  final String? parentPrimaryImageTag;
+
   /// Emby 的时长单位是 100 纳秒一格。
   final int? runTimeTicks;
 
@@ -214,6 +225,34 @@ class EmbyItem {
   bool get isMovie => type == 'Movie';
   bool get isEpisode => type == 'Episode';
   bool get isSeason => type == 'Season';
+
+  /// 这个条目自己有没有封面。
+  bool get hasOwnCover => (primaryImageTag ?? '').isNotEmpty;
+
+  /// 封面该去哪个条目取。
+  ///
+  /// 单集（Episode）和季（Season）经常**没有自己的 Primary 图**：服务端只
+  /// 返回 `SeriesPrimaryImageTag` / `ParentPrimaryImageTag`，而这两样属于
+  /// **上一级条目**。以前一律拿自己的 id 去请求 `/Items/{自己}/Images/Primary`，
+  /// 服务端 404，界面就是一屏灰块——「很多剧的封面都不加载」就是这么来的。
+  ///
+  /// 顺序：自己的图 > 所属剧 > 上一级 > 自己（让服务端决定）。
+  String get coverItemId {
+    if (hasOwnCover) return id;
+    final String sid = seriesId ?? '';
+    if ((seriesPrimaryImageTag ?? '').isNotEmpty && sid.isNotEmpty) return sid;
+    final String pid = parentId ?? '';
+    if ((parentPrimaryImageTag ?? '').isNotEmpty && pid.isNotEmpty) return pid;
+    return id;
+  }
+
+  /// 配套的 tag；都没有就返回 null（让地址里不带 tag，服务端取最新）。
+  String? get coverTag {
+    if (hasOwnCover) return primaryImageTag;
+    if ((seriesPrimaryImageTag ?? '').isNotEmpty) return seriesPrimaryImageTag;
+    if ((parentPrimaryImageTag ?? '').isNotEmpty) return parentPrimaryImageTag;
+    return null;
+  }
 
   /// 能直接起播的条目（电影 / 单集 / 散装视频）。
   bool get isPlayable =>
@@ -286,6 +325,9 @@ class EmbyItem {
       communityRating: _doubleOrNull(json['CommunityRating']),
       primaryImageTag: _imageTagOf(json),
       backdropImageTag: _imageTagOf(json, type: 'Backdrop'),
+      parentId: json['ParentId']?.toString(),
+      seriesPrimaryImageTag: _nonEmpty(json['SeriesPrimaryImageTag']),
+      parentPrimaryImageTag: _nonEmpty(json['ParentPrimaryImageTag']),
       runTimeTicks: _intOrNull(json['RunTimeTicks']),
       genres: genres is List
           ? [for (final g in genres) g.toString()].where((g) => g.isNotEmpty).toList()
@@ -298,6 +340,11 @@ class EmbyItem {
       childCount: _intOrNull(json['ChildCount']) ?? _intOrNull(json['RecursiveItemCount']),
     );
   }
+}
+
+String? _nonEmpty(Object? value) {
+  final String text = value?.toString().trim() ?? '';
+  return text.isEmpty ? null : text;
 }
 
 String? _imageTagOf(Map<String, dynamic> json, {String type = 'Primary'}) {
