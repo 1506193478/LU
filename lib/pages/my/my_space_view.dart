@@ -1,15 +1,21 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:XL/bean/settings/settings_list.dart';
-import 'package:XL/bean/widget/content_section.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:XL/bean/widget/state_presentation.dart';
 import 'package:XL/modules/my/watch_stats.dart';
 import 'package:XL/pages/my/profile_card.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/request/config/api_endpoints.dart';
+import 'package:XL/services/lu_profile.dart';
 import 'package:XL/utils/immersive_theme.dart';
 import 'package:material_new_shapes/material_new_shapes.dart';
 
 enum MyDestination {
   theme,
   player,
+  timeline,
   danmaku,
   rules,
   history,
@@ -18,6 +24,7 @@ enum MyDestination {
   storage,
   about,
   emby,
+  proxy,
   report,
 }
 
@@ -49,15 +56,466 @@ class MySpaceView extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 1120),
             child: wide
                 ? _WideSpaceLayout(stats: stats, onOpen: onOpen)
-                : _CompactSpaceLayout(
-                    stats: stats,
-                    onOpen: onOpen,
-                    stackTools: width < 280 || largeText,
-                  ),
+                // 手机端严格按 LU_3.9.19_预览.html 的「我的」页：
+                // LU 账号 + 内容 + 通用 三组 iOS 分组列表。
+                : _PreviewSpaceLayout(onOpen: onOpen),
           ),
         ),
       );
     });
+  }
+}
+
+/// 预览稿「我的」页（LU 全局）：iOS 分组列表。
+class _PreviewSpaceLayout extends StatelessWidget {
+  const _PreviewSpaceLayout({required this.onOpen});
+
+  final ValueChanged<MyDestination> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        PvGroup(
+          margin: const EdgeInsets.fromLTRB(20, 14, 20, 14),
+          children: [
+            // 账号行只显示头像 + 昵称，点开是改资料的面板，
+            // 不再跳到同步设置。
+            const _ProfileTile(),
+          ],
+        ),
+        const PvGroupLabel('内容'),
+        PvGroup(
+          children: [
+            PvRow(
+              icon: Icons.trending_up_rounded,
+              iconColor: const Color(0xFF0A84FF),
+              title: '时间表',
+              subtitle: '按星期看本季更新',
+              onTap: () => onOpen(MyDestination.timeline),
+            ),
+            PvRow(
+              icon: Icons.schedule_rounded,
+              iconColor: const Color(0xFF30B0C7),
+              title: '观看历史',
+              onTap: () => onOpen(MyDestination.history),
+            ),
+            PvRow(
+              icon: Icons.download_rounded,
+              iconColor: const Color(0xFF64D2FF),
+              title: '下载管理',
+              onTap: () => onOpen(MyDestination.downloads),
+            ),
+            PvRow(
+              icon: Icons.extension_rounded,
+              iconColor: const Color(0xFFFF9F0A),
+              title: '规则与插件',
+              onTap: () => onOpen(MyDestination.rules),
+              showDivider: false,
+            ),
+            // 「Emby 媒体库」入口按用户要求去掉了：底栏有 Emby 页签，
+            // 这里不必再留一个。
+          ],
+        ),
+        const PvGroupLabel('通用'),
+        PvGroup(
+          children: [
+            PvRow(
+              icon: Icons.contrast_rounded,
+              iconColor: const Color(0xFF5E5CE6),
+              title: '外观',
+              onTap: () => onOpen(MyDestination.theme),
+            ),
+            PvRow(
+              icon: Icons.public_rounded,
+              iconColor: const Color(0xFF34C759),
+              title: '网络与代理',
+              onTap: () => onOpen(MyDestination.proxy),
+            ),
+            PvRow(
+              icon: Icons.play_circle_rounded,
+              iconColor: const Color(0xFFFF375F),
+              title: '播放设置',
+              onTap: () => onOpen(MyDestination.player),
+            ),
+            PvRow(
+              icon: Icons.subtitles_rounded,
+              iconColor: const Color(0xFF30B0C7),
+              title: '弹幕设置',
+              onTap: () => onOpen(MyDestination.danmaku),
+            ),
+            PvRow(
+              icon: Icons.info_outline_rounded,
+              iconColor: const Color(0xFF8E8E93),
+              title: '关于',
+              value: ApiEndpoints.version,
+              onTap: () => onOpen(MyDestination.about),
+              showDivider: false,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// 账号行：左边头像、右边昵称，点开是「编辑资料」面板。
+///
+/// 按用户要求：不再往同步设置里跳，头像可以相册选或文件导入，昵称自己填。
+class _ProfileTile extends StatefulWidget {
+  const _ProfileTile();
+
+  @override
+  State<_ProfileTile> createState() => _ProfileTileState();
+}
+
+class _ProfileTileState extends State<_ProfileTile> {
+  String _nickname = LuProfile.defaultNickname;
+  String _avatarPath = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() {
+    if (!mounted) return;
+    setState(() {
+      _nickname = LuProfile.instance.nickname;
+      _avatarPath = LuProfile.instance.avatarPath;
+    });
+  }
+
+  Future<void> _open() async {
+    final changed = await showLuProfileEditor(context);
+    if (changed != true) return;
+    _reload();
+    // 提示要在面板关掉之后弹，用面板自己的 context 已经取不到 Scaffold 了。
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(content: Text('已保存'), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: _open,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+        child: Row(
+          children: [
+            _ProfileAvatar(path: _avatarPath, size: 46),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _nickname,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: PvText.rowTitle(context)
+                        .copyWith(fontSize: 16.5, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '点击修改头像和昵称',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: PvText.rowSub(context),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.chevron_right_rounded,
+                size: 17, color: PvColors.chev(context)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 圆形头像：有图显示图，没图用蓝紫渐变压一个人物图标。
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.path, required this.size});
+
+  final String path;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF6B7CFF), Color(0xFF4A6CF7)],
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: path.isEmpty
+          ? Icon(Icons.person_rounded,
+              size: size * 0.56, color: Colors.white.withValues(alpha: 0.92))
+          : Image(
+              image: FileImage(File(path)),
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Icon(Icons.person_rounded,
+                  size: size * 0.56,
+                  color: Colors.white.withValues(alpha: 0.92)),
+            ),
+    );
+  }
+}
+
+/// 弹出「编辑资料」面板，返回 true 表示资料改过了。
+Future<bool?> showLuProfileEditor(BuildContext context) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => const _ProfileEditorSheet(),
+  );
+}
+
+class _ProfileEditorSheet extends StatefulWidget {
+  const _ProfileEditorSheet();
+
+  @override
+  State<_ProfileEditorSheet> createState() => _ProfileEditorSheetState();
+}
+
+class _ProfileEditorSheetState extends State<_ProfileEditorSheet> {
+  late final TextEditingController _nameController;
+  String _avatarPath = '';
+  bool _dirty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController =
+        TextEditingController(text: LuProfile.instance.nickname);
+    _avatarPath = LuProfile.instance.avatarPath;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  Future<void> _pickFromGallery() async {
+    try {
+      final file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 640,
+        imageQuality: 88,
+      );
+      if (file == null) return;
+      setState(() {
+        _avatarPath = file.path;
+        _dirty = true;
+      });
+    } catch (e) {
+      _toast('读取相册失败：$e');
+    }
+  }
+
+  Future<void> _pickFromFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      final path = result?.files.single.path;
+      if (path == null || path.isEmpty) return;
+      setState(() {
+        _avatarPath = path;
+        _dirty = true;
+      });
+    } catch (e) {
+      _toast('读取文件失败：$e');
+    }
+  }
+
+  Future<void> _save() async {
+    await LuProfile.instance.setNickname(_nameController.text);
+    await LuProfile.instance.setAvatarPath(_avatarPath);
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final canPop = Navigator.of(context).canPop();
+    return Container(
+      decoration: BoxDecoration(
+        color: PvColors.card(context),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 10, 20, 20 + bottom),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 38,
+              height: 4,
+              decoration: BoxDecoration(
+                color: PvColors.hair(context),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '编辑资料',
+                    style: TextStyle(
+                      color: PvColors.ink(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (canPop)
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).pop(false),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: PvColors.searchFill(context),
+                      ),
+                      child: Icon(Icons.close_rounded,
+                          size: 16, color: PvColors.ink2(context)),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _ProfileAvatar(path: _avatarPath, size: 84),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _SheetChip(
+                  icon: Icons.photo_library_rounded,
+                  label: '相册',
+                  onTap: _pickFromGallery,
+                ),
+                const SizedBox(width: 10),
+                _SheetChip(
+                  icon: Icons.folder_rounded,
+                  label: '文件',
+                  onTap: _pickFromFile,
+                ),
+                const SizedBox(width: 10),
+                _SheetChip(
+                  icon: Icons.delete_outline_rounded,
+                  label: '移除',
+                  onTap: () => setState(() {
+                    _avatarPath = '';
+                    _dirty = true;
+                  }),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            TextField(
+              controller: _nameController,
+              textAlignVertical: TextAlignVertical.center,
+              onChanged: (_) => setState(() => _dirty = true),
+              style: TextStyle(color: PvColors.ink(context), fontSize: 15),
+              decoration: InputDecoration(
+                hintText: '昵称',
+                hintStyle: TextStyle(color: PvColors.ink3(context)),
+                isCollapsed: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                filled: true,
+                fillColor: PvColors.searchFill(context),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF4A6CF7),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(13)),
+                ),
+                onPressed: _dirty ? _save : () => Navigator.of(context).pop(false),
+                child: Text(_dirty ? '保存' : '完成',
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetChip extends StatelessWidget {
+  const _SheetChip(
+      {required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: PvColors.searchFill(context),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: PvColors.ink2(context)),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                    color: PvColors.ink(context),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -120,6 +578,11 @@ class _WideSpaceLayout extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _AdaptivePair(
+          first: _TimelineTile(onTap: () => onOpen(MyDestination.timeline)),
+          second: const SizedBox.shrink(),
+        ),
+        const SizedBox(height: 12),
+        _AdaptivePair(
           first: _PreferencesPanel(onOpen: onOpen),
           second: _AdaptivePair(
             first: _ToolTile(
@@ -165,95 +628,33 @@ class _WideSpaceLayout extends StatelessWidget {
   }
 }
 
-class _CompactSpaceLayout extends StatelessWidget {
-  const _CompactSpaceLayout({
-    required this.stats,
-    required this.onOpen,
-    required this.stackTools,
-  });
 
-  final WatchStats stats;
-  final ValueChanged<MyDestination> onOpen;
-  final bool stackTools;
+/// 时间表入口：底栏里挪走之后，这里就是它唯一的家。
+class _TimelineTile extends StatelessWidget {
+  const _TimelineTile({required this.onTap});
+
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const ProfileCard(),
-        const SizedBox(height: 12),
-        _WatchStatsPanel(
-          bangumiCount: stats.watchedBangumiCount,
-          episodeCount: stats.watchedEpisodeCount,
-          compact: true,
-          onTap: () => onOpen(MyDestination.report),
-        ),
-        const SizedBox(height: 12),
-        _AdaptivePair(
-          stack: stackTools,
-          first: _ToolTile(
-            icon: Icons.history_rounded,
-            title: '历史记录',
-            caption: stats.watchedBangumiCount == 0 ? '暂无观看记录' : '查看观看记录',
-            color: colors.secondaryContainer,
-            foreground: colors.onSecondaryContainer,
-            compact: true,
-            onTap: () => onOpen(MyDestination.history),
-          ),
-          second: _ToolTile(
-            icon: Icons.download_rounded,
-            title: '离线下载',
-            caption: stats.downloadTaskCount == 0
-                ? '管理离线内容'
-                : '${stats.downloadTaskCount} 集下载任务',
-            color: colors.secondaryContainer,
-            foreground: colors.onSecondaryContainer,
-            compact: true,
-            onTap: () => onOpen(MyDestination.downloads),
-          ),
-        ),
-        const SizedBox(height: 24),
-        ContentSection.group(
-          title: '内容与偏好',
-          children: [
-            _entry('Emby 媒体库', Icons.dns_rounded, MyDestination.emby),
-            _entry('规则设置', Icons.extension_rounded, MyDestination.rules),
-            _entry('外观设置', Icons.palette_rounded, MyDestination.theme),
-            _entry('播放设置', Icons.play_circle_rounded, MyDestination.player),
-            _entry('弹幕设置', Icons.subtitles_rounded, MyDestination.danmaku),
-          ],
-        ),
-        const SizedBox(height: 24),
-        ContentSection.group(
-          title: '数据与应用',
-          children: [
-            _entry('同步备份', Icons.cloud_sync_rounded, MyDestination.sync),
-            _entry(
-                '存储管理', Icons.cleaning_services_rounded, MyDestination.storage),
-            _entry(
-                '关于 LU', Icons.info_outline_rounded, MyDestination.about),
-          ],
-        ),
-      ],
+    return _ToolTile(
+      icon: Icons.timeline_rounded,
+      title: '时间表',
+      caption: '本周新番播出时间',
+      color: colors.surfaceContainer,
+      foreground: colors.onSurface,
+      onTap: onTap,
     );
   }
-
-  Widget _entry(String title, IconData icon, MyDestination destination) =>
-      SettingsTile(
-        title: Text(title),
-        leading: icon,
-        trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-        onPressed: (_) => onOpen(destination),
-      );
 }
 
 class _WatchStatsPanel extends StatelessWidget {
   const _WatchStatsPanel({
     required this.bangumiCount,
     required this.episodeCount,
-    this.compact = false,
+    this.compact = false, // ignore: unused_element_parameter
+    // (旧紧凑布局遗留，宽屏布局只走非 compact 分支)
     this.onTap,
   });
 
@@ -477,7 +878,7 @@ class _ToolTile extends StatelessWidget {
     required this.color,
     required this.foreground,
     required this.onTap,
-    this.compact = false,
+    this.compact = false, // ignore: unused_element_parameter
   });
 
   final IconData icon;
@@ -800,7 +1201,7 @@ class _AdaptivePair extends StatelessWidget {
   const _AdaptivePair({
     required this.first,
     required this.second,
-    this.stack = false,
+    this.stack = false, // ignore: unused_element_parameter
     this.gap = 12,
   });
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:XL/pages/emby/emby_preview_style.dart';
+
 class RulePageIntro extends StatelessWidget {
   const RulePageIntro({
     super.key,
@@ -69,24 +71,32 @@ class RuleSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(28),
+    // Pv 全铺：规则管理的卡片也是一张白卡，不再用中灰 tonal 面。
+    return Container(
+      decoration: BoxDecoration(
+        color: PvColors.card(context),
+        borderRadius: BorderRadius.circular(18),
+      ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(children: [
               if (icon != null) ...[
-                Icon(icon, color: theme.colorScheme.primary),
+                Icon(icon, color: PvColors.blue),
                 const SizedBox(width: 12),
               ],
               Expanded(
                   child: Text(title,
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(fontWeight: FontWeight.w600))),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                        color: PvColors.ink(context),
+                      )),
+              ),
             ]),
             if (description != null) ...[
               const SizedBox(height: 6),

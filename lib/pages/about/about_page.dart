@@ -24,20 +24,14 @@ class AboutPage extends StatelessWidget {
                   title: '开源',
                   children: [
                     const AboutLinkTile(
-                      icon: Icons.handshake_outlined,
-                      title: '贡献指南',
-                      url:
-                          '${ApiEndpoints.sourceUrl}/blob/main/static/doc/CONTRIBUTING.md',
+                      icon: Icons.article_outlined,
+                      title: '更新日志',
+                      url: '${ApiEndpoints.sourceUrl}/releases',
                     ),
                     const AboutLinkTile.route(
                       icon: Icons.favorite_outline_rounded,
                       title: '致谢',
                       route: '/settings/about/credits',
-                    ),
-                    const AboutLinkTile(
-                      icon: Icons.balance_rounded,
-                      title: 'GPL-3.0 许可证',
-                      url: '${ApiEndpoints.sourceUrl}/blob/main/LICENSE',
                     ),
                     const AboutLinkTile.route(
                       icon: Icons.description_outlined,
@@ -114,14 +108,6 @@ class _ProjectHeader extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               CheckUpdateButton(onCheckUpdate: onCheckUpdate),
-              TextButton(
-                style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
-                onPressed: () => openAboutLink(
-                  context,
-                  '${ApiEndpoints.sourceUrl}/releases',
-                ),
-                child: const Text('更新日志'),
-              ),
             ],
           ),
         ],

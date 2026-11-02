@@ -72,13 +72,36 @@ class NetworkErrorMapper {
             const Duration(seconds: 1),
           );
         } catch (_) {}
+        // 这里原来只拼「正在使用wifi 网络异常」——真正的原因（TLS 被中断、
+        // 域名解析失败、连接被重置）全被丢掉了，用户和日志都看不出是哪一步
+        // 断的。番剧插件站连不上时全是这条，等于没有信息。
+        final cause = _causeOf(error);
         return NetworkException(
           type: NetworkExceptionType.unknown,
-          message: '$connection 网络异常'.trimLeft(),
+          message: [connection, '网络异常', cause]
+              .where((part) => part.isNotEmpty)
+              .join(' · '),
           rawError: error,
           stackTrace: error.stackTrace,
         );
     }
+  }
+
+  /// 从底层异常里抠一句人话原因，抠不到就返回空串。
+  static String _causeOf(DioException error) {
+    final Object raw = error.error ?? error;
+    final String text = raw.toString();
+    if (text.contains('HandshakeException')) return 'TLS 握手被中断';
+    if (text.contains('SocketException')) {
+      if (text.contains('Failed host lookup')) return '域名解析失败';
+      if (text.contains('Connection refused')) return '对方拒绝连接';
+      if (text.contains('Connection reset')) return '连接被重置';
+      if (text.contains('Network is unreachable')) return '网络不可达';
+      return '连接被关闭';
+    }
+    if (text.contains('HttpException')) return 'HTTP 层出错';
+    final String message = error.message ?? '';
+    return message.length > 80 ? '${message.substring(0, 80)}…' : message;
   }
 
   static NetworkException parse(Object error, StackTrace stackTrace) {

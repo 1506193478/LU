@@ -4,7 +4,10 @@ import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_detail_page.dart';
 import 'package:XL/pages/emby/emby_library_page.dart';
 import 'package:XL/pages/emby/emby_page.dart';
+import 'package:XL/pages/emby/emby_search_page.dart';
 import 'package:XL/pages/emby/emby_server_page.dart';
+import 'package:XL/pages/emby/player/emby_player_args.dart';
+import 'package:XL/pages/emby/player/emby_player_page.dart';
 import 'package:XL/pages/route_error_page.dart';
 
 /// Emby 媒体库。
@@ -40,6 +43,20 @@ final embyModule = createModule(
         },
       )
       ..route(
+        '/search',
+        child: (context, state) => const EmbySearchPage(),
+      )
+      ..route(
+        '/player',
+        child: (context, state) {
+          final args = state.arguments;
+          if (args is! EmbyPlaybackLaunch) {
+            return const RouteErrorPage(message: '播放参数无效，请返回后重试。');
+          }
+          return EmbyPlayerPage(launch: args);
+        },
+      )
+      ..route(
         '/servers',
         child: (context, state) => const EmbyServerPage(),
       )
@@ -50,5 +67,17 @@ final embyModule = createModule(
           return EmbyServerEditPage(server: args is EmbyServer ? args : null);
         },
       );
+  },
+);
+
+/// Emby 作为底栏页签时的壳路由。
+///
+/// 只挂首页一条路由；详情 / 播放 / 服务器管理仍然走根部的 [embyModule]
+/// （`/emby/detail` 等绝对路径）。这样页签状态归 tab 壳管，
+/// 二级页照旧从根部推入，不需要把所有 `pushNamed('/emby/...')` 改路径。
+final embyTabModule = createModule(
+  path: '/emby',
+  register: (c) {
+    c.route('/', child: (context, state) => const EmbyPage());
   },
 );

@@ -502,6 +502,17 @@ class SyncplayClient {
         room: _currentRoom ?? ''));
   }
 
+  /// 上报「我这边已经就绪」。
+  ///
+  /// 服务端把它记在该成员的 `ready.isReady` 上，随 `Set.user` 广播给全房间。
+  /// 房主据此判断「大家都加载好了」，再一起起播。
+  Future<void> setReady() async {
+    if (_currentRoom == null || _username == null) {
+      return;
+    }
+    await _sendMessage(SetMessage(setReady: true));
+  }
+
   Future<void> sendSyncPlaySyncRequest({bool? doSeek}) {
     return _sendState(
       position: _currentPositon,

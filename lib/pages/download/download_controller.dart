@@ -34,6 +34,19 @@ abstract class _DownloadController with Store {
 
   @observable
   ObservableList<DownloadRecord> records = ObservableList<DownloadRecord>();
+
+  /// 正在下载的集数 / 排队中的集数 / 总进度（0-1）。
+  ///
+  /// 底栏那条细进度条读这三个值。原来下载中在界面上完全没有常驻指示，
+  /// 只有打开「我的 → 下载」才看得见。
+  @observable
+  int activeDownloads = 0;
+
+  @observable
+  int queuedDownloads = 0;
+
+  @observable
+  double downloadProgress = 0;
   final ObservableList<String> recordKeys = ObservableList<String>();
   final ObservableMap<String, DownloadRecord> recordByKey =
       ObservableMap<String, DownloadRecord>();
@@ -264,7 +277,33 @@ abstract class _DownloadController with Store {
         ..addEntries(nextRecords.map(
           (record) => MapEntry(record.key, _cloneRecord(record)),
         ));
+
+      _syncDownloadActivity();
     });
+  }
+
+  /// 从 [records] 里算出「底栏进度条」要的三个数。只在 action 内部调用。
+  void _syncDownloadActivity() {
+    var active = 0;
+    var queued = 0;
+    var total = 0;
+    var progress = 0.0;
+    for (final record in records) {
+      for (final episode in record.episodes.values) {
+        if (episode.status == DownloadStatus.downloading) {
+          active++;
+          total++;
+          progress += episode.progressPercent.clamp(0.0, 1.0);
+        } else if (episode.status == DownloadStatus.resolving ||
+            episode.status == DownloadStatus.pending) {
+          queued++;
+          total++;
+        }
+      }
+    }
+    activeDownloads = active;
+    queuedDownloads = queued;
+    downloadProgress = total == 0 ? 0 : progress / total;
   }
 
   void _refreshRecord(String recordKey) {
@@ -290,6 +329,8 @@ abstract class _DownloadController with Store {
       } else {
         records[recordIndex] = _cloneRecord(record);
       }
+
+      _syncDownloadActivity();
     });
   }
 

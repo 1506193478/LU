@@ -286,6 +286,8 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
           userName: auth.userName,
           accessToken: auth.accessToken,
           allowBadCertificate: _allowBadCertificate,
+          // 这里只是改地址/账号，备用线路列表要保持原样，不能被清空。
+          backupUrls: existing?.backupUrls ?? const <String>[],
         ),
       );
     } catch (e) {

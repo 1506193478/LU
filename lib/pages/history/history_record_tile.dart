@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:XL/bean/card/network_img_layer.dart';
 import 'package:XL/bean/widget/kazumi_menu.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/bean/widget/loading_indicator.dart';
 import 'package:XL/modules/collect/collect_type.dart';
 import 'package:XL/modules/history/history_module.dart';
@@ -77,7 +78,7 @@ class HistoryRecordTile extends StatelessWidget {
             Icon(Icons.delete_outline_rounded, color: colors.onErrorContainer),
       ),
       child: Material(
-        color: colors.surfaceContainerLow,
+        color: PvColors.card(context),
         borderRadius: borderRadius,
         clipBehavior: Clip.antiAlias,
         child: Stack(

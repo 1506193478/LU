@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:XL/bean/card/network_img_layer.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/bean/widget/error_widget.dart';
 import 'package:XL/bean/widget/state_presentation.dart';
+import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/request/clients/emby_client.dart';
 
 /// Emby 相关的通用小组件。
 ///
-/// 这里刻意复用 [NeuSurface] / [NetworkImgLayer]，而不是另起一套视觉：
+/// 这里刻意复用 [NeuSurface] / [EmbyImage]，而不是另起一套视觉：
 /// 拟态面板的凸起和阴影参数在 [NeuTokens] 里统一管，新页面自己画一套
 /// 很容易在浅色和深色两种模式下各偏一点。
 
@@ -24,6 +24,7 @@ class EmbyFutureView<T> extends StatelessWidget {
     required this.future,
     required this.builder,
     required this.onRetry,
+    this.onSwitchServer,
     this.isEmpty,
     this.emptyTitle = '这里是空的',
     this.emptyMessage = '换个媒体库看看，或者先在 Emby 服务端添加内容。',
@@ -32,6 +33,10 @@ class EmbyFutureView<T> extends StatelessWidget {
   final Future<T> future;
   final Widget Function(BuildContext context, T data) builder;
   final VoidCallback onRetry;
+
+  /// 出错时的第二条出路。连不上就卡在这一页是最糟的体验，
+  /// 必须能直接换一台服务器。
+  final VoidCallback? onSwitchServer;
   final bool Function(T data)? isEmpty;
   final String emptyTitle;
   final String emptyMessage;
@@ -51,6 +56,13 @@ class EmbyFutureView<T> extends StatelessWidget {
               title: '连不上 Emby',
               errMsg: embyErrorMessage(snapshot.error!),
               onRetry: onRetry,
+              actions: [
+                if (onSwitchServer != null)
+                  TextButton(
+                    onPressed: onSwitchServer,
+                    child: const Text('换服务器'),
+                  ),
+              ],
             ),
           );
         }
@@ -176,13 +188,7 @@ class EmbyPosterCard extends StatelessWidget {
   }
 
   Widget _image(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) => NetworkImgLayer(
-        src: imageUrl,
-        width: constraints.maxWidth,
-        height: constraints.maxHeight,
-      ),
-    );
+    return EmbyImage(url: imageUrl);
   }
 }
 

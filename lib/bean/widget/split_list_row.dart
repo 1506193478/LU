@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'package:XL/bean/widget/clay.dart';
-import 'package:XL/bean/widget/tonal_card.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/utils/motion.dart';
 
-const double splitListOuterRadius = tonalCardRadius;
+const double splitListOuterRadius = 16;
 const double splitListInnerRadius = 4;
 const double splitListRowGap = 4;
 
@@ -62,8 +61,6 @@ class _SplitListRowState extends State<SplitListRow> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final ClayToneColors clay = ClayToneColors.of(context, ClayTone.surface);
-    final bool dark = theme.brightness == Brightness.dark;
     final child = widget.onTap == null
         ? widget.child
         : InkWell(
@@ -83,22 +80,14 @@ class _SplitListRowState extends State<SplitListRow> {
           : KazumiMotion.fast,
       curve: splitListMotionCurve,
       clipBehavior: Clip.antiAlias,
+      // 按下只做 1px 下沉 + 底色压深，不再翻渐变、不再有粘土的高光边。
       transform: Matrix4.translationValues(0, _pressed ? 1 : 0, 0),
       transformAlignment: Alignment.center,
       decoration: BoxDecoration(
-        // 受光方向：常态左上、按下右下。
-        gradient: LinearGradient(
-          begin: _pressed ? Alignment.bottomRight : Alignment.topLeft,
-          end: _pressed ? Alignment.topLeft : Alignment.bottomRight,
-          colors: [clay.light, clay.dark],
-        ),
+        color: _pressed
+            ? PvColors.searchFill(context)
+            : PvColors.card(context),
         borderRadius: radius,
-        border: Border.all(
-          color: dark
-              ? Colors.white.withValues(alpha: _pressed ? 0.03 : 0.07)
-              : Colors.black.withValues(alpha: 0.05),
-          width: 0.5,
-        ),
       ),
       child: Material(
         type: MaterialType.transparency,
@@ -106,10 +95,10 @@ class _SplitListRowState extends State<SplitListRow> {
           data: theme.listTileTheme.copyWith(
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            titleTextStyle:
-                theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurface),
+            titleTextStyle: theme.textTheme.bodyLarge
+                ?.copyWith(color: PvColors.ink(context)),
             subtitleTextStyle: theme.textTheme.bodyMedium
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ?.copyWith(color: PvColors.ink3(context)),
           ),
           child: _SplitRowScope(onPressChanged: _reportPress, child: child),
         ),
@@ -141,20 +130,33 @@ class SplitListGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (int i = 0; i < children.length; i++) ...[
-          if (i > 0) const SizedBox(height: splitListRowGap),
-          SplitListRow(
-            topRadius: i == 0 ? outerRadius : splitListInnerRadius,
-            bottomRadius:
-                i == children.length - 1 ? outerRadius : splitListInnerRadius,
-            pressedRadius: outerRadius,
-            child: children[i],
-          ),
+    // Pv 的分组是一张整卡 + 行间发丝线，不是「一块块粘土砖拼起来」：
+    // 砖块之间的 4px 缝在 Pv 上会读成碎裂，分隔要靠线而不是缝。
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: PvColors.card(context),
+        borderRadius: BorderRadius.circular(outerRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (int i = 0; i < children.length; i++) ...[
+            if (i > 0)
+              Container(
+                height: 0.8,
+                margin: const EdgeInsets.only(left: 16),
+                color: PvColors.hair(context),
+              ),
+            SplitListRow(
+              topRadius: 0,
+              bottomRadius: 0,
+              pressedRadius: outerRadius,
+              child: children[i],
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

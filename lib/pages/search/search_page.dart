@@ -14,7 +14,15 @@ import 'package:XL/bean/widget/skeleton_card.dart';
 import 'package:XL/bean/widget/empty_state_widget.dart';
 import 'package:XL/bean/widget/state_presentation.dart';
 import 'package:XL/modules/bangumi/bangumi_item.dart';
+import 'package:XL/modules/download/download_module.dart';
+import 'package:XL/modules/emby/emby_models.dart';
+import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/modules/search/search_config.dart';
+import 'package:XL/pages/download/download_controller.dart';
+import 'package:XL/pages/emby/emby_detail_page.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/pages/emby/emby_style.dart';
+import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/pages/search/search_controller.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/utils/constants.dart';
@@ -46,6 +54,13 @@ class _SearchPageState extends State<SearchPage> {
   final _searchHeaderKey = GlobalKey();
   String? _submittedQuery;
   bool _managingHistory = false;
+
+  // ---------------------------------------------------------- 聚合搜索
+  // 搜索原来只搜插件源（番剧），Emby 库里的和已经下载的在搜索结果里完全
+  // 不存在 —— 一部番明明下过了，搜出来还是让你再挑一遍源。
+  final List<EmbyItem> _embyHits = <EmbyItem>[];
+  final List<DownloadRecord> _downloadHits = <DownloadRecord>[];
+  int _othersToken = 0;
 
   SearchPageController get _controller => widget.controller;
   bool get _hasSearched => _submittedQuery != null;
@@ -95,6 +110,9 @@ class _SearchPageState extends State<SearchPage> {
     // _writeInput 会触发 onChanged 并排一次联想请求，这里立刻取消掉。
     _controller.clearSuggestions();
     setState(() => _submittedQuery = query);
+    // 番剧源和「其他来源」并行发：Emby / 本地库都是本地或局域网请求，
+    // 不该让它们拖慢主列表。
+    _loadOtherSources(SearchParser(query).toFilterState().keyword);
     final request = _controller.searchBangumi(query, type: 'init');
     if (_scroll.hasClients) _scroll.jumpTo(0);
     await request;
@@ -108,9 +126,76 @@ class _SearchPageState extends State<SearchPage> {
     _loadMore();
   }
 
+  Future<void> _openEmbyItem(EmbyItem item) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => EmbyDetailPage(item: item)),
+    );
+  }
+
   void _loadMore() {
     final query = _submittedQuery;
     if (query != null) _controller.searchBangumi(query);
+  }
+
+  /// 并行去 Emby 和本地已下载里找同一个关键词。
+  ///
+  /// 两路都做成「失败就当没有」，任何一路挂掉都不能影响搜索结果本身 ——
+  /// 这个功能是附加信息，不是主路径。
+  Future<void> _loadOtherSources(String keyword) async {
+    final String q = keyword.trim().toLowerCase();
+    final int token = ++_othersToken;
+    if (q.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _embyHits.clear();
+        _downloadHits.clear();
+      });
+      return;
+    }
+
+    // 本地已下载：纯内存过滤，不涉及网络。
+    final List<DownloadRecord> local = <DownloadRecord>[];
+    try {
+      final DownloadController downloads = inject<DownloadController>();
+      if (downloads.records.isEmpty) {
+        downloads.refreshRecords();
+      }
+      for (final DownloadRecord record in downloads.records) {
+        if (record.bangumiName.toLowerCase().contains(q)) {
+          local.add(record);
+        }
+      }
+    } catch (_) {
+      // 下载控制器没初始化也不影响搜索。
+    }
+
+    // Emby 只搜当前服务器：跨服搜一遍要等好几秒，搜索结果里挂个一直转圈
+    // 的区块比没有更难受。
+    List<EmbyItem> emby = const <EmbyItem>[];
+    try {
+      final EmbyService service = EmbyService.instance;
+      final EmbyServer? active = service.activeServer;
+      if (active != null) {
+        emby = await service.clientFor(active).search(
+              userId: active.userId,
+              keyword: keyword.trim(),
+              limit: 20,
+              includeItemTypes: 'Movie,Series,BoxSet,Video',
+            );
+      }
+    } catch (_) {
+      emby = const <EmbyItem>[];
+    }
+
+    if (!mounted || token != _othersToken) return;
+    setState(() {
+      _embyHits
+        ..clear()
+        ..addAll(emby.where((EmbyItem item) => !item.isEpisode).take(12));
+      _downloadHits
+        ..clear()
+        ..addAll(local.take(6));
+    });
   }
 
   Future<void> _showFilters() async {
@@ -145,12 +230,13 @@ class _SearchPageState extends State<SearchPage> {
     setState(() {
       _submittedQuery = null;
       _managingHistory = false;
+      _embyHits.clear();
+      _downloadHits.clear();
     });
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
   Widget _searchField() {
-    final colors = Theme.of(context).colorScheme;
     return Observer(builder: (_) {
       // 占位提示词跟随热搜榜第一名，对应参考实现下发的 defaultKeyword。
       final hint = _controller.defaultKeyword.isEmpty
@@ -163,9 +249,19 @@ class _SearchPageState extends State<SearchPage> {
           focusNode: _inputFocus,
           hintText: hint,
           textInputAction: TextInputAction.search,
-          constraints: const BoxConstraints(minHeight: 64),
+          constraints: const BoxConstraints(minHeight: 56),
           elevation: const WidgetStatePropertyAll(0),
-          backgroundColor: WidgetStatePropertyAll(colors.surfaceContainerHigh),
+          // Pv 的搜索条：#EFEFF3 底、11 圆角、占位字 #8A8A8E。
+          backgroundColor: WidgetStatePropertyAll(PvColors.searchFill(context)),
+          hintStyle: WidgetStatePropertyAll(
+            TextStyle(fontSize: 15, color: PvColors.searchHint(context)),
+          ),
+          textStyle: WidgetStatePropertyAll(
+            TextStyle(fontSize: 15, color: PvColors.ink(context)),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+          ),
           padding:
               const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8)),
           leading: IconButton(
@@ -351,13 +447,29 @@ class _SearchPageState extends State<SearchPage> {
     final summary = _filterSummary(submitted);
 
     return [
+      // 「其他来源」放在番剧源上面：已经下过的、Emby 里有的，往往比再去
+      // 挑一个插件源更快。没有命中就整块不出现。
+      if (_embyHits.isNotEmpty)
+        SliverToBoxAdapter(
+          child: _EmbyHitsSection(
+            items: _embyHits,
+            onTap: _openEmbyItem,
+          ),
+        ),
+      if (_downloadHits.isNotEmpty)
+        SliverToBoxAdapter(
+          child: _DownloadHitsSection(
+            records: _downloadHits,
+            onTap: (_) => context.pushNamed('/settings/download/'),
+          ),
+        ),
       SliverToBoxAdapter(
           child: Padding(
         padding: const EdgeInsets.only(bottom: 20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(
-                child: Text('搜索结果',
+                child: Text('番剧源',
                     style: Theme.of(context)
                         .textTheme
                         .titleMedium
@@ -517,6 +629,207 @@ class _SearchPageState extends State<SearchPage> {
                         ])),
             ]);
           })),
+    );
+  }
+}
+
+/// 搜索结果里的「Emby 库」横向条。
+class _EmbyHitsSection extends StatelessWidget {
+  const _EmbyHitsSection({required this.items, required this.onTap});
+
+  final List<EmbyItem> items;
+  final ValueChanged<EmbyItem> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final EmbyServer? server = EmbyService.instance.activeServer;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PvSectionHead('Emby 库', count: '${items.length}', topPadding: 4),
+        SizedBox(
+          height: 150,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: items.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (BuildContext context, int i) {
+              final EmbyItem item = items[i];
+              final String url = server == null
+                  ? ''
+                  : embyImageUrl(
+                      serverUrl: server.url,
+                      itemId: item.id,
+                      accessToken: server.accessToken,
+                      maxHeight: 400,
+                      tag: item.primaryImageTag,
+                    );
+              return GestureDetector(
+                onTap: () => onTap(item),
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 88,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: 88,
+                          height: 116,
+                          child: url.isEmpty
+                              ? Container(
+                                  color: PvColors.searchFill(context),
+                                  child: Icon(Icons.movie_outlined,
+                                      size: 22, color: PvColors.ink3(context)),
+                                )
+                              : EmbyImage(
+                                  url: url,
+                                  headers: embyAuthHeaders(server),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        item.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                          color: PvColors.ink(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+}
+
+/// 搜索结果里的「已下载」区块。
+class _DownloadHitsSection extends StatelessWidget {
+  const _DownloadHitsSection({required this.records, required this.onTap});
+
+  final List<DownloadRecord> records;
+  final ValueChanged<DownloadRecord> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PvSectionHead('已下载', count: '${records.length}', topPadding: 6),
+        PvGroup(
+          children: [
+            for (var i = 0; i < records.length; i++)
+              _DownloadHitRow(
+                record: records[i],
+                showDivider: i > 0,
+                onTap: () => onTap(records[i]),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DownloadHitRow extends StatelessWidget {
+  const _DownloadHitRow({
+    required this.record,
+    required this.onTap,
+    this.showDivider = true,
+  });
+
+  final DownloadRecord record;
+  final VoidCallback onTap;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final int done = record.episodes.values
+        .where((DownloadEpisode e) => e.status == DownloadStatus.completed)
+        .length;
+    final String sub = <String>[
+      if (done > 0) '已下 $done 集',
+      if (record.pluginName.isNotEmpty) record.pluginName,
+    ].join(' · ');
+
+    final Widget row = InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(7),
+              child: SizedBox(
+                width: 34,
+                height: 46,
+                child: record.bangumiCover.isEmpty
+                    ? Container(
+                        color: PvColors.searchFill(context),
+                        child: Icon(Icons.download_done_rounded,
+                            size: 16, color: PvColors.ink3(context)),
+                      )
+                    : NetworkImgLayer(
+                        src: record.bangumiCover,
+                        width: 34,
+                        height: 46,
+                      ),
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    record.bangumiName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: PvText.rowTitle(context),
+                  ),
+                  if (sub.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        sub,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: PvText.rowSub(context).copyWith(fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                size: 17, color: PvColors.chev(context)),
+          ],
+        ),
+      ),
+    );
+
+    if (!showDivider) return row;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          height: 0.8,
+          margin: const EdgeInsets.only(left: 60),
+          color: PvColors.hair(context),
+        ),
+        row,
+      ],
     );
   }
 }

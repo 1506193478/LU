@@ -104,4 +104,24 @@ class SyncPlayRecentRoom {
     GStorage.putSetting<String>(SettingsKeys.syncPlayRecentRooms, '[]');
     return const <SyncPlayRecentRoom>[];
   }
+
+  /// 删掉一条，返回剩下的（最新的在前）。
+  ///
+  /// 「最近进过」原来只有进、没有删：进错房、或者房号早就作废的那些会一直挂在
+  /// 列表最上面，只能靠再进五次新房把它们挤下去。
+  static List<SyncPlayRecentRoom> remove(String room) {
+    if (room.isEmpty) {
+      return load();
+    }
+    final List<SyncPlayRecentRoom> left = <SyncPlayRecentRoom>[
+      ...load().where((SyncPlayRecentRoom item) => item.room != room),
+    ];
+    GStorage.putSetting<String>(
+      SettingsKeys.syncPlayRecentRooms,
+      jsonEncode(<Map<String, dynamic>>[
+        for (final SyncPlayRecentRoom item in left) item.toJson(),
+      ]),
+    );
+    return left;
+  }
 }

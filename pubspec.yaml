@@ -1,7 +1,7 @@
 name: XL
 description: "A new Flutter project."
 publish_to: "none"
-version: 3.9.14+30914
+version: 3.9.30+30930
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
@@ -158,7 +158,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
-    - assets/splash/
     - assets/stickers/lu/
     - assets/shaders/
     - assets/images/logo/

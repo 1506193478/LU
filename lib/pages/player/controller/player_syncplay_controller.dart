@@ -11,6 +11,7 @@ import 'package:XL/services/player/syncplay_play_request.dart';
 import 'package:XL/services/player/syncplay_catch_up.dart';
 import 'package:XL/services/player/syncplay_pull_request.dart';
 import 'package:XL/services/player/syncplay_drift.dart';
+import 'package:XL/services/player/syncplay_source_key.dart';
 import 'package:XL/services/player/syncplay_reaction.dart';
 import 'package:XL/services/player/syncplay_room_prompts.dart';
 import 'package:XL/services/player/syncplay_room_signals.dart';
@@ -242,9 +243,9 @@ abstract class _PlayerSyncPlayController with Store {
     final String mine = selfFileTag;
     for (final SyncPlayUserInfo member in syncplayMembers) {
       if (member.username == self) continue;
-      final String? file = member.fileName;
-      if (file == null || file.isEmpty) continue;
-      if (file != mine) return true;
+      // 归一化之后再比：直接比字符串的话，混进一个官方 Syncplay 客户端
+      // （它传的是真实文件名）就会一直误报，换个清晰度也会误报。
+      if (syncPlaySourcesDiffer(mine, member.fileName)) return true;
     }
     return false;
   }
@@ -777,7 +778,17 @@ abstract class _PlayerSyncPlayController with Store {
           forceSyncPlaying: forceSyncPlaying,
           forceSyncPosition: forceSyncPosition);
       await client.sendSyncPlaySyncRequest(doSeek: null);
+      // 片源真的加载完、进度也广播出去了，才算「就绪」。房主在大厅等这一条，
+      // 齐了才一起起播 —— 否则每个人起播差 5~15 秒，第一次对齐只能硬 seek。
+      await markReady();
     });
+  }
+
+  /// 上报就绪。重复上报无副作用，重连后再报一次也无妨。
+  Future<void> markReady() async {
+    final client = syncplayController;
+    if (client == null) return;
+    await _runBestEffortSync(() => client.setReady());
   }
 
   Future<void> requestSync({bool? doSeek}) async {

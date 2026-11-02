@@ -4,11 +4,9 @@ import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/bean/appbar/sys_app_bar.dart';
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/settings/settings_list.dart';
-import 'package:XL/bean/widget/clay.dart';
-import 'package:XL/bean/widget/content_section.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/settings/player_settings.dart';
 import 'package:XL/utils/constants.dart';
-import 'package:XL/bean/widget/clay_neu.dart';
 
 class _SettingsCategory {
   const _SettingsCategory({
@@ -287,7 +285,7 @@ class SettingsIndexPage extends StatelessWidget {
       return const PlayerSettingsPage();
     }
     return Scaffold(
-      backgroundColor: neuScaffoldBackground(context),
+      backgroundColor: PvColors.page(context),
       appBar: SysAppBar(
         title: const Text('设置'),
         leading: BackButton(onPressed: () {
@@ -326,7 +324,7 @@ class _SettingsMenu extends StatelessWidget {
             if (wide) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(28, 16, 28, 8),
-                child: SectionHeader(title: Text(group.title)),
+                child: Text(group.title, style: PvText.groupLabel(context)),
               ),
               for (final category in group.categories)
                 _RailDestination(
@@ -334,22 +332,31 @@ class _SettingsMenu extends StatelessWidget {
                   selected: selectedPath == category.path,
                   onTap: () => onSelect(category.path),
                 ),
-            ] else
+            ] else ...[
               Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: ContentSection.group(
-                  title: group.title,
-                  children: [
-                    for (final category in group.categories)
-                      SettingsCategoryTile(
-                        icon: category.icon,
-                        title: category.label,
-                        description: category.description,
-                        onTap: () => onSelect(category.path),
-                      ),
-                  ],
-                ),
+                padding: const EdgeInsets.fromLTRB(4, 16, 4, 7),
+                child: Text(group.title, style: PvText.groupLabel(context)),
               ),
+              PvGroup(
+                margin: EdgeInsets.zero,
+                children: [
+                  for (var i = 0; i < group.categories.length; i++) ...[
+                    if (i > 0)
+                      Container(
+                        height: 0.8,
+                        margin: const EdgeInsets.only(left: 15),
+                        color: PvColors.hair(context),
+                      ),
+                    SettingsCategoryTile(
+                      icon: group.categories[i].icon,
+                      title: group.categories[i].label,
+                      description: group.categories[i].description,
+                      onTap: () => onSelect(group.categories[i].path),
+                    ),
+                  ],
+                ],
+              ),
+            ],
         ],
       ),
     );
@@ -369,11 +376,9 @@ class _RailDestination extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     final foreground = selected
-        ? ClayToneColors.of(context, ClayTone.accent).fg
-        : colorScheme.onSurfaceVariant;
+        ? PvColors.subInk(context)
+        : PvColors.ink2(context);
 
     final Widget row = Material(
       type: MaterialType.transparency,
@@ -389,7 +394,12 @@ class _RailDestination extends StatelessWidget {
               Expanded(
                 child: Text(
                   category.label,
-                  style: textTheme.labelLarge?.copyWith(color: foreground),
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    letterSpacing: -0.2,
+                    color: foreground,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -403,12 +413,14 @@ class _RailDestination extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      // 选中项是一块强调色粘土胶囊，未选中什么都不画，只留文字。
+      // 选中项是一枚淡蓝胶囊（Pv 的 `.subcap`），未选中什么都不画，只留文字。
       child: selected
-          ? ClayPanel(
-              radius: 28,
-              depth: 0,
-              tone: ClayTone.accent,
+          ? Container(
+              decoration: BoxDecoration(
+                color: PvColors.subCap(context),
+                borderRadius: BorderRadius.circular(28),
+              ),
+              clipBehavior: Clip.antiAlias,
               child: row,
             )
           : ClipRRect(borderRadius: BorderRadius.circular(28), child: row),

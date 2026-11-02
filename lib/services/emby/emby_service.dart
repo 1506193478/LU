@@ -46,11 +46,15 @@ class EmbyService {
   }
 
   /// 同一台服务器的客户端复用同一个 Dio，省掉重复建连接池。
+  ///
+  /// 备用线路一并交给客户端：主线路连不上时它会自己换下一条，
+  /// 切换结果记在客户端实例里，后续请求不用再等主线路超时。
   EmbyClient clientFor(EmbyServer server) {
     return _clients.putIfAbsent(
       server.id,
       () => EmbyClient(
         serverUrl: server.url,
+        backupUrls: server.backupUrls,
         accessToken: server.accessToken,
         allowBadCertificate: server.allowBadCertificate,
         deviceId: deviceId,

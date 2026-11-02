@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
-import 'package:XL/bean/appbar/sys_app_bar.dart';
 import 'package:XL/pages/menu/route_visibility.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/my/my_controller.dart';
 import 'package:XL/pages/my/my_space_view.dart';
 import 'package:XL/pages/my/watch_report_page.dart';
-import 'package:XL/bean/widget/clay_neu.dart';
 
 class MyPage extends StatefulWidget {
   const MyPage({super.key, required this.controller});
@@ -74,43 +73,46 @@ class _MyPageState extends State<MyPage> {
         MyDestination.sync => '/settings/sync',
         MyDestination.storage => '/settings/storage',
         MyDestination.about => '/settings/about/',
-        MyDestination.emby => '/emby/',
+        MyDestination.emby => '/tab/emby/',
+        MyDestination.proxy => '/settings/proxy/',
         // 上面已经提前 return，这里只是让 switch 穷尽。
+        MyDestination.timeline => '/tab/timeline/',
         MyDestination.report => '/my/',
       });
   }
 
   @override
   Widget build(BuildContext context) {
+    // 预览稿「我的」页是页内 34px 大标题（.page-title），不走 AppBar。
     return Scaffold(
-      backgroundColor: neuScaffoldBackground(context),
-      appBar: SysAppBar(
-        toolbarHeight: 72,
-        title: Text(
-          '我的',
-          style: Theme.of(context)
-              .textTheme
-              .headlineSmall
-              ?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        needTopOffset: false,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: MySettingsButton(
-              onTap: () => context.pushNamed('/settings/'),
-            ),
-          ),
-        ],
-      ),
+      // 内容层早就是 Pv 了，外壳还留着拟态底色，一页里两套材质最扎眼。
+      backgroundColor: PvColors.page(context),
       body: SafeArea(
-        top: false,
+        top: true,
         bottom: false,
-        child: Observer(
-          builder: (context) => MySpaceView(
-            stats: widget.controller.watchStats,
-            onOpen: _open,
-          ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            PvPageHead(
+              title: '我的',
+              actions: [
+                PvIconBtn(
+                  icon: Icons.settings_outlined,
+                  tooltip: '设置',
+                  onTap: () => context.pushNamed('/settings/'),
+                ),
+              ],
+              topPadding: 10,
+            ),
+            Expanded(
+              child: Observer(
+                builder: (context) => MySpaceView(
+                  stats: widget.controller.watchStats,
+                  onOpen: _open,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

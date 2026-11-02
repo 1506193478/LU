@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter/services.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/navigation/glass_tab_bar.dart';
-import 'package:XL/bean/navigation/neu_tab_bar.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/bean/widget/embedded_native_control_area.dart';
-import 'package:XL/bean/widget/pressable.dart';
 import 'package:XL/navigation.dart';
+import 'package:XL/pages/download/download_controller.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/menu/route_visibility.dart';
 import 'package:XL/pages/router.dart';
 import 'package:XL/utils/device.dart';
@@ -20,11 +21,6 @@ const List<KazumiTabItem> kKazumiTabs = [
     label: '推荐',
   ),
   KazumiTabItem(
-    icon: Icons.timeline_outlined,
-    selectedIcon: Icons.timeline,
-    label: '时间表',
-  ),
-  KazumiTabItem(
     icon: Icons.favorite_outline,
     selectedIcon: Icons.favorite,
     label: '追番',
@@ -35,8 +31,15 @@ const List<KazumiTabItem> kKazumiTabs = [
     label: '一起看',
   ),
   KazumiTabItem(
-    icon: Icons.settings_outlined,
-    selectedIcon: Icons.settings,
+    icon: Icons.dns_outlined,
+    selectedIcon: Icons.dns,
+    label: 'Emby',
+  ),
+  KazumiTabItem(
+    // 齿轮等于设置，但这页装的是个人资料、历史、下载。齿轮留给页内右上角
+    // 那颗真正的设置入口。
+    icon: Icons.person_outline_rounded,
+    selectedIcon: Icons.person_rounded,
     label: '我的',
   ),
 ];
@@ -104,6 +107,10 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     if (outlet == null) return;
     outlet.navigate('/tab${menu.getPath(index)}/');
     setState(() => _selectedIndex = index);
+  }
+
+  void _openDownloads() {
+    context.pushNamed('/settings/download/');
   }
 
   void _handleSystemBack(BuildContext context) {
@@ -179,25 +186,31 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   }
 
   Widget _bottomMenu(BuildContext context, int selectedIndex) {
-    final bool neu = isNeuLayout(context);
     return Scaffold(
-      // 两种底栏都是浮起来的：内容从下面滚过去。拟态那条自己是实色的，
-      // 滚到下面的内容会被它挡住，所以底不需要额外铺色。
-      // 页面底部留白统一按 immersiveTabBarInset 算，两种栏高度一致。
+      // 底栏是浮起来的：内容从下面滚过去。
+      // 页面底部留白统一按 immersiveTabBarInset 算。
       extendBody: true,
       // 内容容器的底也要跟着拟态走，否则切页时会闪一下 primaryContainer 色带。
-      body: _outlet(context, background: neuScaffoldBackground(context)),
-      bottomNavigationBar: neu
-          ? NeuTabBar(
-              items: kKazumiTabs,
-              selectedIndex: selectedIndex,
-              onSelected: _selectDestination,
-            )
-          : KazumiTabBar(
-              items: kKazumiTabs,
-              selectedIndex: selectedIndex,
-              onSelected: _selectDestination,
-            ),
+      body: _outlet(context, background: PvColors.page(context)),
+      // 底部导航统一走「胶囊玻璃条」。
+      //
+      // 原来手机端一律用拟态那条（`isNeuLayout` 在手机上恒为 true），
+      // 玻璃条只在桌面窄窗口才出现，等于用户根本看不到。现在玻璃胶囊
+      // 是唯一形态：它浮在内容之上，背后内容被模糊透上来，和页面
+      // 用什么皮肤无关。
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 下载中给一条细进度条：下载管理在「我的」第二层，原来没有任何
+          // 常驻指示，正在下什么、下到哪了完全看不见。
+          _DownloadActivityStrip(onTap: _openDownloads),
+          KazumiTabBar(
+            items: kKazumiTabs,
+            selectedIndex: selectedIndex,
+            onSelected: _selectDestination,
+          ),
+        ],
+      ),
     );
   }
 
@@ -212,23 +225,21 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     if (!isDesktopWideLayout(context)) {
       return _legacySideMenu(context, selectedIndex);
     }
-    final NeuTokens tokens = NeuTokens.of(context);
-    // 内容区四边都内缩 14，所以四个角都要圆。
-    final BorderRadius borderRadius =
-        BorderRadius.circular(NeuRadius.window);
+    // Pv 是唯一语言之后，壳层也走 Pv 的页面底色 + 白卡，不再用拟态的中灰。
+    final Color pageColor = PvColors.page(context);
+    final BorderRadius borderRadius = BorderRadius.circular(14);
     return Scaffold(
-      // 拟态必须有统一的中灰底，不能用主题里的 surfaceContainer。
-      backgroundColor: tokens.base,
+      backgroundColor: pageColor,
       body: Row(
         children: <Widget>[
-          _neuRail(context, selectedIndex),
+          _pvRail(context, selectedIndex),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(right: 14, top: 14, bottom: 14),
               child: _outlet(
                 context,
                 borderRadius: borderRadius,
-                background: tokens.base,
+                background: pageColor,
               ),
             ),
           ),
@@ -265,11 +276,6 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
                   label: Text('推荐'),
                 ),
                 NavigationRailDestination(
-                  selectedIcon: Icon(Icons.timeline),
-                  icon: Icon(Icons.timeline_outlined),
-                  label: Text('时间表'),
-                ),
-                NavigationRailDestination(
                   selectedIcon: Icon(Icons.favorite),
                   icon: Icon(Icons.favorite_border),
                   label: Text('追番'),
@@ -280,8 +286,13 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
                   label: Text('一起看'),
                 ),
                 NavigationRailDestination(
-                  selectedIcon: Icon(Icons.settings),
-                  icon: Icon(Icons.settings_outlined),
+                  selectedIcon: Icon(Icons.dns),
+                  icon: Icon(Icons.dns_outlined),
+                  label: Text('Emby'),
+                ),
+                NavigationRailDestination(
+                  selectedIcon: Icon(Icons.person),
+                  icon: Icon(Icons.person_outline),
                   label: Text('我的'),
                 ),
               ],
@@ -295,141 +306,138 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     );
   }
 
-  Widget _neuRail(BuildContext context, int selectedIndex) {
-    final ThemeData theme = Theme.of(context);
+  /// 桌面侧栏：Pv 白卡 + 蓝色选中胶囊。
+  Widget _pvRail(BuildContext context, int selectedIndex) {
     return SizedBox(
-      width: NeuSpacing.railWidth + 28,
+      width: 236,
       // macOS 的红绿灯按钮浮在 Flutter 视图上，得给它让出位置。
       child: EmbeddedNativeControlArea(
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: NeuSurface(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 18),
+          child: Container(
+            decoration: BoxDecoration(
+              color: PvColors.card(context),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Row(
                   children: <Widget>[
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: 38,
+                      height: 38,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        gradient: LinearGradient(
-                          colors: <Color>[
-                            theme.colorScheme.primary,
-                            theme.colorScheme.primary.withValues(alpha: 0.72),
-                          ],
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: const LinearGradient(
+                          colors: <Color>[PvColors.blue, Color(0xFF4FA0FF)],
                         ),
                       ),
                       alignment: Alignment.center,
-                      child: Text(
+                      child: const Text(
                         'LU',
                         style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 14,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                          color: theme.colorScheme.onPrimary,
+                          letterSpacing: 0.4,
+                          color: Colors.white,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 11),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Text(
                             'LU',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: PvText.section(context)
+                                .copyWith(fontSize: 15),
                           ),
                           Text(
                             '番剧 · 桌面版',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
+                            style: PvText.rowSub(context)
+                                .copyWith(fontSize: 11.5),
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 18),
-                NeuSurface(
-                  mode: NeuMode.recess,
-                  radius: NeuRadius.control,
-                  height: 42,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                const SizedBox(height: 16),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   onTap: () => context.pushNamed('/search/'),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(
-                        Icons.search,
-                        size: 16,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          '搜索番剧、角色、标签…',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                  child: Container(
+                    height: 40,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: PvColors.searchFill(context),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(Icons.search_rounded,
+                            size: 16, color: PvColors.searchHint(context)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '搜索番剧、角色、标签…',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: PvColors.searchHint(context),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 14),
-                _railItem(
-                  context,
-                  0,
-                  selectedIndex,
-                  Icons.home_outlined,
-                  Icons.home,
-                  '推荐',
+                const SizedBox(height: 12),
+                _PvRailItem(
+                  selected: selectedIndex == 0,
+                  icon: Icons.home_outlined,
+                  activeIcon: Icons.home,
+                  label: '推荐',
+                  onTap: () => _selectDestination(0),
                 ),
-                _railItem(
-                  context,
-                  1,
-                  selectedIndex,
-                  Icons.timeline_outlined,
-                  Icons.timeline,
-                  '时间表',
+                _PvRailItem(
+                  selected: selectedIndex == 1,
+                  icon: Icons.favorite_border,
+                  activeIcon: Icons.favorite,
+                  label: '追番',
+                  onTap: () => _selectDestination(1),
                 ),
-                _railItem(
-                  context,
-                  2,
-                  selectedIndex,
-                  Icons.favorite_border,
-                  Icons.favorite,
-                  '追番',
+                _PvRailItem(
+                  selected: selectedIndex == 2,
+                  icon: Icons.groups_outlined,
+                  activeIcon: Icons.groups,
+                  label: '一起看',
+                  onTap: () => _selectDestination(2),
                 ),
-                _railItem(
-                  context,
-                  3,
-                  selectedIndex,
-                  Icons.groups_outlined,
-                  Icons.groups,
-                  '一起看',
+                _PvRailItem(
+                  selected: selectedIndex == 3,
+                  icon: Icons.dns_outlined,
+                  activeIcon: Icons.dns,
+                  label: 'Emby',
+                  onTap: () => _selectDestination(3),
                 ),
-                _railItem(
-                  context,
-                  4,
-                  selectedIndex,
-                  Icons.settings_outlined,
-                  Icons.settings,
-                  '我的',
+                _PvRailItem(
+                  selected: selectedIndex == 4,
+                  // 齿轮等于设置，但这页主要是个人资料和历史。齿轮留给
+                  // 真正的设置入口（页内右上角那颗）。
+                  icon: Icons.person_outline_rounded,
+                  activeIcon: Icons.person_rounded,
+                  label: '我的',
+                  onTap: () => _selectDestination(4),
                 ),
                 const Spacer(),
                 Text(
                   'LU 桌面版',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                  style: PvText.rowSub(context).copyWith(fontSize: 11),
                 ),
               ],
             ),
@@ -438,39 +446,11 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
       ),
     );
   }
-
-  /// 侧栏项：选中态是「凹槽 + 强调色」，不是实色块——实色块会把
-  /// 拟态的层次压平。
-  ///
-  /// 每一项都必须自己处理点击：这里不能只靠外层包一个手势检测器，
-  /// 选中态是个 `NeuSurface`、未选中态是裸 `Padding`，命中区域和层级
-  /// 都不一样，统一在外层套手势会让凹槽里的点击被裁掉。
-  Widget _railItem(
-    BuildContext context,
-    int index,
-    int selectedIndex,
-    IconData icon,
-    IconData activeIcon,
-    String label,
-  ) {
-    return _NeuRailItem(
-      index: index,
-      selected: index == selectedIndex,
-      icon: icon,
-      activeIcon: activeIcon,
-      label: label,
-      onTap: () => _selectDestination(index),
-    );
-  }
 }
 
-/// 侧栏单个导航项。
-///
-/// 桌面端用鼠标，所以除了点击还要有 hover 反馈（底色提亮 + 手型光标），
-/// 否则用户根本不知道这里能点。
-class _NeuRailItem extends StatefulWidget {
-  const _NeuRailItem({
-    required this.index,
+/// 侧栏单个导航项：选中是淡蓝胶囊 + 蓝字，hover 只提亮一点。
+class _PvRailItem extends StatefulWidget {
+  const _PvRailItem({
     required this.selected,
     required this.icon,
     required this.activeIcon,
@@ -478,7 +458,6 @@ class _NeuRailItem extends StatefulWidget {
     required this.onTap,
   });
 
-  final int index;
   final bool selected;
   final IconData icon;
   final IconData activeIcon;
@@ -486,79 +465,159 @@ class _NeuRailItem extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_NeuRailItem> createState() => _NeuRailItemState();
+  State<_PvRailItem> createState() => _PvRailItemState();
 }
 
-class _NeuRailItemState extends State<_NeuRailItem> {
+class _PvRailItemState extends State<_PvRailItem> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
     final bool on = widget.selected;
     final bool hover = !on && _hovered;
-
-    final Widget content = Row(
-      children: <Widget>[
-        Icon(
-          on ? widget.activeIcon : widget.icon,
-          size: 18,
-          color: on
-              ? theme.colorScheme.primary
-              : theme.colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            widget.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: on ? FontWeight.w600 : FontWeight.w400,
-              color: on
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
-    );
-
-    // 选中 = 凹槽 + 强调色；hover = 轻微提亮；其余 = 平的。
-    final Widget body = on
-        ? NeuSurface(
-            mode: NeuMode.recess,
-            radius: NeuRadius.control,
-            height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: content,
-          )
-        : AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-            height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(NeuRadius.control),
-              color: hover
-                  ? theme.colorScheme.onSurface.withValues(alpha: 0.05)
-                  : Colors.transparent,
-            ),
-            child: content,
-          );
+    final Color fg = on ? PvColors.subInk(context) : PvColors.ink2(context);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      child: Pressable(
-        pressedScale: 0.97,
-        haptic: false,
-        borderRadius: BorderRadius.circular(NeuRadius.control),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
-        child: body,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          height: 42,
+          margin: const EdgeInsets.only(bottom: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(11),
+            color: on
+                ? PvColors.subCap(context)
+                : (hover
+                    ? PvColors.ink(context).withValues(alpha: 0.04)
+                    : Colors.transparent),
+          ),
+          child: Row(
+            children: <Widget>[
+              Icon(on ? widget.activeIcon : widget.icon, size: 18, color: fg),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: on ? FontWeight.w600 : FontWeight.w400,
+                    color: fg,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+}
+
+
+/// 底栏上方的下载活动条。
+///
+/// 只在真的有事在做的时候出现（正在下 / 排队中），做完自动消失 ——
+/// 常驻一条 0% 的横条比没有更烦人。
+class _DownloadActivityStrip extends StatelessWidget {
+  const _DownloadActivityStrip({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final DownloadController controller = inject<DownloadController>();
+    return Observer(
+      builder: (BuildContext context) {
+        final int active = controller.activeDownloads;
+        final int queued = controller.queuedDownloads;
+        if (active == 0 && queued == 0) {
+          return const SizedBox.shrink();
+        }
+        final double progress = controller.downloadProgress.clamp(0.0, 1.0);
+        final bool dark = PvColors.isDark(context);
+        final String text = active > 0
+            ? '正在下载 $active 集 · ${(progress * 100).round()}%'
+            : '排队中 $queued 集';
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: Container(
+              height: 30,
+              decoration: BoxDecoration(
+                color: dark ? const Color(0xFF1F1E22) : Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: PvColors.hair(context), width: 0.8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: dark ? 0.30 : 0.08),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                children: [
+                  // 进度底：一条从左往右长的浅蓝，比数字更快看出来「在动」。
+                  Positioned.fill(
+                    child: FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: active > 0 ? progress.clamp(0.02, 1.0) : 0,
+                      child: ColoredBox(
+                        color: PvColors.blue.withValues(alpha: dark ? 0.24 : 0.14),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.downloading_rounded,
+                            size: 15, color: PvColors.blue),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            text,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: PvColors.ink(context),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '查看',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: PvColors.blue,
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 15, color: PvColors.blue),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 
 import 'package:XL/bean/appbar/sys_app_bar.dart';
 import 'package:XL/bean/card/bangumi_timeline_card.dart';
@@ -211,7 +212,7 @@ class _TimelinePageState extends State<TimelinePage> {
           ],
         );
         return Scaffold(
-          backgroundColor: neuScaffoldBackground(context),
+          backgroundColor: PvColors.page(context),
           appBar: appBar,
           body: SafeArea(
             top: false,
@@ -253,13 +254,9 @@ class _TimelinePageState extends State<TimelinePage> {
                             pinned: true,
                             delegate: _WeekHeaderDelegate(
                               height: weekHeight,
-                              // 必须用页面真实底色。原来传的是
-                              // `theme.scaffoldBackgroundColor`(#F5F6F8)，
-                              // 而这一页 Scaffold 铺的是拟态底(#E8EAF0)，
-                              // 差一档，于是钉住的头部横切出一条浅色带，
-                              // 把周选择器的圆角糊掉了。
-                              color: neuScaffoldBackground(context) ??
-                                  theme.scaffoldBackgroundColor,
+                              // 必须和页面 Scaffold 用同一个底色，否则钉住
+                              // 的头部会横切出一条色带，把周选择器的圆角糊掉。
+                              color: PvColors.page(context),
                               child: weekSelector,
                             ),
                           ),

@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/bean/card/network_img_layer.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
-import 'package:XL/bean/widget/clay_neu.dart';
+import 'package:XL/bean/widget/clay_neu.dart' show isDesktopWideLayout;
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/bean/widget/collect_button.dart';
 import 'package:XL/bean/widget/pressable.dart';
 import 'package:XL/modules/bangumi/bangumi_item.dart';
@@ -26,87 +27,22 @@ class BangumiCardV extends StatelessWidget {
     return _HoverCard(
       enabled: isDesktopWideLayout(context),
       builder: (BuildContext context, bool hovered) {
-        // 拟态是「外观语言」，桌面和手机都用；[isDesktopWideLayout] 只管
-        // 排版密度，所以这里判拟态、里面判密度。
-        if (isNeuLayout(context)) {
-          return _buildNeu(context, hovered: hovered);
-        }
-        return _buildClassic(context, hovered: hovered);
+        // Pv 全铺之后只剩一种外观，密度仍然按 [isDesktopWideLayout] 分。
+        return _buildCard(context, hovered: hovered);
       },
     );
   }
 
-  Widget _buildClassic(BuildContext context, {required bool hovered}) {
-    return Pressable(
-      // 卡片用 0.965：比按钮收得少一点，大片封面缩太多会显得"抖"。
-      pressedScale: 0.965,
-      onTap: () {
-        if (!canTap) {
-          KazumiDialog.showToast(
-            message: '编辑模式',
-          );
-          return;
-        }
-        context.pushNamed('/info/', arguments: bangumiItem);
-      },
-      child: Card(
-        elevation: 0,
-        clipBehavior: Clip.antiAlias,
-        margin: EdgeInsets.zero,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AspectRatio(
-              aspectRatio: 0.65,
-              child: LayoutBuilder(builder: (context, boxConstraints) {
-                final double maxWidth = boxConstraints.maxWidth;
-                final double maxHeight = boxConstraints.maxHeight;
-                return Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    if (enableHero)
-                      Hero(
-                        transitionOnUserGestures: true,
-                        flightShuttleBuilder:
-                            NetworkImgLayer.heroFlightShuttleBuilder,
-                        tag: bangumiItem.id,
-                        child: NetworkImgLayer(
-                          src: bangumiItem.images['large'] ?? '',
-                          width: maxWidth,
-                          height: maxHeight,
-                        ),
-                      )
-                    else
-                      NetworkImgLayer(
-                        src: bangumiItem.images['large'] ?? '',
-                        width: maxWidth,
-                        height: maxHeight,
-                      ),
-                    if (hovered) _quickCollectOverlay(bangumiItem),
-                  ],
-                );
-              }),
-            ),
-            BangumiContent(bangumiItem: bangumiItem)
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 拟态卡片：凸起面板 + 封面内描边 + 评分/放送日。
+  /// Pv 海报卡：白底圆角 + 封面 + 标题 + 评分/放送日。
   ///
-  /// 封面**不参与拟态**（不叠双向阴影），只在外面套一层 [NeuMedia] 的
-  /// 1px 内描边，否则彩色渐变上会糊出一圈灰雾。
-  ///
-  /// 手机端三列并排，卡片只有 ~120px 宽，所以内边距、圆角、字号都要收紧，
+  /// 手机端三列并排，卡片只有 ~120px 宽，内边距、圆角、字号都收紧，
   /// 否则一圈厚边把封面压得只剩一小块。
-  Widget _buildNeu(BuildContext context, {required bool hovered}) {
+  Widget _buildCard(BuildContext context, {required bool hovered}) {
     final ThemeData theme = Theme.of(context);
     final BangumiItem item = bangumiItem;
     final bool wide = isDesktopWideLayout(context);
     final double pad = wide ? 12 : 7;
-    final double radius = wide ? NeuRadius.card : 18;
+    final double radius = wide ? 16 : 18;
 
     return Pressable(
       pressedScale: 0.97,
@@ -117,15 +53,18 @@ class BangumiCardV extends StatelessWidget {
         }
         context.pushNamed('/info/', arguments: bangumiItem);
       },
-      child: NeuSurface(
-        radius: radius,
+      child: Container(
         padding: EdgeInsets.all(pad),
+        decoration: BoxDecoration(
+          color: PvColors.card(context),
+          borderRadius: BorderRadius.circular(radius),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             Expanded(
-              child: NeuMedia(
-                radius: wide ? NeuRadius.media : 12,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(wide ? 12 : 12),
                 child: LayoutBuilder(
                   builder: (BuildContext context, BoxConstraints boxConstraints) {
                     final double maxWidth = boxConstraints.maxWidth;
@@ -166,7 +105,10 @@ class BangumiCardV extends StatelessWidget {
               style: (wide
                       ? theme.textTheme.titleSmall
                       : theme.textTheme.labelMedium)
-                  ?.copyWith(fontWeight: FontWeight.w600, height: 1.25),
+                  ?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      height: 1.25,
+                      color: PvColors.ink(context)),
             ),
             SizedBox(height: wide ? 4 : 3),
             Row(

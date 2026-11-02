@@ -806,6 +806,10 @@ class SettingsKeys {
     embyActiveServerId,
     embyDeviceId,
     embyDirectPlay,
+    embyStreamMode,
+    embyStreamBitrate,
+    embySubtitleLanguage,
+    embySubtitleDisabledIds,
   ];
 
   /// Emby / Jellyfin 服务器列表，整份 JSON 数组存在这里。
@@ -836,6 +840,40 @@ class SettingsKeys {
   static const embyDirectPlay = SettingKey<bool>(
     _SettingBoxKey.embyDirectPlay,
     true,
+    group: SettingGroup.emby,
+  );
+
+  /// 串流方式：`auto` / `direct` / `transcode`。
+  ///
+  /// `auto` 就是老行为（先直连、探测失败再转码）；另外两个是「转码与串流」
+  /// 页里强制指定，给宽带不够、或者 mpv 解不了某些编码的用户兜底。
+  static const embyStreamMode = SettingKey<String>(
+    _SettingBoxKey.embyStreamMode,
+    'auto',
+    group: SettingGroup.emby,
+  );
+
+  /// 转码时的画质上限，单位 Mbps；0 表示不限制（原始码率）。
+  static const embyStreamBitrate = SettingKey<int>(
+    _SettingBoxKey.embyStreamBitrate,
+    0,
+    group: SettingGroup.emby,
+  );
+
+  /// 首选字幕语言（三字码，`chi` / `eng` / 空=不指定）。
+  static const embySubtitleLanguage = SettingKey<String>(
+    _SettingBoxKey.embySubtitleLanguage,
+    'chi',
+    group: SettingGroup.emby,
+  );
+
+  /// 「永久禁用字幕」的条目 id 列表，逗号分隔。
+  ///
+  /// 存条目 id 而不是剧集 id：同一部剧不同集可能内封了不同语言，
+  /// 用户往往只想关掉这一集的字幕。
+  static const embySubtitleDisabledIds = SettingKey<String>(
+    _SettingBoxKey.embySubtitleDisabledIds,
+    '',
     group: SettingGroup.emby,
   );
 
@@ -949,5 +987,9 @@ class _SettingBoxKey {
       embyServers = 'embyServers',
       embyActiveServerId = 'embyActiveServerId',
       embyDeviceId = 'embyDeviceId',
-      embyDirectPlay = 'embyDirectPlay';
+      embyDirectPlay = 'embyDirectPlay',
+      embyStreamMode = 'embyStreamMode',
+      embyStreamBitrate = 'embyStreamBitrate',
+      embySubtitleLanguage = 'embySubtitleLanguage',
+      embySubtitleDisabledIds = 'embySubtitleDisabledIds';
 }

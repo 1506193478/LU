@@ -90,7 +90,11 @@ class _InitPageState extends State<InitPage> {
       isEnabled: () => GStorage.getSetting(SettingsKeys.autoUpdate),
       checkForUpdate: () => updateController.checkUpdate(type: 'auto'),
     ));
-    context.navigate(GStorage.getSetting(SettingsKeys.defaultStartupPage));
+    context.navigate(
+      GStorage.getSetting(SettingsKeys.defaultStartupPage) == '/tab/timeline/'
+          ? '/tab/popular/'
+          : GStorage.getSetting(SettingsKeys.defaultStartupPage),
+    );
   }
 
   void _setupBackgroundDownloadNavigation() {

@@ -61,8 +61,44 @@ import app_links
                 result(FlutterMethodNotImplemented)
             }
         }
+
+        let castChannel = FlutterMethodChannel(
+            name: "com.predidit.kazumi/cast",
+            binaryMessenger: engineBridge.applicationRegistrar.messenger()
+        )
+        castChannel.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
+            if call.method == "openRoutePicker" {
+                result(NSNumber(value: self?.showRoutePicker() ?? false))
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
     }
-    
+
+    // 系统自带的 AirPlay 设备列表。AVRoutePickerView 没有公开的直接弹出方法，
+    // 只能把它临时挂到 window 上再触发它内部按钮的点击。
+    private func showRoutePicker() -> Bool {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            return false
+        }
+        let picker = AVRoutePickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
+        picker.alpha = 0.01
+        window.addSubview(picker)
+        var tapped = false
+        for subview in picker.subviews {
+            if let button = subview as? UIButton {
+                button.sendActions(for: .touchUpInside)
+                tapped = true
+                break
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            picker.removeFromSuperview()
+        }
+        return tapped
+    }
+
     // TODO: ADD VLC SUPPORT
     // VLC can be downloaded from iOS App Store, but don't know how to build selectable app lists, while checking if it is installled.
     // VLC supports more video formats than AVPlayer but does not support referer while AVPlayer does

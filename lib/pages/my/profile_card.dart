@@ -7,7 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:XL/bean/dialog/dialog.dart';
-import 'package:XL/bean/widget/clay_neu.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/bean/widget/neu_dialog.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/storage/storage.dart';
@@ -149,8 +149,11 @@ class _ProfileCardState extends State<ProfileCard> {
       );
       return result?.files.single.path;
     } catch (error, stackTrace) {
-      KazumiLogger().w('Profile: pick avatar failed',
-          error: error, stackTrace: stackTrace);
+      KazumiLogger().w(
+        'Profile: pick avatar failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       KazumiDialog.showToast(message: '没能读取这张图片，换一张试试');
       return null;
     }
@@ -177,8 +180,11 @@ class _ProfileCardState extends State<ProfileCard> {
       }
       return target.path;
     } catch (error, stackTrace) {
-      KazumiLogger().w('Profile: persist avatar failed',
-          error: error, stackTrace: stackTrace);
+      KazumiLogger().w(
+        'Profile: persist avatar failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
       KazumiDialog.showToast(message: '保存头像失败');
       return null;
     }
@@ -187,49 +193,53 @@ class _ProfileCardState extends State<ProfileCard> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme colors = theme.colorScheme;
     final bool empty = _nickname.isEmpty;
 
-    return NeuSurface(
-      radius: 22,
-      padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+    // 拟态凸起面板换成了 Pv 白卡：整页现在已经没有第二套材质了。
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: _edit,
-      child: Row(
-        children: <Widget>[
-          _Avatar(path: _avatarPath, size: 60, radius: 18),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  empty ? '点这里设置昵称' : _nickname,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: empty ? colors.onSurfaceVariant : colors.onSurface,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+        decoration: BoxDecoration(
+          color: PvColors.card(context),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: <Widget>[
+            _Avatar(path: _avatarPath, size: 60, radius: 18),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    empty ? '点这里设置昵称' : _nickname,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: empty
+                          ? PvColors.ink3(context)
+                          : PvColors.ink(context),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  empty ? '头像和昵称只存在这台设备上' : '点击编辑头像和昵称',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
+                  const SizedBox(height: 4),
+                  Text(
+                    empty ? '头像和昵称只存在这台设备上' : '点击编辑头像和昵称',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: PvColors.ink3(context),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Icon(
-            Icons.edit_outlined,
-            size: 18,
-            color: colors.onSurfaceVariant,
-          ),
-        ],
+            const SizedBox(width: 8),
+            Icon(Icons.edit_outlined, size: 18, color: PvColors.ink3(context)),
+          ],
+        ),
       ),
     );
   }
@@ -291,7 +301,7 @@ class _Avatar extends StatelessWidget {
                   child: Icon(
                     Icons.photo_camera_rounded,
                     size: 14,
-                    color: colors.onSurfaceVariant,
+                    color: PvColors.ink3(context),
                   ),
                 ),
               ),

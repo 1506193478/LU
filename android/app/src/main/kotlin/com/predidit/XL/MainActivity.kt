@@ -34,6 +34,7 @@ class MainActivity: AudioServiceActivity() {
     private val CHANNEL = "com.predidit.kazumi/intent"
     private val STORAGE_CHANNEL = "com.predidit.kazumi/storage"
     private val PIP_CHANNEL = "com.predidit.kazumi/pip"
+    private val CAST_CHANNEL = "com.predidit.kazumi/cast"
     private var intentChannel: MethodChannel? = null
     private var pipChannel: MethodChannel? = null
     private var downloadDirectoryChannel: MethodChannel? = null
@@ -177,6 +178,31 @@ class MainActivity: AudioServiceActivity() {
             } else {
                 result.notImplemented()
             }
+        }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CAST_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "openRoutePicker") {
+                result.success(openCastRoutePicker())
+            } else {
+                result.notImplemented()
+            }
+        }
+    }
+
+    // 系统自带的投屏入口。厂商 ROM 不一定有 ACTION_CAST_SETTINGS，
+    // 打不开就退到无线显示设置页，再不行告诉 Flutter 不支持。
+    private fun openCastRoutePicker(): Boolean {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_CAST_SETTINGS))
+            return true
+        } catch (e: Exception) {
+            // fall through
+        }
+        return try {
+            startActivity(Intent("android.settings.WIFI_DISPLAY_SETTINGS"))
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 

@@ -73,6 +73,10 @@ class _RecentWatchStripState extends State<RecentWatchStrip>
           task.withContext(
             (context) => context.pushNamed('/video/', arguments: args),
           );
+        case HistoryPlaybackEmby(:final launch):
+          task.withContext(
+            (context) => context.pushNamed('/emby/player', arguments: launch),
+          );
         case HistoryPlaybackUnavailable(:final reason):
           KazumiDialog.showToast(message: reason);
       }
