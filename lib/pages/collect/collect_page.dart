@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 
 import 'package:XL/bean/appbar/sys_app_bar.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
@@ -16,7 +17,6 @@ import 'package:XL/pages/collect/collect_controller.dart';
 import 'package:XL/pages/collect/collect_library_view.dart';
 import 'package:XL/pages/collect/collect_sync_dialog.dart';
 import 'package:XL/services/storage/storage.dart';
-import 'package:XL/bean/widget/clay_neu.dart';
 
 class CollectPage extends StatefulWidget {
   const CollectPage({
@@ -109,7 +109,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: neuScaffoldBackground(context),
+      backgroundColor: PvColors.page(context),
       appBar: SysAppBar(
         needTopOffset: false,
         toolbarHeight: 72,

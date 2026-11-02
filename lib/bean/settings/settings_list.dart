@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 
-import 'package:XL/bean/widget/clay.dart';
-import 'package:XL/bean/widget/content_section.dart';
 import 'package:XL/bean/widget/split_list_row.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 
+/// 设置页的通用列表件，全部按 Pv（iOS 白卡）画。
+///
+/// 这一层被 20 多个设置页共用，改这里等于把所有二级页一起拉过来：分组是一张
+/// 整卡 + 行间发丝线，行高 50、左右 15，标题 15/w500，说明 13 灰；开关用
+/// iOS 那种绿色 [PvSwitch]，单选用蓝色对勾。
+///
+/// 之所以不在每个页面各画一遍：设置页有二十来个，一套一套改必然长歪，
+/// 之前「一页里两套材质」就是这么来的。
 enum _TileKind { plain, toggle, radio }
 
 class SettingsList extends StatelessWidget {
@@ -20,7 +27,7 @@ class SettingsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.only(top: 4, bottom: 24),
       itemCount: sections.length,
       itemBuilder: (context, index) => Center(
         child: ConstrainedBox(
@@ -32,6 +39,7 @@ class SettingsList extends StatelessWidget {
   }
 }
 
+/// 一组设置：上面一个小灰标签，下面一张白卡。
 class SettingsSection extends StatelessWidget {
   const SettingsSection({
     super.key,
@@ -48,8 +56,6 @@ class SettingsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     return Padding(
       padding: margin ?? const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Column(
@@ -57,16 +63,22 @@ class SettingsSection extends StatelessWidget {
         children: [
           if (title != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: SectionHeader(title: title!),
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 7),
+              child: DefaultTextStyle.merge(
+                style: PvText.groupLabel(context),
+                child: title!,
+              ),
             ),
           SplitListGroup(children: tiles),
           if (bottomInfo != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
               child: DefaultTextStyle.merge(
-                style: textTheme.bodySmall
-                    ?.copyWith(color: colorScheme.onSurfaceVariant),
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: PvColors.ink3(context),
+                ),
                 child: bottomInfo!,
               ),
             ),
@@ -100,8 +112,23 @@ class SettingsRadioSection<T> extends StatelessWidget {
   }
 }
 
-Color _disabledOn(BuildContext context) =>
-    Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38);
+Color _disabledInk(BuildContext context) =>
+    PvColors.ink3(context).withValues(alpha: 0.6);
+
+/// 设置行左侧的小图标：28×28 圆角 8 的彩色底 + 白色图标。
+///
+/// 颜色按标题稳定散列到一组 Pv 常用的强调色上——设置页里有几十行带图标的
+/// 条目，逐个指定颜色既啰嗦又容易撞色，按标题取色至少同一行每次都是同一个色。
+const List<Color> _badgeTones = <Color>[
+  Color(0xFF0A84FF),
+  Color(0xFF34C759),
+  Color(0xFFFF9F0A),
+  Color(0xFFFF375F),
+  Color(0xFF5E5CE6),
+  Color(0xFF30B0C7),
+  Color(0xFF8E8E93),
+  Color(0xFF5856D6),
+];
 
 class _TileLabel extends StatelessWidget {
   const _TileLabel({
@@ -118,17 +145,25 @@ class _TileLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final disabled = enabled ? null : _disabledOn(context);
-    final foreground = disabled ?? colorScheme.onSurface;
-    final secondary = disabled ?? colorScheme.onSurfaceVariant;
+    final ink = enabled ? PvColors.ink(context) : _disabledInk(context);
+    final sub = enabled ? PvColors.ink3(context) : _disabledInk(context);
 
     return Row(
       children: [
         if (leading != null) ...[
-          Icon(leading, size: 24, color: secondary),
-          const SizedBox(width: 16),
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: enabled
+                  ? _badgeTones[title.hashCode.abs() % _badgeTones.length]
+                  : PvColors.searchFill(context),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: Icon(leading, size: 15, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
         ],
         Expanded(
           child: Column(
@@ -136,13 +171,19 @@ class _TileLabel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               DefaultTextStyle.merge(
-                style: textTheme.bodyLarge?.copyWith(color: foreground),
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.15,
+                  height: 1.25,
+                  color: ink,
+                ),
                 child: title,
               ),
               if (description != null) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 DefaultTextStyle.merge(
-                  style: textTheme.bodySmall?.copyWith(color: secondary),
+                  style: TextStyle(fontSize: 13, height: 1.35, color: sub),
                   child: description!,
                 ),
               ],
@@ -154,6 +195,7 @@ class _TileLabel extends StatelessWidget {
   }
 }
 
+/// 「设置 → 某个分类」的入口行（索引页用）。
 class SettingsCategoryTile extends StatelessWidget {
   const SettingsCategoryTile({
     super.key,
@@ -170,38 +212,58 @@ class SettingsCategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     return InkWell(
       onTap: onTap,
       onHighlightChanged: SplitListRow.pressReporterOf(context),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            ClayIconBadge(icon: icon, size: 36, iconSize: 18),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: textTheme.bodyLarge),
-                  const SizedBox(height: 2),
-                  Text(
-                    description,
-                    style: textTheme.bodySmall
-                        ?.copyWith(color: colorScheme.onSurfaceVariant),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 32),
+          child: Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: _badgeTones[title.hashCode.abs() % _badgeTones.length],
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, size: 17, color: Colors.white),
               ),
-            ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ],
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: -0.15,
+                        color: PvColors.ink(context),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: PvColors.ink3(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(Icons.chevron_right_rounded,
+                  size: 17, color: PvColors.chev(context)),
+            ],
+          ),
         ),
       ),
     );
@@ -234,10 +296,8 @@ class SettingsSliderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(15, 12, 15, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -251,31 +311,45 @@ class SettingsSliderTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              ClayPanel(
-                radius: 9,
-                depth: 0,
-                tone: ClayTone.accent,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: PvColors.searchFill(context),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
                   valueLabel,
-                  style: textTheme.labelMedium?.copyWith(
-                    color: ClayToneColors.of(context, ClayTone.accent).fg,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: PvColors.ink2(context),
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          ClaySlider(
-            value: value,
-            min: min,
-            max: max,
-            divisions: divisions,
-            onChanged: onChanged,
+          const SizedBox(height: 2),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3,
+              activeTrackColor: PvColors.blue,
+              inactiveTrackColor: PvColors.searchFill(context),
+              thumbColor: Colors.white,
+              overlayColor: PvColors.blue.withValues(alpha: 0.12),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              valueIndicatorShape: const RectangularSliderValueIndicatorShape(),
+              showValueIndicator: ShowValueIndicator.never,
+            ),
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            ),
           ),
         ],
       ),
@@ -357,16 +431,15 @@ class SettingsTile<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final secondary =
-        enabled ? colorScheme.onSurfaceVariant : _disabledOn(context);
+    final secondary = enabled ? PvColors.ink2(context) : _disabledInk(context);
+    final selected =
+        _kind == _TileKind.radio && RadioGroup.maybeOf<T>(context)?.groupValue == radioValue;
 
     return InkWell(
       onTap: _tapHandler(context),
       onHighlightChanged: SplitListRow.pressReporterOf(context),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 32),
           child: Row(
@@ -382,30 +455,36 @@ class SettingsTile<T> extends StatelessWidget {
               if (value != null) ...[
                 const SizedBox(width: 12),
                 DefaultTextStyle.merge(
-                  style: textTheme.bodyMedium?.copyWith(color: secondary),
+                  style: TextStyle(fontSize: 13.5, color: secondary),
                   child: value!,
                 ),
               ],
               if (trailing != null) ...[
                 const SizedBox(width: 8),
                 IconTheme.merge(
-                  data: IconThemeData(color: secondary),
+                  data: IconThemeData(
+                    color: secondary,
+                    size: 18,
+                  ),
                   child: trailing!,
                 ),
               ],
               if (_kind == _TileKind.toggle) ...[
                 const SizedBox(width: 12),
-                ClaySwitch(
+                PvSwitch(
                   value: initialValue ?? false,
-                  onChanged: enabled ? onToggle : null,
+                  onChanged: enabled ? (v) => onToggle?.call(v) : (_) {},
                 ),
               ],
               if (_kind == _TileKind.radio) ...[
-                const SizedBox(width: 12),
-                ClayCheck(
-                  value: RadioGroup.maybeOf<T>(context)?.groupValue ==
-                      radioValue,
-                  onTap: _tapHandler(context),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: selected
+                      ? const Icon(Icons.check_rounded,
+                          size: 19, color: PvColors.blue)
+                      : null,
                 ),
               ],
             ],

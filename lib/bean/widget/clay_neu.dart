@@ -16,9 +16,9 @@
 ///    极轻投影，见 [NeuMedia]。
 library;
 
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
+
+import 'package:XL/pages/emby/emby_preview_style.dart';
 
 import 'package:XL/utils/device.dart';
 
@@ -211,50 +211,41 @@ class NeuSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final NeuTokens t = NeuTokens.of(context);
     final bool recess = mode == NeuMode.recess;
     final BorderRadius borderRadius = BorderRadius.circular(radius);
 
-    Widget content = Container(
+    // Pv 全铺之后这个「拟态面板」只剩一个壳子：凸起 = 一张白卡，
+    // 凹陷 = 一层浅灰底。双阴影那套在 Pv 上读起来像脏，换成一档极轻的
+    // 投影 + 底色差，视觉上才和旁边的 PvGroup / PvRow 是一家人。
+    final Widget content = Container(
       width: width,
       height: height,
       margin: margin,
       decoration: BoxDecoration(
         borderRadius: borderRadius,
-        color: recess ? t.recess : t.raised,
-        boxShadow: recess
+        color: recess ? PvColors.searchFill(context) : PvColors.card(context),
+        border: recess
             ? null
-            : <BoxShadow>[
-                BoxShadow(
-                  color: t.shadowDark,
-                  offset: const Offset(NeuTokens.offset, NeuTokens.offset),
-                  blurRadius: NeuTokens.blur,
-                ),
-                BoxShadow(
-                  color: t.shadowLight,
-                  offset: const Offset(-NeuTokens.offset, -NeuTokens.offset),
-                  blurRadius: NeuTokens.blur,
-                ),
+            : Border.all(
+                color: PvColors.isDark(context)
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : const Color(0x0F000000),
+                width: 0.8,
+              ),
+        boxShadow: recess || !hairline
+            ? null
+            : const [
+                BoxShadow(color: Color(0x0A000000), blurRadius: 6),
               ],
       ),
-      child: ClipRRect(
-        borderRadius: borderRadius,
-        child: CustomPaint(
-          painter: _NeuEdgePainter(
-            radius: radius,
-            recess: recess,
-            hairline: hairline,
-            tokens: t,
-          ),
-          child: padding == null
-              ? child
-              : Padding(padding: padding!, child: child),
-        ),
-      ),
+      clipBehavior: Clip.antiAlias,
+      child: padding == null
+          ? child
+          : Padding(padding: padding!, child: child),
     );
 
     if (onTap != null) {
-      content = GestureDetector(
+      return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: content,
@@ -262,82 +253,6 @@ class NeuSurface extends StatelessWidget {
     }
     return content;
   }
-}
-
-/// 画两样 `BoxDecoration` 画不了的东西：
-/// 凹陷的内阴影，和凸起面的 1px 上下硬描边。
-class _NeuEdgePainter extends CustomPainter {
-  const _NeuEdgePainter({
-    required this.radius,
-    required this.recess,
-    required this.hairline,
-    required this.tokens,
-  });
-
-  final double radius;
-  final bool recess;
-  final bool hairline;
-  final NeuTokens tokens;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
-    final RRect outer = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(radius),
-    );
-
-    canvas.save();
-    canvas.clipRRect(outer);
-
-    if (recess) {
-      final double stroke = NeuTokens.offset * 2;
-      final double sigma = NeuTokens.blur * 0.7;
-      final Paint dark = Paint()
-        ..color = tokens.insetDark
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma);
-      canvas.drawRRect(
-        outer.shift(const Offset(NeuTokens.offset, NeuTokens.offset)),
-        dark,
-      );
-      final Paint light = Paint()
-        ..color = tokens.insetLight
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma);
-      canvas.drawRRect(
-        outer.shift(const Offset(-NeuTokens.offset, -NeuTokens.offset)),
-        light,
-      );
-    } else if (hairline) {
-      // 一条 1px 描边，用竖向渐变让上端是亮线、下端是暗线。
-      // 左右两侧会顺着渐变过渡，alpha 只有 0.05 上下，看不出来。
-      final ui.Gradient gradient = ui.Gradient.linear(
-        Offset.zero,
-        Offset(0, size.height),
-        <Color>[tokens.edgeTop, tokens.edgeTop, tokens.edgeBottom, tokens.edgeBottom],
-        <double>[0, 0.08, 0.92, 1],
-      );
-      canvas.drawRRect(
-        outer.deflate(0.5),
-        Paint()
-          ..shader = gradient
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
-    }
-
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _NeuEdgePainter oldDelegate) =>
-      oldDelegate.radius != radius ||
-      oldDelegate.recess != recess ||
-      oldDelegate.hairline != hairline ||
-      oldDelegate.tokens != tokens;
 }
 
 /// 彩色媒体的外框。

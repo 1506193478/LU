@@ -1,16 +1,30 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
-import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/modules/emby/emby_models.dart';
+import 'package:XL/modules/emby/emby_urls.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/pages/emby/emby_res_pane.dart';
+import 'package:XL/pages/emby/emby_search_pane.dart';
+import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
+import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/services/emby/emby_service.dart';
+import 'package:XL/services/logging/logger.dart';
+import 'package:XL/theme/rex_big_view.dart';
 
-/// Emby 入口页：列出当前服务器上的媒体库。
+/// Emby 首页：底部二级导航「媒体库 / 资源库 / 我的」。
 ///
-/// 没配服务器时不摆一个空网格，而是直接给一张"添加服务器"的引导卡——
-/// 这个功能第一次打开必然是这个状态，引导比空态更重要。
+/// 按 `LU_3.9.19_预览.html` 落地：
+/// - **媒体库**：通栏大图 + 服务器胶囊（页内下拉切换）+ 继续观看 +
+///   我的媒体 + 每库一轨的海报滑轨 + 统计条；
+/// - **资源库**：搜索条 + 两列渐变网格卡 + 添加来源 / 显示选项菜单；
+/// - **我的**：Emby 服务器信息 + 资源模块 + 播放器设置（iOS 分组）。
+///
+/// 二级导航浮在底栏上方（不占内容高度），三个页签用 [IndexedStack] 保状态。
 class EmbyPage extends StatefulWidget {
   const EmbyPage({super.key});
 
@@ -19,17 +33,26 @@ class EmbyPage extends StatefulWidget {
 }
 
 class _EmbyPageState extends State<EmbyPage> {
+  int _pane = 0;
   Future<_HomeData>? _future;
+  bool _opening = false;
+
+  /// 顶栏要用的服务器。故意和 future 解耦：future 还在跑、或者已经失败，
+  /// 顶栏也得显示当前是哪台服务器，否则用户不知道自己在连谁。
+  EmbyServer? _server;
 
   @override
   void initState() {
     super.initState();
-    // 首帧前直接赋值，不用 setState：initState 里调 setState 只会把
-    // 已经脏掉的树再标一次脏。
+    // `load()` 里没有真正的 await，同步读一次就能拿到已保存的服务器。
+    unawaited(EmbyService.instance.load());
+    _server = EmbyService.instance.activeServer;
     _future = _load();
-    // 服务器增删、换账号都会让 revision +1，跟着重新拉一次库列表。
     EmbyService.instance.revision.addListener(_onRevisionChanged);
   }
+
+  /// 我的页签要显示的库数量（_load 拉到 libraries 后更新）。
+  int _libCount = 0;
 
   @override
   void dispose() {
@@ -38,11 +61,11 @@ class _EmbyPageState extends State<EmbyPage> {
   }
 
   void _onRevisionChanged() {
-    if (mounted) _reload();
-  }
-
-  void _reload() {
-    setState(() => _future = _load());
+    if (!mounted) return;
+    setState(() {
+      _server = EmbyService.instance.activeServer;
+      _future = _load();
+    });
   }
 
   Future<_HomeData> _load() async {
@@ -50,12 +73,83 @@ class _EmbyPageState extends State<EmbyPage> {
     await service.load();
     final server = service.activeServer;
     if (server == null) {
-      return const _HomeData(server: null, libraries: []);
+      return const _HomeData(
+        server: null,
+        libraries: [],
+        resume: [],
+        latest: [],
+        rails: [],
+      );
     }
+    final client = service.clientFor(server);
+    final libraries = await client.fetchLibraries(server.userId);
+    if (mounted) setState(() => _libCount = libraries.length);
+
+    // 这两块是「锦上添花」，服务器不支持或者超时都不该让整页变成错误态。
+    var resume = <EmbyItem>[];
+    var latest = <EmbyItem>[];
+    EmbyItemCounts? counts;
+    try {
+      resume = await client.fetchResume(userId: server.userId);
+    } catch (e) {
+      KazumiLogger().w('Emby home: failed to load resume', error: e);
+    }
+    try {
+      latest = await client.fetchLatest(userId: server.userId);
+    } catch (e) {
+      KazumiLogger().w('Emby home: failed to load latest', error: e);
+    }
+
+    // 每个内容库一条海报滑轨（预览稿的「3.追番」「4.日番」就是这种轨）。
+    // 音乐 / 书籍类库不进首页，最多取 4 条轨避免一次打太多请求。
+    final rails = <_LibRail>[];
+    final railLibs = libraries
+        .where((lib) =>
+            lib.collectionType != 'music' &&
+            lib.collectionType != 'audiobooks' &&
+            lib.collectionType != 'books' &&
+            lib.collectionType != 'playlists')
+        .take(4);
+    final railFutures = <Future<_LibRail?>>[
+      for (final lib in railLibs)
+        () async {
+          try {
+            final items = await client.fetchLatest(
+              userId: server.userId,
+              parentId: lib.id,
+              limit: 12,
+            );
+            var count = 0;
+            try {
+              count = await client.fetchLibraryCount(
+                userId: server.userId,
+                parentId: lib.id,
+              );
+            } catch (_) {}
+            return _LibRail(library: lib, items: items, count: count);
+          } catch (e) {
+            KazumiLogger().w('Emby home: failed to load rail ${lib.name}',
+                error: e);
+            return null;
+          }
+        }(),
+    ];
+    rails.addAll((await Future.wait(railFutures)).whereType<_LibRail>());
+
+    // 统计条：电影 / 节目 / 集数。拿不到就整条不显示。
+    try {
+      counts = await client.fetchItemCounts(userId: server.userId);
+    } catch (e) {
+      KazumiLogger().w('Emby home: failed to load counts', error: e);
+    }
+
     return _HomeData(
       server: server,
-      libraries:
-          await service.clientFor(server).fetchLibraries(server.userId),
+      libraries: libraries,
+      resume: resume,
+      latest: latest,
+      rails: rails,
+      counts: counts,
     );
   }
 
@@ -63,36 +157,349 @@ class _EmbyPageState extends State<EmbyPage> {
     await context.pushNamed('/emby/servers');
   }
 
+  /// 搜索现在是 Emby 的第三个页签（见二级导航），不再另外开页面。
+  Future<void> _openSearch() async {
+    if (mounted) setState(() => _pane = 2);
+  }
+
+  void _openDetail(EmbyItem item) {
+    context.pushNamed('/emby/detail', arguments: item);
+  }
+
+  void _openLibrary(EmbyLibrary library) {
+    context.pushNamed('/emby/library', arguments: library);
+  }
+
+  /// 点资源库里的服务器卡片：切成这台服务器并跳到媒体库页签。
+  ///
+  /// 换服务器会触发 revision，`_onRevisionChanged` 自己会把媒体库刷一遍。
+  Future<void> _switchServer(EmbyServer server) async {
+    final current = EmbyService.instance.activeServer;
+    if (current?.id == server.id) {
+      setState(() => _pane = 0);
+      return;
+    }
+    await EmbyService.instance.setActive(server.id);
+    if (mounted) setState(() => _pane = 0);
+  }
+
+  void _pickPane(int index) {
+    if (index == _pane) return;
+    setState(() => _pane = index);
+  }
+
+  /// 从首页直接起播。
+  ///
+  /// 单集要先把整季拉下来，否则播放器里没有「下一集」；剧集本身不能直接播，
+  /// 交给详情页让用户选。电影就是自己一条。
+  Future<void> _play(EmbyItem item) async {
+    final server = EmbyService.instance.activeServer;
+    if (server == null) return;
+    if (item.isSeries) {
+      _openDetail(item);
+      return;
+    }
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      final client = EmbyService.instance.clientFor(server);
+      var episodes = <EmbyItem>[item];
+      var index = 0;
+      if (item.isEpisode && (item.seriesId?.isNotEmpty ?? false)) {
+        try {
+          final all = await client.fetchEpisodes(
+            userId: server.userId,
+            seriesId: item.seriesId!,
+          );
+          if (all.isNotEmpty) {
+            episodes = all;
+            final found = all.indexWhere((e) => e.id == item.id);
+            index = found < 0 ? 0 : found;
+          }
+        } catch (e) {
+          KazumiLogger().w('Emby home: failed to load episodes for play', error: e);
+        }
+      }
+      if (!mounted) return;
+      await context.pushNamed(
+        '/emby/player',
+        arguments: EmbyPlaybackLaunch(
+          server: server,
+          title: item.isEpisode
+              ? (item.seriesName?.isNotEmpty == true ? item.seriesName! : item.name)
+              : item.name,
+          episodes: episodes,
+          initialIndex: index,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _opening = false);
+        _onRevisionChanged();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SettingsDetailScaffold(
-      title: const Text('Emby 媒体库'),
-      actions: [
-        IconButton(
-          tooltip: '服务器设置',
-          onPressed: _openServers,
-          icon: const Icon(Icons.dns_rounded),
+    return Scaffold(
+      backgroundColor: PvColors.page(context),
+      body: Stack(
+        children: [
+          // IndexedStack 保三个页签的状态：切走再回来不用重新拉数据，
+          // 滚动位置也还在。空服务器时三个页签都给引导。
+          IndexedStack(
+            index: _pane,
+            children: [
+              _LibraryPane(
+                future: _future,
+                server: _server,
+                onRetry: _onRevisionChanged,
+                onSwitchServer: _openServers,
+                onPlay: _play,
+                onOpenDetail: _openDetail,
+                onOpenLibrary: _openLibrary,
+                onOpenSearch: _openSearch,
+              ),
+              EmbyResourcePane(
+                onSwitchServer: _switchServer,
+                onEditServer: _openServers,
+                onOpenLibrary: () => setState(() => _pane = 0),
+              ),
+              EmbySearchPane(
+                onOpenDetail: _openDetail,
+                onPlay: (item) => _play(item),
+              ),
+              EmbyMinePane(
+                libraryCount: _libCount,
+              ),
+            ],
+          ),
+          // 二级导航：浮在底栏上方，不占内容高度。
+          //
+          // 基准必须用 `MediaQuery.padding.bottom`，不能再调
+          // `immersiveTabBarInset()`。原因在外壳：`menu.dart` 的 Scaffold 是
+          // `extendBody: true`，Flutter 会在 `_BodyBuilder` 里把底栏高度注入
+          // body 的 MediaQuery——
+          //   padding.bottom = max(系统安全区, bottomWidgetsHeight)
+          // 也就是说 body 里量到的 padding.bottom **就是底栏上沿离屏幕底的
+          // 距离**，body 本身是伸到屏幕底的。
+          //
+          // 之前两次都错在这一步：
+          //   · `inset + 1`：immersiveTabBarInset 自己又加 62+6，底栏高度被算
+          //     了两遍，整条浮到半空（截图量出来 68dp 正好是 62+6）；
+          //   · `bottom: 2`：矫枉过正，整条沉到屏幕底，跟底栏完全重合、看不见。
+          //
+          // 现在 = 底栏上沿 + 6 的缝，落在「继续观看」下面那条空带上。
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: MediaQuery.paddingOf(context).bottom + 6,
+            child: Center(child: _EmbySubDock(index: _pane, onChanged: _pickPane)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 二级导航胶囊（预览稿 `.subdock`）。
+///
+/// 顺序固定为「媒体库 / 资源库 / 搜索 / 我的」。整条内高 26（外高 32），
+/// 白 68% 毛玻璃；选中项底色 rgba(56,84,128,.15)、文字 #2F4E7A。
+///
+/// 用户明确说过「不是要薄，是要位置往下」——所以厚度保持这个比例，
+/// 靠上面的 Positioned 去调位置。
+class _EmbySubDock extends StatelessWidget {
+  const _EmbySubDock({required this.index, required this.onChanged});
+
+  final int index;
+  final ValueChanged<int> onChanged;
+
+  static const _items = <(IconData, String)>[
+    (Icons.grid_view_rounded, '媒体库'),
+    (Icons.dns_rounded, '资源库'),
+    (Icons.search_rounded, '搜索'),
+    (Icons.person_outline_rounded, '我的'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = PvColors.isDark(context);
+
+    return Material(
+      color: dark
+          ? Colors.black.withValues(alpha: 0.46)
+          : Colors.white.withValues(alpha: 0.68),
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: dark
+              ? Colors.white.withValues(alpha: 0.10)
+              : Colors.white.withValues(alpha: 0.8),
+          width: 1,
         ),
-        IconButton(
-          tooltip: '刷新',
-          onPressed: _reload,
-          icon: const Icon(Icons.refresh_rounded),
+      ),
+      clipBehavior: Clip.antiAlias,
+      elevation: 8,
+      shadowColor: const Color(0x21141E32),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < _items.length; i++)
+              _SubDockButton(
+                icon: _items[i].$1,
+                label: _items[i].$2,
+                selected: i == index,
+                onTap: () => onChanged(i),
+              ),
+          ],
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _SubDockButton extends StatelessWidget {
+  const _SubDockButton({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color ink =
+        selected ? PvColors.subInk(context) : const Color(0xFF6C6C72);
+
+    return PressableInk(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        height: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? PvColors.subCap(context) : Colors.transparent,
+          borderRadius: BorderRadius.circular(13),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: ink),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: ink,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 无主题依赖的按压缩放包装（预览稿的按下反馈很轻，只要一点透明度）。
+class PressableInk extends StatelessWidget {
+  const PressableInk({super.key, required this.onTap, required this.child});
+
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(16), child: child),
+    );
+  }
+}
+
+class _HomeData {
+  const _HomeData({
+    required this.server,
+    required this.libraries,
+    required this.resume,
+    required this.latest,
+    this.rails = const [],
+    this.counts,
+  });
+
+  final EmbyServer? server;
+  final List<EmbyLibrary> libraries;
+  final List<EmbyItem> resume;
+  final List<EmbyItem> latest;
+  final List<_LibRail> rails;
+  final EmbyItemCounts? counts;
+}
+
+/// 每个内容库一条滑轨的数据。
+class _LibRail {
+  const _LibRail({
+    required this.library,
+    required this.items,
+    required this.count,
+  });
+
+  final EmbyLibrary library;
+  final List<EmbyItem> items;
+  final int count;
+}
+
+/// 媒体库页签。
+class _LibraryPane extends StatelessWidget {
+  const _LibraryPane({
+    required this.future,
+    required this.server,
+    required this.onRetry,
+    required this.onSwitchServer,
+    required this.onPlay,
+    required this.onOpenDetail,
+    required this.onOpenLibrary,
+    required this.onOpenSearch,
+  });
+
+  final Future<_HomeData>? future;
+  final EmbyServer? server;
+  final VoidCallback onRetry;
+  final VoidCallback onSwitchServer;
+  final ValueChanged<EmbyItem> onPlay;
+  final ValueChanged<EmbyItem> onOpenDetail;
+  final ValueChanged<EmbyLibrary> onOpenLibrary;
+  final VoidCallback onOpenSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
       body: EmbyFutureView<_HomeData>(
-        future: _future!,
-        onRetry: _reload,
+        future: future!,
+        onRetry: onRetry,
+        onSwitchServer: onSwitchServer,
         builder: (context, data) {
           if (data.server == null) {
-            return _NoServerGuide(onAdd: _openServers);
+            return _NoServerGuide(onAdd: onSwitchServer);
           }
-          return _LibraryGrid(
-            libraries: data.libraries,
-            serverName: data.server!.name,
-            onOpen: (library) => context.pushNamed(
-              '/emby/library',
-              arguments: library,
-            ),
+          return _HomeBody(
+            data: data,
+            onPlay: onPlay,
+            onOpenDetail: onOpenDetail,
+            onOpenLibrary: onOpenLibrary,
+            onRetry: onRetry,
+            onOpenServers: onSwitchServer,
+            onOpenSearch: onOpenSearch,
           );
         },
       ),
@@ -100,15 +507,576 @@ class _EmbyPageState extends State<EmbyPage> {
   }
 }
 
-/// 首页要同时表达"有没有服务器"和"服务器上有哪些库"。
-///
-/// 不能只返回 `List<EmbyLibrary>?`：`EmbyFutureView` 会把 null 当成空数据，
-/// 那样"还没配服务器"就会走到通用空态，看不到引导卡。
-class _HomeData {
-  const _HomeData({required this.server, required this.libraries});
+class _HomeBody extends StatelessWidget {
+  const _HomeBody({
+    required this.data,
+    required this.onPlay,
+    required this.onOpenDetail,
+    required this.onOpenLibrary,
+    required this.onRetry,
+    required this.onOpenServers,
+    required this.onOpenSearch,
+  });
 
-  final EmbyServer? server;
-  final List<EmbyLibrary> libraries;
+  final _HomeData data;
+  final ValueChanged<EmbyItem> onPlay;
+  final ValueChanged<EmbyItem> onOpenDetail;
+  final ValueChanged<EmbyLibrary> onOpenLibrary;
+  final VoidCallback onRetry;
+  final VoidCallback onOpenServers;
+  final VoidCallback onOpenSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final server = data.server!;
+    final bool desktop = embyIsDesktop(context);
+
+    final heroItems = _heroItems();
+    final double heroHeight =
+        desktop ? 380 : (MediaQuery.sizeOf(context).height * 0.59).clamp(440.0, 560.0);
+
+    return RefreshIndicator(
+      onRefresh: () async => onRetry(),
+      child: CustomScrollView(
+        slivers: [
+          // 通栏大图：图片顶到状态栏底下，服务器胶囊浮在左上、爱心在右上。
+          SliverToBoxAdapter(
+            child: RexBigViewCarousel(
+              items: heroItems,
+              fadeColor: PvColors.page(context),
+              height: heroHeight,
+              emptyBuilder: _EmptyHero(onOpenServers: onOpenServers),
+              topOverlay: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                      embyPagePadding(context) - 6, 10, embyPagePadding(context), 0),
+                  child: Row(
+                    children: [
+                      _ServerChipWithDrop(server: server, onManage: onOpenServers),
+                      const Spacer(),
+                      _HeartButton(
+                        onTap: () => ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                          const SnackBar(
+                            content: Text('已收藏这个服务器'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (data.resume.isNotEmpty) ...[
+            PvSliverHead(
+              title: '继续观看',
+              count: '${data.resume.length}',
+              onMore: () {},
+            ),
+            SliverToBoxAdapter(child: _ResumeRail(data: data, onPlay: onPlay)),
+          ],
+          PvSliverHead(
+            title: '我的媒体',
+            count: '${data.libraries.length}',
+            onMore: () {},
+          ),
+          SliverToBoxAdapter(child: _MediaFolderRail(data: data, onOpen: onOpenLibrary)),
+          for (final rail in data.rails) ...[
+            PvSliverHead(
+              title: rail.library.name,
+              count: rail.count > 0 ? _formatCount(rail.count) : null,
+              onMore: () => onOpenLibrary(rail.library),
+            ),
+            SliverToBoxAdapter(
+              child: _PosterRail(
+                server: server,
+                items: rail.items,
+                onTap: (item) =>
+                    item.isSeries ? onOpenDetail(item) : onPlay(item),
+              ),
+            ),
+          ],
+          if (data.counts != null)
+            SliverToBoxAdapter(child: _StatsRow(counts: data.counts!)),
+          const SliverPadding(padding: EdgeInsets.only(bottom: pvSubDockClearance)),
+        ],
+      ),
+    );
+  }
+
+  /// 大视图轮播数据：正在看的优先，再补最近入库，最多 5 条。
+  List<RexBigViewItem> _heroItems() {
+    final server = data.server!;
+    final heroes = <EmbyItem>[];
+    for (final item in data.resume) {
+      if (item.isInProgress) heroes.add(item);
+      if (heroes.length >= 5) break;
+    }
+    for (final item in data.latest) {
+      if (heroes.length >= 5) break;
+      if (!heroes.any((h) => h.id == item.id)) heroes.add(item);
+    }
+    if (heroes.isEmpty) {
+      heroes.addAll(data.resume.take(2));
+    }
+    return [
+      for (final item in heroes)
+        RexBigViewItem(
+          imageUrl: item.backdropImageTag != null
+              ? embyBackdropUrl(
+                  serverUrl: server.url,
+                  itemId: item.id,
+                  accessToken: server.accessToken,
+                  tag: item.backdropImageTag,
+                )
+              : embyImageUrl(
+                  serverUrl: server.url,
+                  itemId: item.id,
+                  accessToken: server.accessToken,
+                  maxHeight: 900,
+                  tag: item.primaryImageTag,
+                ),
+          headers: embyAuthHeaders(server),
+          title: item.name,
+          score: item.communityRating?.toStringAsFixed(1),
+          year: item.productionYear?.toString(),
+          badge: (item.officialRating ?? '').isEmpty ? null : item.officialRating,
+          genres: item.genres.isEmpty ? null : item.genres.take(2).join(' / '),
+          desc: (item.overview ?? '').trim().isEmpty ? null : item.overview!.trim(),
+          onTap: () => item.isEpisode ? onPlay(item) : onOpenDetail(item),
+        ),
+    ];
+  }
+}
+
+/// 千分位格式化：15941 → 15,941（预览稿统计条样式）。
+String _formatCount(int n) {
+  final s = n.toString();
+  final buf = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    buf.write(s[i]);
+    final left = s.length - 1 - i;
+    if (left > 0 && left % 3 == 0) buf.write(',');
+  }
+  return buf.toString();
+}
+
+/// `.sect` 区块标题的 Sliver 版。
+class PvSliverHead extends SliverToBoxAdapter {
+  PvSliverHead({
+    super.key,
+    required String title,
+    String? count,
+    VoidCallback? onMore,
+  }) : super(
+          child: PvSectionHead(title, count: count, onMore: onMore),
+        );
+}
+
+/// 服务器胶囊 + 页内下拉（预览稿 `.chip2` + `#chipDrop`）。
+class _ServerChipWithDrop extends StatefulWidget {
+  const _ServerChipWithDrop({required this.server, required this.onManage});
+
+  final EmbyServer server;
+  final VoidCallback onManage;
+
+  @override
+  State<_ServerChipWithDrop> createState() => _ServerChipWithDropState();
+}
+
+class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
+  final GlobalKey _chipKey = GlobalKey();
+
+  Future<void> _openDrop() async {
+    final box = _chipKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null) return;
+    final origin =
+        box.localToGlobal(Offset.zero, ancestor: overlay);
+    final service = EmbyService.instance;
+    final servers = service.servers;
+    final active = service.activeServer;
+
+    await showPvMenu<Object>(
+      context: context,
+      minWidth: 250,
+      position: RelativeRect.fromLTRB(
+        origin.dx,
+        origin.dy + box.size.height + 6,
+        (overlay.size.width - origin.dx - 250).clamp(0.0, overlay.size.width),
+        0,
+      ),
+      items: [
+        for (final server in servers)
+          PvMenuItem(
+            server.name,
+            checked: server.id == active?.id,
+            onTap: () async {
+              if (server.id == active?.id) return;
+              await EmbyService.instance.setActive(server.id);
+            },
+          ),
+        const PvMenuItem.divider(),
+        PvMenuItem('管理服务器…', onTap: widget.onManage),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = PvColors.isDark(context);
+    return GestureDetector(
+      key: _chipKey,
+      onTap: _openDrop,
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.fromLTRB(9, 0, 12, 0),
+        decoration: BoxDecoration(
+          color: dark
+              ? Colors.black.withValues(alpha: 0.42)
+              : Colors.white.withValues(alpha: 0.82),
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(
+            color: dark
+                ? Colors.white.withValues(alpha: 0.10)
+                : Colors.white.withValues(alpha: 0.9),
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1F141E32),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 预览稿 chip2 的图标：绿色圆角方块 + 白色播放三角。
+            Container(
+              width: 19,
+              height: 19,
+              decoration: BoxDecoration(
+                color: PvColors.green,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.play_arrow_rounded,
+                  size: 15, color: Colors.white),
+            ),
+            const SizedBox(width: 7),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 150),
+              child: Text(
+                widget.server.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.2,
+                  color: dark ? const Color(0xFFEDEDEF) : const Color(0xFF1B1B1F),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.expand_more_rounded,
+                size: 14, color: dark ? const Color(0xFF9A9AA2) : const Color(0xFF5A5A60)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// `.heartbtn`：38x38 白玻璃圆钮 + 红心。
+class _HeartButton extends StatelessWidget {
+  const _HeartButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = PvColors.isDark(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: dark
+              ? Colors.black.withValues(alpha: 0.42)
+              : Colors.white.withValues(alpha: 0.82),
+          border: Border.all(
+            color: dark
+                ? Colors.white.withValues(alpha: 0.10)
+                : Colors.white.withValues(alpha: 0.9),
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1F141E32),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: const Icon(Icons.favorite_rounded, size: 19, color: PvColors.red),
+      ),
+    );
+  }
+}
+
+/// 继续观看横滑：预览稿 `.resumecard`，一屏两张（58% 宽）、时间码贴右下。
+class _ResumeRail extends StatelessWidget {
+  const _ResumeRail({required this.data, required this.onPlay});
+
+  final _HomeData data;
+  final ValueChanged<EmbyItem> onPlay;
+
+  @override
+  Widget build(BuildContext context) {
+    final server = data.server!;
+    final double cardWidth =
+        embyIsDesktop(context) ? 300 : MediaQuery.sizeOf(context).width * 0.58;
+    return SizedBox(
+      height: cardWidth * 9 / 16 + 52,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: data.resume.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final item = data.resume[index];
+          final hasOwnImage = (item.primaryImageTag ?? '').isNotEmpty;
+          final seriesId = item.seriesId;
+          final imageUrl = embyImageUrl(
+            serverUrl: server.url,
+            itemId: !hasOwnImage && seriesId != null && seriesId.isNotEmpty
+                ? seriesId
+                : item.id,
+            accessToken: server.accessToken,
+            maxHeight: 420,
+            tag: hasOwnImage ? item.primaryImageTag : null,
+          );
+          return SizedBox(
+            width: cardWidth,
+            child: EmbyResumeCard(
+              imageUrl: imageUrl,
+              headers: embyAuthHeaders(server),
+              title: item.isEpisode
+                  ? (item.seriesName?.isNotEmpty == true ? item.seriesName! : item.name)
+                  : item.name,
+              subtitle: item.isEpisode ? item.cardSubtitle : '继续观看',
+              timeLabel: _timeLabel(item),
+              progress: item.watchedRatio,
+              onTap: () => onPlay(item),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  String _timeLabel(EmbyItem item) {
+    final total = item.runTime;
+    if (total == null) return '继续播放';
+    final watched = Duration(
+      microseconds: (item.playbackPositionTicks ?? 0) ~/ 10,
+    );
+    String fmt(Duration d) {
+      final m = d.inMinutes.clamp(0, 999);
+      final s = d.inSeconds % 60;
+      return '$m:${s.toString().padLeft(2, '0')}';
+    }
+    return '▶ ${fmt(watched)} / ${fmt(total)}';
+  }
+}
+
+/// 我的媒体横滑：预览稿 `.mediacard`，47% 宽、文字压图正中。
+class _MediaFolderRail extends StatelessWidget {
+  const _MediaFolderRail({required this.data, required this.onOpen});
+
+  final _HomeData data;
+  final ValueChanged<EmbyLibrary> onOpen;
+
+  static const _tones = <Color>[
+    Color(0xFF5C6E82),
+    Color(0xFF6E5C50),
+    Color(0xFF4C5E6E),
+    Color(0xFF56645C),
+    Color(0xFF6E5C6E),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final server = data.server!;
+    final double cardWidth =
+        embyIsDesktop(context) ? 260 : MediaQuery.sizeOf(context).width * 0.47;
+    return SizedBox(
+      height: cardWidth * 9 / 16 + 34,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        itemCount: data.libraries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final library = data.libraries[index];
+          final hasImage = (library.imageTag ?? '').isNotEmpty;
+          return SizedBox(
+            width: cardWidth,
+            child: EmbyFolderCard(
+              name: library.name,
+              imageUrl: hasImage
+                  ? embyImageUrl(
+                      serverUrl: server.url,
+                      itemId: library.id,
+                      accessToken: server.accessToken,
+                      maxHeight: 420,
+                      tag: library.imageTag,
+                    )
+                  : '',
+              headers: embyAuthHeaders(server),
+              fallbackColor: _tones[index % _tones.length],
+              icon: _libraryIcon(library.collectionType),
+              onTap: () => onOpen(library),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _libraryIcon(String type) {
+    switch (type) {
+      case 'movies':
+        return Icons.movie_outlined;
+      case 'tvshows':
+        return Icons.live_tv_outlined;
+      case 'music':
+        return Icons.music_note_outlined;
+      case 'boxsets':
+        return Icons.collections_bookmark_outlined;
+      default:
+        return Icons.folder_outlined;
+    }
+  }
+}
+
+/// 每库一条的海报滑轨。
+class _PosterRail extends StatelessWidget {
+  const _PosterRail({
+    required this.server,
+    required this.items,
+    required this.onTap,
+  });
+
+  final EmbyServer server;
+  final List<EmbyItem> items;
+  final ValueChanged<EmbyItem> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return EmbyRail(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        final count = item.childCount ?? 0;
+        return EmbyPosterTile(
+          item: item,
+          imageUrl: embyImageUrl(
+            serverUrl: server.url,
+            itemId: item.id,
+            accessToken: server.accessToken,
+            maxHeight: 480,
+            tag: item.primaryImageTag,
+          ),
+          headers: embyAuthHeaders(server),
+          // 预览稿海报右上角是集数徽标、右下角是评分。
+          countBadge:
+              item.isSeries && count > 0 ? _formatCount(count) : null,
+          score: item.communityRating?.toStringAsFixed(1),
+          onTap: () => onTap(item),
+        );
+      },
+    );
+  }
+}
+
+/// 统计条（预览稿 `.statsrow`）：电影 / 节目 / 集数 三张白卡。
+class _StatsRow extends StatelessWidget {
+  const _StatsRow({required this.counts});
+
+  final EmbyItemCounts counts;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = PvColors.isDark(context);
+    final cardColor = dark ? const Color(0xFF232227) : Colors.white;
+    Widget stat(int n, String label, Color color) {
+      return Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 8),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: dark
+                ? null
+                : const [
+                    BoxShadow(color: Color(0x0D000000), blurRadius: 3),
+                  ],
+          ),
+          child: Column(
+            children: [
+              Text(
+                n > 0 ? _formatCount(n) : '—',
+                style: PvText.statNum.copyWith(color: color),
+              ),
+              const SizedBox(height: 2),
+              Text(label, style: PvText.statLabel(context)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 8),
+      child: Row(
+        children: [
+          stat(counts.movies, '电影', const Color(0xFFFF3B30)),
+          const SizedBox(width: 11),
+          stat(counts.series, '节目', const Color(0xFF3E7BFA)),
+          const SizedBox(width: 11),
+          stat(counts.episodes, '集数', PvColors.green),
+        ],
+      ),
+    );
+  }
+}
+
+/// 大图为空时的占位：保持高度，给出一句引导。
+class _EmptyHero extends StatelessWidget {
+  const _EmptyHero({required this.onOpenServers});
+
+  final VoidCallback onOpenServers;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: PvColors.searchFill(context),
+      child: Center(
+        child: Text(
+          '还没有正在看和最近入库的内容',
+          style: TextStyle(fontSize: 13, color: PvColors.ink3(context)),
+        ),
+      ),
+    );
+  }
 }
 
 class _NoServerGuide extends StatelessWidget {
@@ -181,134 +1149,6 @@ class _NoServerGuide extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _LibraryGrid extends StatelessWidget {
-  const _LibraryGrid({
-    required this.libraries,
-    required this.serverName,
-    required this.onOpen,
-  });
-
-  final List<EmbyLibrary> libraries;
-  final String serverName;
-  final ValueChanged<EmbyLibrary> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    if (libraries.isEmpty) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: GeneralEmbyEmpty(
-          title: '服务器上没有媒体库',
-          message: '$serverName 里还没有可浏览的内容。先在 Emby 服务端添加媒体库，再回来刷新。',
-        ),
-      );
-    }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final double inset = constraints.maxWidth < 600 ? 16 : 28;
-        return GridView.builder(
-          padding: EdgeInsets.fromLTRB(inset, 12, inset, 28),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 300,
-            mainAxisExtent: 92,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-          ),
-          itemCount: libraries.length,
-          itemBuilder: (context, index) => _LibraryTile(
-            library: libraries[index],
-            onTap: () => onOpen(libraries[index]),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _LibraryTile extends StatelessWidget {
-  const _LibraryTile({required this.library, required this.onTap});
-
-  final EmbyLibrary library;
-  final VoidCallback onTap;
-
-  IconData get _icon => switch (library.collectionType) {
-        'movies' => Icons.movie_rounded,
-        'tvshows' => Icons.live_tv_rounded,
-        'music' => Icons.music_note_rounded,
-        'boxsets' => Icons.collections_bookmark_rounded,
-        'homevideos' => Icons.video_library_rounded,
-        'photos' => Icons.photo_library_rounded,
-        _ => Icons.folder_rounded,
-      };
-
-  String get _typeLabel => switch (library.collectionType) {
-        'movies' => '电影',
-        'tvshows' => '剧集',
-        'music' => '音乐',
-        'boxsets' => '合集',
-        'homevideos' => '家庭视频',
-        'photos' => '照片',
-        _ => '媒体库',
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bool neu = isNeuLayout(context);
-    final Widget content = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(_icon,
-                color: theme.colorScheme.onPrimaryContainer, size: 24),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  library.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _typeLabel,
-                  style: theme.textTheme.labelSmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right_rounded,
-              color: theme.colorScheme.onSurfaceVariant),
-        ],
-      ),
-    );
-
-    if (neu) {
-      return NeuSurface(radius: 22, onTap: onTap, child: content);
-    }
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(22),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(onTap: onTap, child: content),
     );
   }
 }

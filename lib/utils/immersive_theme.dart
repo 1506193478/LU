@@ -5,8 +5,15 @@ import 'package:XL/utils/constants.dart';
 ///
 /// 种子色只保留为强调色，所有承载内容的 surface 一律换成中性灰阶，
 /// 让封面图成为页面里唯一的高饱和元素。
-const Color immersiveDarkScaffold = Color(0xFF0B0C0F);
-const Color immersiveLightScaffold = Color(0xFFF5F6F8);
+// Pv 作为唯一设计语言之后，全局页面底色就是 Pv 的 `--page`：
+// 浅色 #F3F1F2 / 深色 #151417。原来这里是 #F5F6F8 / #0B0C0F，
+// 和 Pv 卡片一对比就分得出两套底，切页时尤其明显。
+const Color immersiveDarkScaffold = Color(0xFF151417);
+const Color immersiveLightScaffold = Color(0xFFF3F1F2);
+
+/// Pv 卡片底色（`--canvas`），跟 [PvColors.card] 是同一组值。
+const Color immersiveDarkCard = Color(0xFF1F1E22);
+const Color immersiveLightCard = Color(0xFFFFFFFF);
 
 /// 默认强调色。
 ///
@@ -31,7 +38,7 @@ const double immersiveRadiusLarge = 24;
 /// 悬浮导航条的高度与离屏距离。
 ///
 /// 页面底部留白要按 [immersiveTabBarInset] 算，不然内容会被导航条压住。
-const double immersiveTabBarHeight = 66;
+const double immersiveTabBarHeight = 62;
 
 /// 导航条底边到「安全区上沿」的距离。
 ///
@@ -133,7 +140,9 @@ ThemeData buildImmersiveTheme({
       elevation: 0,
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
-      color: scheme.surfaceContainerLow,
+      // 卡片一律用 Pv 的白卡（深色 #1F1E22），不再跟 M3 的
+      // surfaceContainerLow 走 —— 后者跟页面底色差得太少，整页糊成一片。
+      color: dark ? immersiveDarkCard : immersiveLightCard,
       shape: const RoundedRectangleBorder(
         borderRadius: immersiveBorderRadius,
       ),

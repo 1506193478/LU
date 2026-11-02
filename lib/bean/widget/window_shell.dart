@@ -126,7 +126,11 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
 
   List<Widget> _resizeZones() {
     const double g = WindowShell.gutter;
-    const double corner = 18;
+    // 热区比视觉留白宽一截：8px 的边用户在 4K 屏上根本压不准，
+    // 伸手进去 2~3px 就滑走，「放大缩小很不方便」就是这儿来的。
+    // 多出来的宽度压在内容边缘上，但只有 3px，不影响任何控件。
+    const double edge = 11;
+    const double corner = 26;
 
     Widget zone({
       required ResizeEdge edge,
@@ -174,11 +178,13 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
     // 能触发 —— 之前只能靠各页面自带的标题栏拖动，标题栏一旦套在可滚动
     // 容器里，pan 手势就会被滚动抢走，表现为「窗口拖不动」。
     // 双击最大化跟系统行为一致。
+    // 顶部这条同时是「拖动条」：高度给到 g + 6，压住内容最上面几像素，
+    // 抓起来更像标题栏；双击仍然最大化 / 还原。
     final Widget dragHandle = Positioned(
       left: corner,
       right: corner,
       top: 0,
-      height: g,
+      height: g + 6,
       child: MouseRegion(
         cursor: SystemMouseCursors.move,
         child: GestureDetector(
@@ -198,7 +204,7 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
         left: corner,
         right: corner,
         bottom: 0,
-        height: g,
+        height: edge,
       ),
       zone(
         edge: ResizeEdge.left,
@@ -206,7 +212,7 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
         left: 0,
         top: corner,
         bottom: corner,
-        width: g,
+        width: edge,
       ),
       zone(
         edge: ResizeEdge.right,
@@ -214,7 +220,7 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
         right: 0,
         top: corner,
         bottom: corner,
-        width: g,
+        width: edge,
       ),
       // 四个角
       zone(

@@ -13,48 +13,71 @@ class _CollectCategories extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    return TabBar(
-      key: const PageStorageKey('collect-filter-strip'),
-      controller: controller,
-      isScrollable: true,
-      tabAlignment: TabAlignment.start,
-      dividerHeight: 0,
-      indicatorSize: TabBarIndicatorSize.tab,
-      indicatorPadding: const EdgeInsets.symmetric(horizontal: 2),
-      indicator: BoxDecoration(
-        color: colors.primaryContainer,
-        borderRadius: BorderRadius.circular(24),
+    final dark = theme.brightness == Brightness.dark;
+
+    // 预览稿是「灰色轨道 + 白色选中胶囊」的分段控件，六段等宽铺满一行。
+    return Container(
+      height: 36,
+      padding: const EdgeInsets.all(2.5),
+      decoration: BoxDecoration(
+        color: dark
+            ? Colors.white.withValues(alpha: 0.08)
+            : const Color(0x1A787880),
+        borderRadius: BorderRadius.circular(11),
       ),
-      indicatorAnimation: TabIndicatorAnimation.elastic,
-      labelColor: colors.onPrimaryContainer,
-      unselectedLabelColor: colors.onSurfaceVariant,
-      labelStyle:
-          theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-      unselectedLabelStyle:
-          theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w500),
-      labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-      splashBorderRadius: BorderRadius.circular(24),
-      tabs: [
-        for (final type in _collectCategories)
-          Tab(
-            height: 48,
-            child: Semantics(
-              label: '${type?.label ?? '全部'}，${count(type)} 部',
-              excludeSemantics: true,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 64),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: TabBar(
+        key: const PageStorageKey('collect-filter-strip'),
+        controller: controller,
+        isScrollable: false,
+        dividerHeight: 0,
+        indicatorSize: TabBarIndicatorSize.tab,
+        indicatorPadding: EdgeInsets.zero,
+        indicator: BoxDecoration(
+          color: dark ? const Color(0xFF33353C) : Colors.white,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: dark
+              ? null
+              : const [
+                  BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+        ),
+        indicatorAnimation: TabIndicatorAnimation.elastic,
+        labelColor: dark ? Colors.white : const Color(0xFF0B0B0F),
+        unselectedLabelColor:
+            dark ? Colors.white54 : const Color(0xFF5B5B60),
+        labelStyle: theme.textTheme.bodySmall?.copyWith(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+        ),
+        unselectedLabelStyle: theme.textTheme.bodySmall?.copyWith(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+        ),
+        labelPadding: EdgeInsets.zero,
+        splashBorderRadius: BorderRadius.circular(9),
+        overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        tabs: [
+          for (final type in _collectCategories)
+            Tab(
+              height: 31,
+              child: Semantics(
+                label: '${type?.label ?? '全部'}，${count(type)} 部',
+                excludeSemantics: true,
+                child: Center(
                   child: Text(
                     type?.label ?? '全部',
-                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -8,6 +8,7 @@ import 'package:XL/pages/player/player_controller.dart';
 import 'package:XL/modules/bangumi/bangumi_item.dart';
 import 'package:XL/modules/download/download_module.dart';
 import 'package:XL/modules/emby/emby_models.dart';
+import 'package:XL/request/clients/emby_client.dart';
 import 'package:XL/modules/history/history_module.dart';
 import 'package:XL/repositories/download_repository.dart';
 import 'package:XL/services/download/download_manager.dart';
@@ -659,16 +660,36 @@ abstract class _VideoPageController with Store implements Disposable {
     if (session.isStale) {
       return;
     }
-    _finishLoading();
-
     final resolvedOffset =
         offset > 0 ? offset : getHistoryOffsetFor(_playbackHistoryIdentity!);
     final client = EmbyService.instance.clientFor(server);
     final bool directPlay = GStorage.getSetting(SettingsKeys.embyDirectPlay);
     // `_resolveOnlineEpisode` 把 item id 放在 pageUrl 里。
     final itemId = resolvedEpisode.pageUrl;
-    final String videoUrl =
-        directPlay ? client.directStreamUrl(itemId) : client.hlsStreamUrl(itemId);
+
+    // 先问服务端「这一条怎么播」。真实媒体源 id 只有 PlaybackInfo 知道，
+    // 拿条目 id 硬拼 MediaSourceId 在 Emby 4.9+ 会直接 400。
+    final mediaSource = await client.fetchPlaybackInfo(
+      itemId: itemId,
+      userId: server.userId,
+    );
+    if (session.isStale) return;
+
+    final choice = await _pickEmbyStream(
+      client: client,
+      itemId: itemId,
+      mediaSourceId: mediaSource?.id,
+      preferDirect: directPlay,
+    );
+    if (session.isStale) return;
+    if (choice.url.isEmpty) {
+      // 到这一步说明直连和转码都不通，把服务端原话带出来，别让用户对着黑屏猜。
+      _failLoading(choice.error);
+      return;
+    }
+    _finishLoading();
+
+    final String videoUrl = choice.url;
 
     final params = PlaybackInitParams(
       videoUrl: videoUrl,
@@ -676,8 +697,7 @@ abstract class _VideoPageController with Store implements Disposable {
       // 地址是拼好的直链，没有解析过程。按"本地播放"处理可以顺带跳过
       // 自动弹幕拉取和在线缓存策略——Emby 内容本来也匹配不到弹幕。
       isLocalPlayback: true,
-      videoSourceFormat:
-          directPlay ? VideoSourceFormat.auto : VideoSourceFormat.hls,
+      videoSourceFormat: choice.format,
       bangumiId: bangumiItem.id,
       pluginName: server.adapterName,
       episode: resolvedEpisode.listIndex,
@@ -699,7 +719,9 @@ abstract class _VideoPageController with Store implements Disposable {
     );
 
     KazumiLogger().i(
-        'VideoPageController: emby episode ${resolvedEpisode.listIndex} -> ${directPlay ? "direct" : "hls"}');
+        'VideoPageController: emby episode ${resolvedEpisode.listIndex} -> '
+        '${choice.format == VideoSourceFormat.hls ? "hls" : "direct"}, '
+        'mediaSourceId=${mediaSource?.id ?? "(none)"}');
 
     final initialized = await playerController.init(params);
     if (session.isActive && initialized) {
@@ -715,6 +737,58 @@ abstract class _VideoPageController with Store implements Disposable {
     } else if (session.isActive) {
       _playbackSessions.cancel();
     }
+  }
+
+  /// 按「直连 → 直连（不带媒体源）→ 转码」的顺序挑一条真的能出流的地址。
+  ///
+  /// 每一步都先探测再交给播放器。这样做的原因很实际：地址拼错时 mpv 只会
+  /// 报一句 "failed to open"，用户看到的是黑屏；而服务端其实已经把原因写在
+  /// 响应体里了（比如 `Value cannot be null. (Parameter 'mediaSource')`）。
+  ///
+  /// 第二轮「不带 MediaSourceId」不是多余：万一某个服务端版本的 PlaybackInfo
+  /// 给的 id 和 stream 接口期望的不一致，去掉参数反而能过（服务端会自己挑）。
+  Future<_EmbyStreamChoice> _pickEmbyStream({
+    required EmbyClient client,
+    required String itemId,
+    required String? mediaSourceId,
+    required bool preferDirect,
+  }) async {
+    final attempts = <_EmbyStreamAttempt>[
+      if (preferDirect) ...[
+        _EmbyStreamAttempt(
+          client.directStreamUrl(itemId, mediaSourceId: mediaSourceId),
+          VideoSourceFormat.auto,
+        ),
+        if (mediaSourceId != null && mediaSourceId.isNotEmpty)
+          _EmbyStreamAttempt(
+            client.directStreamUrl(itemId),
+            VideoSourceFormat.auto,
+          ),
+      ],
+      _EmbyStreamAttempt(
+        client.hlsStreamUrl(itemId, mediaSourceId: mediaSourceId),
+        VideoSourceFormat.hls,
+      ),
+      if (!preferDirect)
+        _EmbyStreamAttempt(
+          client.directStreamUrl(itemId, mediaSourceId: mediaSourceId),
+          VideoSourceFormat.auto,
+        ),
+    ];
+
+    String lastError = '';
+    for (final attempt in attempts) {
+      final probe = await client.probeStream(attempt.url);
+      if (probe.isOk) {
+        return _EmbyStreamChoice(url: attempt.url, format: attempt.format);
+      }
+      lastError = probe.userMessage;
+      KazumiLogger().w(
+        'VideoPageController: emby stream probe failed '
+        '(${attempt.format == VideoSourceFormat.hls ? "hls" : "direct"}) -> $lastError',
+      );
+    }
+    return _EmbyStreamChoice.failed(lastError.isEmpty ? '无法播放这一集' : lastError);
   }
 
   Future<void> _loadPlaybackDanmaku(
@@ -1066,4 +1140,26 @@ class _OfflineEpisodeRef extends EpisodeRef {
           historyEpisodeNumber: episodeNumber,
           danmakuEpisodeNumber: episodeNumber,
         );
+}
+
+/// 一次候选地址尝试：地址 + 交给播放器时该用的格式。
+class _EmbyStreamAttempt {
+  const _EmbyStreamAttempt(this.url, this.format);
+
+  final String url;
+  final VideoSourceFormat format;
+}
+
+/// 挑地址的结果。`url` 为空表示全部尝试都失败，`error` 是给用户看的原因。
+class _EmbyStreamChoice {
+  const _EmbyStreamChoice({required this.url, required this.format})
+      : error = '';
+
+  const _EmbyStreamChoice.failed(this.error)
+      : url = '',
+        format = VideoSourceFormat.auto;
+
+  final String url;
+  final VideoSourceFormat format;
+  final String error;
 }

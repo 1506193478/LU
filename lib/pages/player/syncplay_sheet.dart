@@ -5,11 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 
 import 'package:XL/bean/dialog/adaptive_bottom_sheet.dart';
-import 'package:XL/bean/dialog/material_bottom_sheet.dart';
 import 'package:XL/bean/widget/loading_indicator.dart';
-import 'package:XL/bean/widget/split_list_row.dart';
-import 'package:XL/bean/widget/tonal_card.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/player/player_controller.dart';
+import 'package:XL/pages/syncplay/syncplay_controller.dart'
+    show kSyncPlayRoomNumberLength;
 import 'package:XL/services/player/syncplay_client.dart';
 import 'package:XL/services/player/syncplay_endpoint.dart';
 import 'package:XL/services/storage/storage.dart';
@@ -59,35 +59,64 @@ Future<T?> _showStep<T>(BuildContext context, WidgetBuilder builder) {
 String _readEndPoint() =>
     GStorage.getSetting<String>(SettingsKeys.syncPlayEndPoint);
 
-InputDecoration _sheetInputDecoration({
-  required String labelText,
-  String? hintText,
-  String? helperText,
-  String? errorText,
+/// 表单输入框：浅灰胶囊，聚焦时描一圈蓝。
+///
+/// 原来用的是 Material 的 `OutlineInputBorder` 大圆角描边框，跟一起看页里
+/// 那些胶囊输入框完全不是一个东西，弹窗一开就显得像另一个 App。
+InputDecoration _sheetFieldDecoration(
+  BuildContext context, {
+  required String hint,
+  String? error,
 }) {
+  final bool dark = PvColors.isDark(context);
   return InputDecoration(
-    labelText: labelText,
-    hintText: hintText,
-    helperText: helperText,
-    errorText: errorText,
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+    hintText: hint,
+    hintStyle: TextStyle(fontSize: 15, color: PvColors.searchHint(context)),
+    errorText: error,
+    errorStyle: const TextStyle(fontSize: 12, color: PvColors.red),
+    isDense: true,
+    filled: true,
+    fillColor: PvColors.searchFill(context),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide.none,
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(
+        color: PvColors.blue.withValues(alpha: dark ? 0.9 : 0.75),
+        width: 1.4,
+      ),
+    ),
   );
 }
 
+/// 弹窗外壳：标题行 + 可滚动正文 + 底部动作。
+///
+/// 抓手由 [showAdaptiveBottomSheet] 那层画，这里只负责内容。
 class _SyncPlaySheetScaffold extends StatelessWidget {
   const _SyncPlaySheetScaffold({
     required this.title,
     required this.description,
     required this.bodyBuilder,
-    this.showCancel = false,
-    this.primaryAction,
+    this.action,
+    this.dangerAction,
   });
 
   final String title;
   final String description;
   final Widget Function(BuildContext context, bool compact) bodyBuilder;
-  final bool showCancel;
-  final Widget? primaryAction;
+
+  /// 底部主按钮（蓝色实心）。
+  final Widget? action;
+
+  /// 底部次按钮（浅红底红字），比如「断开连接」。
+  final Widget? dangerAction;
 
   @override
   Widget build(BuildContext context) {
@@ -103,52 +132,149 @@ class _SyncPlaySheetScaffold extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          MaterialBottomSheetHeader(
-            title: title,
-            description: showDescription ? description : null,
-            compact: compact,
-            onClose: () => Navigator.of(context).pop(),
-            trailing: compact && primaryAction != null
-                ? Row(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 10, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      primaryAction!,
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        tooltip: '关闭',
-                        icon: const Icon(Icons.close_rounded),
-                      ),
+                      Text(title, style: PvText.section(context)),
+                      if (showDescription) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          description,
+                          style: PvText.rowSub(context).copyWith(fontSize: 12.5),
+                        ),
+                      ],
                     ],
-                  )
-                : null,
+                  ),
+                ),
+                PvIconBtn(
+                  icon: Icons.close_rounded,
+                  tooltip: '关闭',
+                  onTap: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
           ),
           Flexible(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
               child: bodyBuilder(context, compact),
             ),
           ),
-          if (compact)
-            const SizedBox(height: 12)
-          else if (showCancel || primaryAction != null)
+          if (action != null || dangerAction != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (showCancel)
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
-                    ),
-                  const Spacer(),
-                  if (primaryAction != null) primaryAction!,
+                  ?action,
+                  if (action != null && dangerAction != null)
+                    const SizedBox(height: 9),
+                  ?dangerAction,
                 ],
               ),
             )
           else
-            const SizedBox(height: 24),
+            const SizedBox(height: 22),
         ],
+      ),
+    );
+  }
+}
+
+/// 弹窗底部的蓝色主按钮，跟一起看页的「开始一起看」同一套。
+class _SheetPrimaryButton extends StatelessWidget {
+  const _SheetPrimaryButton({
+    required this.label,
+    required this.onTap,
+    this.icon,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 50,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: PvColors.blue,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18, color: Colors.white),
+              const SizedBox(width: 7),
+            ],
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 弹窗底部的破坏性按钮：浅红底、红字。
+class _SheetDangerButton extends StatelessWidget {
+  const _SheetDangerButton({
+    required this.label,
+    required this.onTap,
+    this.icon,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 48,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: PvColors.red.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 17, color: PvColors.red),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: PvColors.red,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -161,8 +287,6 @@ class _SyncPlayHomeSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
-
     return Observer(builder: (context) {
       // Read all observables here; the deferred body builder is not tracked.
       final bool hasSession = playerController.syncplay.hasSession;
@@ -175,17 +299,13 @@ class _SyncPlayHomeSheet extends StatelessWidget {
       return _SyncPlaySheetScaffold(
         title: '一起看',
         description: '和朋友同步看番',
-        primaryAction: hasSession
-            ? FilledButton.tonalIcon(
-                onPressed: () async {
+        dangerAction: hasSession
+            ? _SheetDangerButton(
+                label: connecting ? '取消连接' : '断开连接',
+                icon: Icons.logout_rounded,
+                onTap: () async {
                   await playerController.exitSyncPlayRoom();
                 },
-                style: FilledButton.styleFrom(
-                  backgroundColor: colorScheme.errorContainer,
-                  foregroundColor: colorScheme.onErrorContainer,
-                ),
-                icon: const Icon(Icons.logout_rounded),
-                label: Text(connecting ? '取消连接' : '断开连接'),
               )
             : null,
         bodyBuilder: (context, compact) {
@@ -202,45 +322,37 @@ class _SyncPlayHomeSheet extends StatelessWidget {
   }
 
   Widget _buildConnecting(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colorScheme = theme.colorScheme;
-
-    return TonalCard(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            const SizedBox.square(
-              dimension: 22,
-              child: LoadingIndicator(),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '正在连接',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _readEndPoint(),
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+    return PvGroup(
+      margin: const EdgeInsets.fromLTRB(0, 0, 0, 14),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(15, 14, 15, 15),
+          child: Row(
+            children: [
+              const SizedBox.square(
+                dimension: 20,
+                child: LoadingIndicator(),
               ),
-            ),
-          ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('正在连接', style: PvText.rowTitle(context)),
+                    const SizedBox(height: 2),
+                    Text(
+                      _readEndPoint(),
+                      overflow: TextOverflow.ellipsis,
+                      style: PvText.rowSub(context).copyWith(fontSize: 12.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -248,35 +360,43 @@ class _SyncPlayHomeSheet extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        IntrinsicHeight(
-            child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        PvGroup(
+          margin: const EdgeInsets.fromLTRB(0, 0, 0, 14),
           children: [
-            Expanded(
-                child: _ChoiceCard(
-              icon: Icons.add_circle_outline_rounded,
+            PvRow(
+              icon: Icons.add_rounded,
+              iconColor: PvColors.blue,
               title: '创建房间',
-              description: '邀请朋友加入',
+              subtitle: '生成房号，邀请朋友加入',
+              showDivider: false,
               onTap: () =>
                   Navigator.of(context).pop(_SyncPlayDestination.create),
-            )),
-            const SizedBox(width: 12),
-            Expanded(
-                child: _ChoiceCard(
+            ),
+            PvRow(
               icon: Icons.login_rounded,
+              iconColor: PvColors.green,
               title: '加入房间',
-              description: '输入房间号',
+              subtitle: '输入好友的 8 位房号',
               onTap: () => Navigator.of(context).pop(_SyncPlayDestination.join),
-            )),
+            ),
           ],
-        )),
-        const SizedBox(height: 16),
-        ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-          title: const Text('同步服务器'),
-          subtitle: Text(_readEndPoint(), overflow: TextOverflow.ellipsis),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () => Navigator.of(context).pop(_SyncPlayDestination.server),
+        ),
+        PvGroup(
+          margin: const EdgeInsets.fromLTRB(0, 0, 0, 14),
+          children: [
+            PvRow(
+              icon: Icons.dns_rounded,
+              iconColor: PvColors.ink3(context).withValues(alpha: 0.55),
+              title: '同步服务器',
+              subtitle: _readEndPoint(),
+              showDivider: false,
+              onTap: () => Navigator.of(context).pop(_SyncPlayDestination.server),
+            ),
+          ],
+        ),
+        Text(
+          '房间成员需要连同一个服务器才能互相看见',
+          style: PvText.rowSub(context).copyWith(fontSize: 12),
         ),
       ],
     );
@@ -287,120 +407,38 @@ class _SyncPlayHomeSheet extends StatelessWidget {
     required String room,
     required int rtt,
   }) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colorScheme = theme.colorScheme;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _RoomNumberCard(
-          room: room,
-          label: '当前房间',
-          trailing: [_CopyButton(value: room)],
-        ),
+        _RoomNumberCard(room: room, label: '当前房间', trailing: [
+          _CopyChip(value: room),
+        ]),
         const SizedBox(height: 12),
-        TonalCard(
-          child: Column(
-            children: [
-              _buildInfoRow(
-                context,
-                icon: Icons.network_ping_rounded,
-                label: '网络延迟',
-                value: '$rtt ms',
-              ),
-              Divider(height: 1, indent: 56, color: colorScheme.outlineVariant),
-              _buildInfoRow(
-                context,
-                icon: Icons.dns_outlined,
-                label: '同步服务器',
-                value: _readEndPoint(),
-              ),
-            ],
-          ),
+        PvGroup(
+          margin: const EdgeInsets.fromLTRB(0, 0, 0, 14),
+          children: [
+            PvRow(
+              icon: Icons.network_ping_rounded,
+              iconColor: PvColors.green,
+              title: '网络延迟',
+              value: '$rtt ms',
+              trailing: PvRowTrailing.none,
+              showDivider: false,
+            ),
+            PvRow(
+              icon: Icons.dns_rounded,
+              iconColor: PvColors.ink3(context).withValues(alpha: 0.55),
+              title: '同步服务器',
+              value: _readEndPoint(),
+              trailing: PvRowTrailing.none,
+            ),
+          ],
         ),
-        const SizedBox(height: 12),
         Text(
           '分享房间号，好友即可加入',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
+          style: PvText.rowSub(context).copyWith(fontSize: 12),
         ),
       ],
-    );
-  }
-
-  Widget _buildInfoRow(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colorScheme = theme.colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Icon(icon, size: 22, color: colorScheme.onSurfaceVariant),
-          const SizedBox(width: 16),
-          Text(
-            label,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurface,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ChoiceCard extends StatelessWidget {
-  const _ChoiceCard(
-      {required this.icon,
-      required this.title,
-      required this.description,
-      required this.onTap});
-  final IconData icon;
-  final String title;
-  final String description;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return TonalCard(
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: theme.colorScheme.primary, size: 28),
-              const SizedBox(height: 20),
-              Text(title, style: theme.textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text(description,
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -424,8 +462,10 @@ class _SyncPlayRoomSheet extends StatefulWidget {
 class _SyncPlayRoomSheetState extends State<_SyncPlayRoomSheet> {
   static final Random _random = Random();
 
-  static String _generateRoomNumber() =>
-      List.generate(8, (_) => _random.nextInt(10)).join();
+  static String _generateRoomNumber() => List.generate(
+        kSyncPlayRoomNumberLength,
+        (_) => _random.nextInt(10),
+      ).join();
 
   static String _generateUserName() {
     const String consonants = 'bcdfghjklmnpqrstvwxyz';
@@ -483,13 +523,13 @@ class _SyncPlayRoomSheetState extends State<_SyncPlayRoomSheet> {
 
     return _SyncPlaySheetScaffold(
       title: isCreate ? '创建房间' : '加入房间',
-      description: isCreate ? '将房间号分享给好友' : '输入好友的房间号',
-      showCancel: true,
-      primaryAction: FilledButton.icon(
-        onPressed: _submit,
-        icon: Icon(
-            isCreate ? Icons.play_circle_outline_rounded : Icons.login_rounded),
-        label: Text(isCreate ? '创建并加入' : '加入房间'),
+      description: isCreate ? '把房间号发给朋友' : '输入好友分享的 8 位房号',
+      action: _SheetPrimaryButton(
+        label: isCreate ? '创建并加入' : '加入房间',
+        icon: isCreate
+            ? Icons.play_circle_outline_rounded
+            : Icons.login_rounded,
+        onTap: _submit,
       ),
       bodyBuilder: (context, compact) {
         final Widget lead = isCreate
@@ -497,17 +537,27 @@ class _SyncPlayRoomSheetState extends State<_SyncPlayRoomSheet> {
                 room: _createdRoom,
                 label: '房间号',
                 trailing: [
-                  IconButton(
-                    onPressed: () =>
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () =>
                         setState(() => _createdRoom = _generateRoomNumber()),
-                    tooltip: '重新生成',
-                    color: Theme.of(context).colorScheme.onSurface,
-                    icon: const Icon(Icons.refresh_rounded),
+                    child: Tooltip(
+                      message: '重新生成',
+                      child: Padding(
+                        padding: const EdgeInsets.all(5),
+                        child: Icon(
+                          Icons.refresh_rounded,
+                          size: 19,
+                          color: PvColors.ink2(context),
+                        ),
+                      ),
+                    ),
                   ),
-                  _CopyButton(value: _createdRoom),
+                  const SizedBox(width: 2),
+                  _CopyChip(value: _createdRoom),
                 ],
               )
-            : _buildRoomField();
+            : _buildRoomField(context);
 
         return Form(
           key: _formKey,
@@ -517,15 +567,15 @@ class _SyncPlayRoomSheetState extends State<_SyncPlayRoomSheet> {
                   children: [
                     Expanded(child: lead),
                     const SizedBox(width: 12),
-                    Expanded(child: _buildUsernameField(compact: true)),
+                    Expanded(child: _buildUsernameField(context, compact: true)),
                   ],
                 )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     lead,
-                    const SizedBox(height: 16),
-                    _buildUsernameField(),
+                    const SizedBox(height: 12),
+                    _buildUsernameField(context),
                   ],
                 ),
         );
@@ -533,39 +583,46 @@ class _SyncPlayRoomSheetState extends State<_SyncPlayRoomSheet> {
     );
   }
 
-  Widget _buildRoomField() {
+  Widget _buildRoomField(BuildContext context) {
     return TextFormField(
       controller: _roomController,
       autofocus: true,
       keyboardType: TextInputType.number,
       textInputAction: TextInputAction.next,
+      style: TextStyle(fontSize: 15, color: PvColors.ink(context)),
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       autovalidateMode: AutovalidateMode.onUserInteraction,
-      decoration: _sheetInputDecoration(
-        labelText: '房间号',
-        hintText: '6-10 位数字',
+      maxLength: kSyncPlayRoomNumberLength,
+      buildCounter: (context, {required currentLength, required isFocused, maxLength}) =>
+          null,
+      decoration: _sheetFieldDecoration(
+        context,
+        hint: '房间号（$kSyncPlayRoomNumberLength 位数字）',
       ),
       validator: (value) {
         final String text = (value ?? '').trim();
         if (text.isEmpty) {
           return '请输入房间号';
         }
-        if (!RegExp(r'^[0-9]{6,10}$').hasMatch(text)) {
-          return '房间号为 6-10 位数字';
+        // 房号生成端固定 8 位，校验端曾经接受 6-10 位：输 6 位能提交，
+        // 但服务端只认那 8 位，必然连不上。校验必须和生成保持同一个长度。
+        if (!RegExp('^[0-9]{$kSyncPlayRoomNumberLength}\$').hasMatch(text)) {
+          return '房间号为 $kSyncPlayRoomNumberLength 位数字';
         }
         return null;
       },
     );
   }
 
-  Widget _buildUsernameField({bool compact = false}) {
+  Widget _buildUsernameField(BuildContext context, {bool compact = false}) {
     return TextFormField(
       controller: _usernameController,
       textInputAction: TextInputAction.done,
+      style: TextStyle(fontSize: 15, color: PvColors.ink(context)),
       autovalidateMode: AutovalidateMode.onUserInteraction,
-      decoration: _sheetInputDecoration(
-        labelText: '昵称',
-        helperText: compact ? null : '4-12 位英文字母，房间内可见',
+      decoration: _sheetFieldDecoration(
+        context,
+        hint: compact ? '昵称' : '昵称（4-12 位英文字母）',
       ),
       validator: (value) {
         final String text = (value ?? '').trim();
@@ -672,11 +729,10 @@ class _SyncPlayServerSheetState extends State<_SyncPlayServerSheet> {
     return _SyncPlaySheetScaffold(
       title: '同步服务器',
       description: '房间成员需使用同一服务器',
-      showCancel: true,
-      primaryAction: FilledButton.icon(
-        onPressed: _save,
-        icon: const Icon(Icons.check_rounded),
-        label: const Text('保存'),
+      action: _SheetPrimaryButton(
+        label: '保存',
+        icon: Icons.check_rounded,
+        onTap: _save,
       ),
       bodyBuilder: (context, compact) {
         final List<String> endPoints = [
@@ -687,32 +743,81 @@ class _SyncPlayServerSheetState extends State<_SyncPlayServerSheet> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _isProbing ? null : _probeAll,
-                icon: _isProbing
-                    ? const SizedBox.square(
-                        dimension: 16, child: LoadingIndicator())
-                    : const Icon(Icons.network_ping_rounded, size: 18),
-                label: Text(_isProbing ? '测速中' : '实测延迟'),
-              ),
+            Row(
+              children: [
+                Text(
+                  _isProbing ? '测速中…' : '点一下实测延迟',
+                  style: PvText.rowSub(context).copyWith(fontSize: 12.5),
+                ),
+                const Spacer(),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _isProbing ? null : _probeAll,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: PvColors.blue.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_isProbing)
+                          const SizedBox.square(
+                            dimension: 13,
+                            child: LoadingIndicator(),
+                          )
+                        else
+                          const Icon(Icons.network_ping_rounded,
+                              size: 13, color: PvColors.blue),
+                        const SizedBox(width: 5),
+                        Text(
+                          _isProbing ? '测速中' : '测速',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: PvColors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-            SplitListGroup(children: [
-              for (final endPoint in endPoints)
-                _buildEndPointTile(context, endPoint),
-            ]),
+            const SizedBox(height: 9),
+            PvGroup(
+              margin: EdgeInsets.zero,
+              children: [
+                for (var i = 0; i < endPoints.length; i++)
+                  _EndPointRow(
+                    endPoint: endPoints[i],
+                    isCustom: endPoints[i] == _customOption,
+                    selected: _selectedEndPoint == endPoints[i],
+                    latency: _latency[endPoints[i]],
+                    probing: _isProbing && !_latency.containsKey(endPoints[i]),
+                    showDivider: i > 0,
+                    onTap: () => setState(() {
+                      _selectedEndPoint = endPoints[i];
+                      _customEndPointError = null;
+                      _focusCustomEndPoint = endPoints[i] == _customOption;
+                    }),
+                  ),
+              ],
+            ),
             if (_selectedEndPoint == _customOption) ...[
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               TextField(
                 controller: _customEndPointController,
                 autofocus: _focusCustomEndPoint,
                 keyboardType: TextInputType.url,
                 autocorrect: false,
-                decoration: _sheetInputDecoration(
-                  labelText: '服务器地址',
-                  hintText: 'example.com:8996',
-                  errorText: _customEndPointError,
+                style: TextStyle(fontSize: 15, color: PvColors.ink(context)),
+                decoration: _sheetFieldDecoration(
+                  context,
+                  hint: 'example.com:8996',
+                  error: _customEndPointError,
                 ),
                 onChanged: (_) {
                   if (_customEndPointError != null) {
@@ -726,61 +831,108 @@ class _SyncPlayServerSheetState extends State<_SyncPlayServerSheet> {
       },
     );
   }
+}
 
-  Widget _buildEndPointTile(BuildContext context, String endPoint) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colorScheme = theme.colorScheme;
-    final bool selected = _selectedEndPoint == endPoint;
-    final bool isCustom = endPoint == _customOption;
+/// 服务器列表里的一行：勾选圈 + 地址 + 实测延迟。
+class _EndPointRow extends StatelessWidget {
+  const _EndPointRow({
+    required this.endPoint,
+    required this.isCustom,
+    required this.selected,
+    required this.latency,
+    required this.probing,
+    required this.showDivider,
+    required this.onTap,
+  });
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18),
-      leading: Icon(
-        isCustom ? Icons.edit_outlined : Icons.public_rounded,
-        color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant,
-      ),
-      title: Text(
-        endPoint,
-        style: theme.textTheme.bodyLarge?.copyWith(
-          color: selected ? colorScheme.primary : colorScheme.onSurface,
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
-        ),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_latency.containsKey(endPoint))
-            Text(
-              _latency[endPoint] == null
-                  ? '连接失败'
-                  : '${_latency[endPoint]!.inMilliseconds} ms',
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: _latencyColor(_latency[endPoint], colorScheme),
-                fontWeight: FontWeight.w600,
+  final String endPoint;
+  final bool isCustom;
+  final bool selected;
+  final Duration? latency;
+  final bool probing;
+  final bool showDivider;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final String latencyText;
+    final Color latencyColor;
+    if (probing) {
+      latencyText = '…';
+      latencyColor = PvColors.ink3(context);
+    } else if (latency == null) {
+      latencyText = '未测';
+      latencyColor = PvColors.ink3(context);
+    } else {
+      final int ms = latency!.inMilliseconds;
+      latencyText = '$ms ms';
+      latencyColor = ms < 120
+          ? PvColors.green
+          : (ms < 300 ? const Color(0xFFE0912F) : PvColors.red);
+    }
+
+    final Widget body = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 15),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 50),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.check_circle_rounded
+                  : Icons.circle_outlined,
+              size: 19,
+              color: selected ? PvColors.blue : PvColors.chev(context),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Text(
+                endPoint,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: PvText.rowTitle(context).copyWith(
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected ? PvColors.blue : null,
+                ),
               ),
             ),
-          const SizedBox(width: 8),
-          if (selected)
-            Icon(Icons.check_rounded, color: colorScheme.primary),
-        ],
+            const SizedBox(width: 8),
+            Text(
+              latencyText,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: latencyColor,
+              ),
+            ),
+            if (isCustom) ...[
+              const SizedBox(width: 6),
+              Icon(Icons.edit_rounded, size: 14, color: PvColors.ink3(context)),
+            ],
+          ],
+        ),
       ),
-      onTap: () => setState(() {
-        _selectedEndPoint = endPoint;
-        _customEndPointError = null;
-        _focusCustomEndPoint = isCustom;
-      }),
     );
-  }
 
-  Color _latencyColor(Duration? duration, ColorScheme colorScheme) {
-    if (duration == null) return colorScheme.error;
-    final ms = duration.inMilliseconds;
-    if (ms < 120) return Colors.green;
-    if (ms < 300) return Colors.orange;
-    return colorScheme.error;
+    final Widget tappable = InkWell(onTap: onTap, child: body);
+    if (!showDivider) return tappable;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          height: 0.8,
+          margin: const EdgeInsets.only(left: 45),
+          color: PvColors.hair(context),
+        ),
+        tappable,
+      ],
+    );
   }
 }
 
+/// 房号卡：`4601 5081` 大字 + 右侧若干动作。
 class _RoomNumberCard extends StatelessWidget {
   const _RoomNumberCard({
     required this.room,
@@ -794,62 +946,65 @@ class _RoomNumberCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colorScheme = theme.colorScheme;
+    final String pretty =
+        room.length == 8 ? '${room.substring(0, 4)} ${room.substring(4)}' : room;
 
-    return TonalCard(
-      padding: const EdgeInsets.fromLTRB(20, 14, 8, 14),
-      child: Row(
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 10, 13),
+      decoration: BoxDecoration(
+        color: PvColors.card(context),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: colorScheme.onSurface.withValues(alpha: 0.75),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                FittedBox(
+          Text(label, style: PvText.count(context).copyWith(fontSize: 12)),
+          const SizedBox(height: 3),
+          Row(
+            children: [
+              Flexible(
+                child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    room,
+                    pretty,
                     maxLines: 1,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: colorScheme.onSurface,
+                    style: TextStyle(
+                      fontSize: 24,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 4,
+                      letterSpacing: 1.4,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: PvColors.ink(context),
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              ...trailing,
+            ],
           ),
-          ...trailing,
         ],
       ),
     );
   }
 }
 
-class _CopyButton extends StatefulWidget {
-  const _CopyButton({required this.value});
+/// 「复制」小胶囊，点完变「已复制」，两秒后自己变回来。
+class _CopyChip extends StatefulWidget {
+  const _CopyChip({required this.value});
 
   final String value;
 
   @override
-  State<_CopyButton> createState() => _CopyButtonState();
+  State<_CopyChip> createState() => _CopyChipState();
 }
 
-class _CopyButtonState extends State<_CopyButton> {
+class _CopyChipState extends State<_CopyChip> {
   bool _copied = false;
 
   @override
-  void didUpdateWidget(_CopyButton oldWidget) {
+  void didUpdateWidget(_CopyChip oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.value != widget.value) {
       _copied = false;
@@ -868,11 +1023,35 @@ class _CopyButtonState extends State<_CopyButton> {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: _copy,
-      tooltip: _copied ? '已复制' : '复制',
-      color: Theme.of(context).colorScheme.onSurface,
-      icon: Icon(_copied ? Icons.check_rounded : Icons.copy_rounded),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _copy,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: PvColors.blue.withValues(alpha: _copied ? 0.20 : 0.12),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _copied ? Icons.check_rounded : Icons.copy_rounded,
+              size: 12,
+              color: PvColors.blue,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              _copied ? '已复制' : '复制',
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: PvColors.blue,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

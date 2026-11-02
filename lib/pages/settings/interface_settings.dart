@@ -25,8 +25,9 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
 
   static const Map<String, String> defaultPageMap = {
     '/tab/popular/': '推荐',
-    '/tab/timeline/': '时间表',
     '/tab/collect/': '追番',
+    '/tab/syncplay/': '一起看',
+    '/tab/emby/': 'Emby',
     '/tab/my/': '我的',
   };
 
@@ -34,11 +35,17 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
   void initState() {
     super.initState();
     showRating = GStorage.getSetting(SettingsKeys.showRating);
-    defaultPage = GStorage.getSetting(SettingsKeys.defaultStartupPage);
+    defaultPage = _migrateStartupPage(
+      GStorage.getSetting(SettingsKeys.defaultStartupPage),
+    );
     _defaultCollectLayout = CollectLayout.fromValue(
       GStorage.getSetting(SettingsKeys.defaultCollectLayout),
     );
   }
+
+  /// 时间表已不是底栏页签，旧配置指向它时迁移到推荐页。
+  static String _migrateStartupPage(String page) =>
+      page == '/tab/timeline/' ? '/tab/popular/' : page;
 
   void updateDefaultPage(String page) {
     GStorage.putSetting(SettingsKeys.defaultStartupPage, page);

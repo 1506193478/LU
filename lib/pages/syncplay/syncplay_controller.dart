@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:dio/dio.dart';
 
 import 'package:XL/modules/bangumi/bangumi_item.dart';
 import 'package:XL/modules/roads/road_module.dart';
@@ -15,6 +16,8 @@ import 'package:XL/pages/video/video_playback_args.dart';
 import 'package:XL/plugins/plugins.dart';
 import 'package:XL/plugins/plugins_controller.dart';
 import 'package:XL/request/apis/bangumi_api.dart';
+import 'package:XL/request/clients/plugin_site_client.dart';
+import 'package:XL/request/core/network_exception.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/player/syncplay_client.dart';
 import 'package:XL/services/player/syncplay_endpoint.dart';
@@ -42,8 +45,30 @@ class SyncPlayLatencyResult {
   int get milliseconds => duration?.inMilliseconds ?? -1;
 }
 
+/// 起播前探一次片源的结果。
+///
+/// 只区分「确定死了」和「拿不准」两种：拿不准一律按能播处理，
+/// 因为播放器里的 WebView 带着真实会话去取流，这里拦下来会误伤。
+class SyncPlaySourceProbe {
+  const SyncPlaySourceProbe.ok()
+      : isOk = true,
+        statusCode = null,
+        message = '';
+
+  const SyncPlaySourceProbe.failed({this.statusCode, required this.message})
+      : isOk = false;
+
+  final bool isOk;
+  final int? statusCode;
+  final String message;
+}
+
 /// 一起看页面的会话状态。
 enum SyncPlayPhase { lobby, connecting, inRoom }
+
+/// 房号长度。生成和校验必须共用这一个常量，否则会出现「输 6 位能提交、
+/// 但服务端只认 8 位」的死路。
+const int kSyncPlayRoomNumberLength = 8;
 
 /// 一起看独立页的状态中心。
 ///
@@ -186,6 +211,12 @@ class SyncPlayController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 删掉一条「最近进过」。
+  void removeRecentRoom(String room) {
+    _recentRooms = SyncPlayRecentRoom.remove(room);
+    notifyListeners();
+  }
+
   SyncPlayPhase get phase => _phase;
 
   bool get hasSession => _client != null;
@@ -208,6 +239,26 @@ class SyncPlayController extends ChangeNotifier {
       if (member.isController) return member;
     }
     return _members.isEmpty ? null : _members.first;
+  }
+
+  /// 除自己以外的成员。
+  List<SyncPlayUserInfo> get otherMembers => <SyncPlayUserInfo>[
+        for (final SyncPlayUserInfo member in _members)
+          if (member.username != _username) member,
+      ];
+
+  /// 其他成员里已经报到的数量。
+  int get readyCount =>
+      otherMembers.where((SyncPlayUserInfo m) => m.isReady == true).length;
+
+  /// 别人是不是都加载好了。
+  ///
+  /// 房间里只有自己时返回 true（没什么可等的）。服务端没回 `ready` 也不该
+  /// 卡住起播，所以调用方还要有超时兜底。
+  bool get allOthersReady {
+    final List<SyncPlayUserInfo> others = otherMembers;
+    if (others.isEmpty) return true;
+    return others.every((SyncPlayUserInfo m) => m.isReady == true);
   }
 
   /// 你是不是房主。房主离场、控场权转给你时这条会从 false 翻成 true。
@@ -301,8 +352,10 @@ class SyncPlayController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static String generateRoomNumber() =>
-      List.generate(8, (_) => _random.nextInt(10)).join();
+  static String generateRoomNumber() => List.generate(
+        kSyncPlayRoomNumberLength,
+        (_) => _random.nextInt(10),
+      ).join();
 
   static String generateUserName() {
     const String consonants = 'bcdfghjklmnpqrstvwxyz';
@@ -1069,6 +1122,65 @@ class SyncPlayController extends ChangeNotifier {
       src: searchItem.src,
       roads: roads,
     );
+  }
+
+  /// 起播前探一下「这个源现在还活着吗」。
+  ///
+  /// 以前是选完源直接广播「开始一起看」，源要是挂了，全房间一起黑屏，
+  /// 而且谁也不知道是谁选错了源。这里在广播之前先按插件站的规则请求一次
+  /// 条目页，只关心「还能不能拿到内容」。
+  ///
+  /// 判死只认几种确定的：域名解析不了 / 连接被拒 / 超时 / 404 / 410 / 5xx。
+  /// 401、403、405、429 一律放行——很多站对裸请求要求 cookie 或校验 UA，
+  /// 播放器里的 WebView 是带着真实会话去的，这里拦下来纯属误伤。
+  Future<SyncPlaySourceProbe> probeSource(String url) async {
+    final String target = url.trim();
+    if (target.isEmpty) {
+      return const SyncPlaySourceProbe.failed(message: '播放来源地址是空的');
+    }
+    final uri = Uri.tryParse(target);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return const SyncPlaySourceProbe.failed(message: '播放来源地址格式不对');
+    }
+    final token = CancelToken();
+    try {
+      await PluginSiteClient.instance
+          .requestText(target, method: 'GET', cancelToken: token)
+          .timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          token.cancel('source probe timeout');
+          throw TimeoutException('source probe timeout');
+        },
+      );
+      return const SyncPlaySourceProbe.ok();
+    } on TimeoutException {
+      KazumiLogger().w('SyncPlay: source probe timeout -> $target');
+      return const SyncPlaySourceProbe.failed(message: '源站 8 秒没响应');
+    } on NetworkException catch (e) {
+      final int? status = e.statusCode;
+      final bool aliveButGuarded = status == 401 ||
+          status == 403 ||
+          status == 405 ||
+          status == 429;
+      if (aliveButGuarded) {
+        KazumiLogger().w('SyncPlay: source probe got $status, let it pass');
+        return const SyncPlaySourceProbe.ok();
+      }
+      KazumiLogger().w(
+        'SyncPlay: source probe failed (${e.type}$status) -> $target',
+      );
+      return SyncPlaySourceProbe.failed(
+        statusCode: status,
+        message: e.message,
+      );
+    } catch (e) {
+      // 探针本身出错不该拦住开播，按「拿不准」放行。
+      KazumiLogger().w('SyncPlay: source probe crashed, ignored', error: e);
+      return const SyncPlaySourceProbe.ok();
+    } finally {
+      token.cancel('source probe done');
+    }
   }
 
   @override

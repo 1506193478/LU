@@ -198,6 +198,9 @@ class _HistoryCardState extends State<_HistoryCard> with KazumiDialogOwner {
         case HistoryPlaybackReady(:final args):
           task.withContext(
               (context) => context.pushNamed('/video/', arguments: args));
+        case HistoryPlaybackEmby(:final launch):
+          task.withContext(
+              (context) => context.pushNamed('/emby/player', arguments: launch));
         case HistoryPlaybackUnavailable(:final reason):
           KazumiDialog.showToast(message: reason);
       }

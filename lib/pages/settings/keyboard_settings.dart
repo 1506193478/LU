@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:flutter/services.dart';
 
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
-import 'package:XL/bean/widget/clay.dart';
 import 'package:XL/bean/widget/content_section.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/utils/constants.dart';
@@ -339,15 +340,20 @@ class _KeyCap extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    // 监听态是强调色粘土，文字跟着换成深色，不然紫底浅字会糊。
+    // 监听态用 Pv 的淡蓝胶囊，其余是浅灰底——键帽是「按钮」，但也不该
+    // 是这个页面里唯一一块粘土。
     final Color foreground = listening
-        ? ClayToneColors.of(context, ClayTone.accent).fg
+        ? PvColors.subInk(context)
         : colorScheme.onSurface;
 
-    return ClayPanel(
-      radius: 8,
-      depth: 0,
-      tone: listening ? ClayTone.accent : ClayTone.subtle,
+    return Container(
+      decoration: BoxDecoration(
+        color: listening
+            ? PvColors.subCap(context)
+            : PvColors.searchFill(context),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(

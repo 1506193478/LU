@@ -16,7 +16,6 @@ import 'package:XL/bean/dialog/exit_confirmation_dialog.dart';
 import 'package:XL/bean/widget/window_shell.dart';
 import 'package:XL/bean/settings/theme_provider.dart';
 import 'package:XL/navigation.dart';
-import 'package:XL/pages/splash/app_splash_gate.dart';
 import 'package:XL/utils/device.dart';
 import 'package:XL/utils/immersive_theme.dart';
 import 'package:XL/utils/scroll_behavior.dart';
@@ -310,15 +309,59 @@ class _AppWidgetState extends State<AppWidget>
           // 全局滚动手感统一，见 utils/scroll_behavior.dart。
           scrollBehavior: const KazumiScrollBehavior(),
           routerConfig: ModularApp.routerConfigOf(context),
-          // 开屏动画盖在首页之上：首页照常构建，播完把这一层淡掉即可。
-          // 无边框模式下再套一层圆角外壳（透明窗口 + 自绘圆角 + 缩放热区）。
+          // 无边框模式下套一层圆角外壳（透明窗口 + 自绘圆角 + 缩放热区）。
+          // 开屏视频动画已移除：原生 launch 画面直接交棒给首页首帧，
+          // 首页本身用淡入完成"丝滑过渡"。
           builder: (context, child) => WindowShell(
-            child: AppSplashGate(child: child ?? const SizedBox.shrink()),
+            child: _HomeFadeIn(child: child ?? const SizedBox.shrink()),
           ),
         );
       },
     );
 
     return app;
+  }
+}
+
+/// 首页淡入。
+///
+/// 开屏视频去掉之后，原生 launch 画面会直接交棒给 Flutter 的第一帧。
+/// 直接交棒会有一次"啪一下贴上来"的生硬切换，这里给整个 App 外壳套一个
+/// 一次性的短淡入（260ms），观感上是"揭幕"而不是"切换"。
+///
+/// 注意只做淡入、不做缩放：缩放会让首帧的内容看起来在"漂"，而淡入是
+/// 无位移的，不会暴露启动时列表还在加载的事实。
+/// 系统开了「减少动态效果」时直接跳过，不给动画。
+class _HomeFadeIn extends StatefulWidget {
+  const _HomeFadeIn({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_HomeFadeIn> createState() => _HomeFadeInState();
+}
+
+class _HomeFadeInState extends State<_HomeFadeIn> {
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 等下一帧再置 true：保证首帧是透明的、渐变从 0 起步，
+    // 否则第一帧就已经是 1，淡入等于没做。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _visible = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) return widget.child;
+    return AnimatedOpacity(
+      opacity: _visible ? 1 : 0,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+      child: widget.child,
+    );
   }
 }

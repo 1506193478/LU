@@ -2,10 +2,10 @@ import 'package:XL/modules/download/download_module.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/history/history_module.dart';
 import 'package:XL/pages/download/download_controller.dart';
+import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/video/video_playback_args.dart';
 import 'package:XL/plugins/plugins.dart';
 import 'package:XL/plugins/plugins_controller.dart';
-import 'package:XL/services/emby/emby_playback_builder.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/plugin/rule_engine_models.dart'
@@ -19,6 +19,13 @@ class HistoryPlaybackReady extends HistoryPlaybackResult {
   const HistoryPlaybackReady(this.args);
 
   final VideoPlaybackArgs args;
+}
+
+/// Emby 记录要交给 Emby 自己的播放器，不能塞进番剧那条链路。
+class HistoryPlaybackEmby extends HistoryPlaybackResult {
+  const HistoryPlaybackEmby(this.launch);
+
+  final EmbyPlaybackLaunch launch;
 }
 
 class HistoryPlaybackUnavailable extends HistoryPlaybackResult {
@@ -46,10 +53,10 @@ class HistoryPlaybackService {
     // Emby 记录的适配器名形如 `emby:host:8096`，它不在插件列表里，
     // 走下面那条分支必然找不到源，所以先单独接一下。
     if (history.adapterName.startsWith('emby:')) {
-      final args = await _embyArgs(history);
-      return args == null
+      final launch = await _embyLaunch(history);
+      return launch == null
           ? const HistoryPlaybackUnavailable('Emby 服务器不可用，请检查连接后重试')
-          : HistoryPlaybackReady(args);
+          : HistoryPlaybackEmby(launch);
     }
 
     if (HistoryEntryKind.normalize(history.entryKind) ==
@@ -66,11 +73,11 @@ class HistoryPlaybackService {
         : HistoryPlaybackReady(args);
   }
 
-  /// 把一条 Emby 历史还原成播放参数。
+  /// 把一条 Emby 历史还原成 Emby 播放器要的启动参数。
   ///
   /// 剧集列表必须重新问一次服务器（可能是好几天前的记录），所以这里有一次
   /// 网络往返。失败就返回 null，让上层提示"服务器不可用"。
-  Future<VideoPlaybackArgs?> _embyArgs(History history) async {
+  Future<EmbyPlaybackLaunch?> _embyLaunch(History history) async {
     final service = EmbyService.instance;
     await service.load();
     EmbyServer? server;
@@ -99,18 +106,14 @@ class HistoryPlaybackService {
     }
     if (items.isEmpty) return null;
 
-    final int initialEpisode =
-        history.lastWatchEpisode.clamp(1, items.length);
-    return EmbyVideoPlaybackArgs(
-      bangumiItem: history.bangumiItem,
+    final String title = history.bangumiItem.nameCn.isEmpty
+        ? history.bangumiItem.name
+        : history.bangumiItem.nameCn;
+    return EmbyPlaybackLaunch(
       server: server,
-      plugin: embyPlugin(server),
-      seriesTitle: history.bangumiItem.nameCn.isEmpty
-          ? history.bangumiItem.name
-          : history.bangumiItem.nameCn,
-      seriesItemId: seriesItemId,
-      episodes: embyPlaybackEpisodes(items),
-      initialEpisode: initialEpisode,
+      title: title,
+      episodes: items,
+      initialIndex: history.lastWatchEpisode.clamp(1, items.length) - 1,
     );
   }
 

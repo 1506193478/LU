@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
-import 'package:XL/bean/widget/clay.dart';
 import 'package:XL/bean/widget/state_presentation.dart';
 import 'package:XL/pages/settings/sync/sync_settings_widgets.dart';
 import 'package:XL/services/storage/storage.dart';
@@ -157,9 +157,12 @@ class _SyncServiceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ClayPanel(
-      radius: 28,
-      padding: const EdgeInsets.all(24),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: PvColors.card(context),
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

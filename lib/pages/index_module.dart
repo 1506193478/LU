@@ -65,6 +65,7 @@ final tabModule = createModule(
             ..module(timelineModule)
             ..module(collectModule)
             ..module(syncPlayModule)
+            ..module(embyTabModule)
             ..module(myModule);
         },
       );

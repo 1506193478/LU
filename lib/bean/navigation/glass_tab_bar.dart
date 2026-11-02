@@ -20,12 +20,18 @@ class KazumiTabItem {
 
 /// 悬浮玻璃导航条。
 ///
-/// 这是整个界面里唯一常驻的"玻璃"元素（方案 A 的点缀）：内容从它下面
-/// 滚过去，模糊 + 1px 高光边 + 投影叠出厚度感；选中指示器用带过冲的曲线
-/// 滑过去，而不是直接跳。
+/// 形态照 Rex 的 `GlassDockBarView`：**一整条胶囊**浮在内容之上，
+/// 内容从它下面滚过去。区别是这里没有用「贴边全宽 + 小圆角」，
+/// 而是真的做成胶囊——圆角取高度的一半，两侧各留 20，
+/// 看上去是浮起来的一颗药丸，不是一条色带。
 ///
-/// 性能上只保留**一层** BackdropFilter，外面套 RepaintBoundary，
-/// 避免每帧重绘整页。
+/// 玻璃感靠三样东西叠出来，缺一样就变成一块灰板：
+/// 1. `BackdropFilter` 高斯模糊（只留一层，外面套 RepaintBoundary）
+/// 2. 很淡的底色（浅色 40% 白 / 深色 45% 黑），让背后的内容透上来
+/// 3. 1px 高光描边 + 一点外投影，撑出厚度
+///
+/// 选中项是一颗更小的胶囊 + 强调色，图标和文字一起变色（Rex 就是这样，
+/// 不给图标做额外填充）。
 class KazumiTabBar extends StatelessWidget {
   const KazumiTabBar({
     super.key,
@@ -39,10 +45,15 @@ class KazumiTabBar extends StatelessWidget {
   final ValueChanged<int> onSelected;
 
   static const double height = immersiveTabBarHeight;
+
+  /// 胶囊两端离屏幕边缘的距离。预览稿 `.dock` 是 `left:14;right:14`。
   static const double _sideMargin = 14;
 
   /// 离屏距离统一走 [immersiveTabBarGap]，别再各自写死。
   static const double _bottomGap = immersiveTabBarGap;
+
+  /// 胶囊半径 = 高度的一半，这是"胶囊"的定义。
+  static const double _radius = height / 2;
 
   /// 内容区需要给导航条留出的高度，页面底部留白可以直接引用。
   static double reservedHeight(BuildContext context) =>
@@ -54,15 +65,19 @@ class KazumiTabBar extends StatelessWidget {
     final bool dark = theme.brightness == Brightness.dark;
     final bool reduceMotion = KazumiMotion.reduceMotion(context);
     final double bottomInset = MediaQuery.paddingOf(context).bottom;
+    // [dockInk] 与 [indicatorFill] 在下方使用。
 
+    // 底色刻意压得很淡：玻璃要能看见后面在动，太实就成了普通色带。
+    // 预览稿 `.dock` 底色是 rgba(255,255,255,.62)。
     final Color surfaceTint = dark
-        ? const Color(0xFF16181E).withValues(alpha: 0.58)
+        ? const Color(0xFF14161B).withValues(alpha: 0.46)
         : const Color(0xFFFFFFFF).withValues(alpha: 0.62);
     final Color highlight =
-        dark ? Colors.white.withValues(alpha: 0.14) : Colors.black.withValues(alpha: 0.06);
-    final Color indicatorFill = dark
-        ? Colors.white.withValues(alpha: 0.09)
-        : Colors.black.withValues(alpha: 0.055);
+        dark ? Colors.white.withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.72);
+    // 预览稿选中胶囊 rgba(56,84,128,.13) / 选中文字 #3A5680。
+    final Color dockInk =
+        dark ? const Color(0xFF9DB4D8) : const Color(0xFF3A5680);
+    final Color indicatorFill = dockInk.withValues(alpha: dark ? 0.16 : 0.13);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -92,27 +107,28 @@ class KazumiTabBar extends StatelessWidget {
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(_radius),
                     boxShadow: [
-                      // 投影原来一直被裁掉，等于没画；补回来之后按"能看出浮起
-                      // 但压不住内容"的力度调：28px 模糊、10px 下沉。
-                      // 觉得还重就把 blurRadius 往下调（20 左右基本只剩一圈淡影）。
+                      // 胶囊浮起来要有一圈"落地"的暗边，但别重到压住内容。
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: dark ? 0.42 : 0.10),
-                        blurRadius: 28,
-                        offset: const Offset(0, 10),
+                        color: Colors.black.withValues(alpha: dark ? 0.46 : 0.12),
+                        blurRadius: 26,
+                        offset: const Offset(0, 8),
                       ),
                     ],
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(_radius),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                      // 预览稿是 `blur(30px) saturate(180%)`；当前 Flutter
+                      // 版本没有 colorFilter 滤镜构造，先只做 blur(30)，
+                      // 饱和度差异靠底色 alpha 补偿。
+                      filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: surfaceTint,
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: highlight, width: 0.5),
+                          borderRadius: BorderRadius.circular(_radius),
+                          border: Border.all(color: highlight, width: 1),
                         ),
                       ),
                     ),
@@ -131,6 +147,7 @@ class KazumiTabBar extends StatelessWidget {
                     // 约 5px，越靠右的 tab 偏得越多（第 5 个左偏 5px）。
                     // 现在按真实槽位算，指示器用固定内缩量居中。
                     final double slot = constraints.maxWidth / items.length;
+                    const double inset = 7;
                     return Stack(
                       children: [
                         AnimatedPositioned(
@@ -138,17 +155,15 @@ class KazumiTabBar extends StatelessWidget {
                               ? Duration.zero
                               : KazumiMotion.slow,
                           curve: KazumiMotion.spring,
-                          left: slot * selectedIndex + 4,
+                          left: slot * selectedIndex + inset,
                           top: 6,
                           bottom: 6,
-                          width: slot - 8,
+                          width: slot - inset * 2,
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: indicatorFill,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(
-                                color: highlight,
-                                width: 0.5,
+                              borderRadius: BorderRadius.circular(
+                                (_radius - 6).clamp(0, double.infinity),
                               ),
                             ),
                           ),
@@ -197,10 +212,10 @@ class _TabButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bool dark = theme.brightness == Brightness.dark;
-    final Color activeColor = theme.colorScheme.onSurface;
-    final Color inactiveColor = dark
-        ? Colors.white.withValues(alpha: 0.42)
-        : Colors.black.withValues(alpha: 0.38);
+    // 预览稿 `.dock`：选中 #3A5680（深色模式提亮），未选中 #8E8E93。
+    final Color activeColor =
+        dark ? const Color(0xFF9DB4D8) : const Color(0xFF3A5680);
+    const Color inactiveColor = Color(0xFF8E8E93);
     final Duration duration = KazumiMotion.scale(context, KazumiMotion.base);
 
     return Semantics(
@@ -214,35 +229,30 @@ class _TabButton extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            AnimatedSlide(
+            AnimatedScale(
               duration: duration,
               curve: KazumiMotion.spring,
-              offset: Offset(0, selected ? -0.08 : 0),
-              child: AnimatedScale(
-                duration: duration,
-                curve: KazumiMotion.spring,
-                scale: selected ? 1.08 : 1.0,
-                child: Icon(
-                  selected ? item.selectedIcon : item.icon,
-                  size: 19,
-                  color: selected ? activeColor : inactiveColor,
-                ),
+              scale: selected ? 1.06 : 1.0,
+              child: Icon(
+                selected ? item.selectedIcon : item.icon,
+                size: 21,
+                color: selected ? activeColor : inactiveColor,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             // 字重固定 w500，只让颜色动。
             //
             // 原来选中态是 w500、未选中 w400，交给 AnimatedDefaultTextStyle
             // 去插值 —— 但 FontWeight 是能逐级 lerp 的，于是 240ms 里文字
             // 每一帧都在 w400→w500 之间重新排版：一是字形宽度跟着变，标签
             // 会左右轻微抖动；二是每帧都要重新做一次文字 shaping。选中态
-            // 已经有色块、缩放和颜色三重提示，字重这点差别不值这个代价。
+            // 已经有胶囊底、缩放和颜色三重提示，字重这点差别不值这个代价。
             AnimatedDefaultTextStyle(
               duration: duration,
               curve: KazumiMotion.standard,
               style: TextStyle(
-                fontSize: 11,
-                height: 1.1,
+                fontSize: 10.5,
+                height: 1.05,
                 fontWeight: FontWeight.w500,
                 color: selected ? activeColor : inactiveColor,
               ),

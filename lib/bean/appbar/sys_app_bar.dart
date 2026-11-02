@@ -2,8 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
-import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/bean/widget/desktop_window_controls.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/bean/widget/embedded_native_control_area.dart';
 import 'package:XL/services/platform/desktop_window_config.dart';
 import 'package:window_manager/window_manager.dart';
@@ -52,7 +52,7 @@ class _SysAppBarState extends State<SysAppBar> {
   bool _dragStarted = false;
 
   /// 位移超过这个值才认作「拖窗口」，纯点击（按按钮、返回键）不受影响。
-  static const double _dragThreshold = 8.0;
+  static const double _dragThreshold = 5.0;
 
   void _handlePointerDown(PointerDownEvent event) {
     _dragStartPosition = event.position;
@@ -85,12 +85,19 @@ class _SysAppBarState extends State<SysAppBar> {
       }
       appBarActions.add(const SizedBox(width: 8));
     }
-    final appBarLeading =
-        widget.leading ??
-        ((ModalRoute.of(context)?.impliesAppBarDismissal ?? false)
+    final appBarLeading = widget.leading ??
+        // 「能给返回键就给」。
+        //
+        // 之前只认 `impliesAppBarDismissal`：设置页的分类是推进 RouterOutlet 的
+        // 嵌套 navigator，那里这条判据不成立，于是「我的 / 设置」里点开的页面
+        // 全都没有返回键——Windows 上没有手势返回，等于退不出去。
+        // 只要当前能 pop，就画一个；首页那种根路由 pop 不掉，自然不会出现。
+        (Navigator.of(context).canPop() ||
+                (ModalRoute.of(context)?.impliesAppBarDismissal ?? false)
             ? IconButton(
                 onPressed: () => context.maybePop(),
-                icon: const Icon(Icons.arrow_back),
+                tooltip: '返回',
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
               )
             : null);
 
@@ -109,7 +116,18 @@ class _SysAppBarState extends State<SysAppBar> {
         title: widget.title != null
             ? EmbeddedNativeControlArea(
                 requireOffset: widget.needTopOffset,
-                child: widget.title!,
+                child: DefaultTextStyle(
+                  // Pv 全铺之后，所有走 SysAppBar 的页面标题统一成 Pv 的墨色
+                  // 和字重，否则标题会跟着主题的 Clay 排版走，跟页面里的
+                  // Pv 列表不是同一套。
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                    color: PvColors.ink(context),
+                  ),
+                  child: widget.title!,
+                ),
               )
             : null,
         centerTitle: Platform.isIOS,
@@ -125,8 +143,9 @@ class _SysAppBarState extends State<SysAppBar> {
                 child: appBarLeading,
               )
             : null,
-        backgroundColor:
-            widget.backgroundColor ?? neuScaffoldBackground(context),
+        // 页面底色统一是 Pv 的 #F3F1F2 / 深色 #151417，AppBar 直接融进去，
+        // 不再用拟态那个中灰。
+        backgroundColor: widget.backgroundColor ?? PvColors.page(context),
         automaticallyImplyLeading: false,
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,

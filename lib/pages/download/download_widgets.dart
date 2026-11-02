@@ -5,6 +5,7 @@ import 'package:XL/bean/card/rule_card.dart';
 import 'package:XL/bean/widget/kazumi_menu.dart';
 import 'package:XL/bean/widget/loading_indicator.dart';
 import 'package:XL/modules/download/download_module.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/utils/format.dart';
 
 const Duration _kExpandDuration = Duration(milliseconds: 250);
@@ -69,7 +70,8 @@ class DownloadRecordCard extends StatelessWidget {
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
-      color: colorScheme.surfaceContainerLow,
+      // Pv 白卡：跟设置页、我的页同一张卡，不再是 M3 的 tonal 底。
+      color: PvColors.card(context),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       clipBehavior: Clip.antiAlias,
       child: Column(

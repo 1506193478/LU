@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/settings/settings_list.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/bean/widget/clay.dart';
 import 'package:XL/bean/widget/split_list_row.dart';
 import 'package:XL/services/network/metered_network_service.dart';
@@ -63,18 +64,21 @@ class _LowMemoryModeDialogState extends State<_LowMemoryModeDialog> {
         child: _ModeBuilder(builder: (context, mode, isMetered) {
           final enabled = mode.isEnabled(isMetered: isMetered);
           final foreground = enabled
-              ? ClayToneColors.of(context, ClayTone.accent).fg
+              ? PvColors.subInk(context)
               : colors.onSurfaceVariant;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Semantics(
                 liveRegion: true,
-                child: ClayPanel(
-                  radius: 16,
-                  depth: 0,
-                  tone: enabled ? ClayTone.accent : ClayTone.subtle,
+                child: Container(
                   padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: enabled
+                        ? PvColors.subCap(context)
+                        : PvColors.searchFill(context),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   child: Row(
                     children: [
                       Icon(

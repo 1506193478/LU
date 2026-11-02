@@ -132,7 +132,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
       isEnabled: () => GStorage.getSetting(SettingsKeys.autoUpdate),
       checkForUpdate: () => myController.checkUpdate(type: 'auto'),
     ));
-    context.navigate(GStorage.getSetting(SettingsKeys.defaultStartupPage));
+    context.navigate(
+      GStorage.getSetting(SettingsKeys.defaultStartupPage) == '/tab/timeline/'
+          ? '/tab/popular/'
+          : GStorage.getSetting(SettingsKeys.defaultStartupPage),
+    );
   }
 
   Widget _buildBottomBar(BuildContext context) {
