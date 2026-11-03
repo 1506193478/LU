@@ -78,10 +78,9 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
       _error = '';
     });
     try {
-      final items = await EmbyService.instance.clientFor(server).search(
-            userId: server.userId,
-            keyword: keyword,
-          );
+      final items = await EmbyService.instance
+          .clientFor(server)
+          .search(userId: server.userId, keyword: keyword);
       if (!mounted || seq != _requestSeq) return;
       setState(() {
         _results = items;
@@ -161,9 +160,7 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
                 backgroundColor: p.surfaceSunken,
               ),
             ),
-          Expanded(
-            child: _buildResults(context, server),
-          ),
+          Expanded(child: _buildResults(context, server)),
         ],
       ),
     );

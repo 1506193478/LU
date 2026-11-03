@@ -110,11 +110,7 @@ class _BackupLinesSheetState extends State<_BackupLinesSheet> {
                         size: 19,
                         onTap: () => Navigator.of(context).maybePop(),
                       ),
-                      _BarIcon(
-                        icon: Icons.add_rounded,
-                        size: 24,
-                        onTap: _add,
-                      ),
+                      _BarIcon(icon: Icons.add_rounded, size: 24, onTap: _add),
                     ],
                   ),
                 ),
@@ -148,11 +144,7 @@ class _BackupLinesSheetState extends State<_BackupLinesSheet> {
 ///
 /// 不能用 IconButton：它自带 48×48 的最小点击区，两颗并排就把标题挤偏了。
 class _BarIcon extends StatelessWidget {
-  const _BarIcon({
-    required this.icon,
-    required this.size,
-    required this.onTap,
-  });
+  const _BarIcon({required this.icon, required this.size, required this.onTap});
 
   final IconData icon;
   final double size;
@@ -342,9 +334,7 @@ class _NoContent extends StatelessWidget {
 /// 「线路」编辑页的结果：保存了一条，或者删掉了这条。
 class LineSheetResult {
   const LineSheetResult.saved(LuBackupLine this.line) : deleted = false;
-  const LineSheetResult.deleted()
-      : line = null,
-        deleted = true;
+  const LineSheetResult.deleted() : line = null, deleted = true;
 
   final LuBackupLine? line;
   final bool deleted;
@@ -432,7 +422,8 @@ class _LineSheetState extends State<_LineSheet> {
     Navigator.of(context).pop(
       LineSheetResult.saved(
         LuBackupLine(
-          id: widget.existing?.id ??
+          id:
+              widget.existing?.id ??
               'line-${DateTime.now().microsecondsSinceEpoch}',
           name: _name.text.trim(),
           host: _host.text.trim(),
@@ -468,43 +459,49 @@ class _LineSheetState extends State<_LineSheet> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 34),
               children: [
-                SheetGroup(dark: dark, children: [
-                  SheetFieldRow(
-                    dark: dark,
-                    label: '名称',
-                    hint: 'Name (必填)',
-                    controller: _name,
-                  ),
-                ]),
+                SheetGroup(
+                  dark: dark,
+                  children: [
+                    SheetFieldRow(
+                      dark: dark,
+                      label: '名称',
+                      hint: 'Name (必填)',
+                      controller: _name,
+                    ),
+                  ],
+                ),
                 SheetGroupLabel(dark: dark, text: '服务器地址'),
-                SheetGroup(dark: dark, children: [
-                  SheetFieldRow(
-                    dark: dark,
-                    label: '主机',
-                    hint: 'Host (必填)',
-                    controller: _host,
-                  ),
-                  SheetFieldRow(
-                    dark: dark,
-                    label: '路径',
-                    hint: 'Path (可选)',
-                    controller: _path,
-                  ),
-                  SheetFieldRow(
-                    dark: dark,
-                    label: '端口',
-                    hint: '8096',
-                    controller: _port,
-                    keyboard: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                  SheetSwitchRow(
-                    dark: dark,
-                    label: 'https',
-                    value: _https,
-                    onChanged: (v) => setState(() => _https = v),
-                  ),
-                ]),
+                SheetGroup(
+                  dark: dark,
+                  children: [
+                    SheetFieldRow(
+                      dark: dark,
+                      label: '主机',
+                      hint: 'Host (必填)',
+                      controller: _host,
+                    ),
+                    SheetFieldRow(
+                      dark: dark,
+                      label: '路径',
+                      hint: 'Path (可选)',
+                      controller: _path,
+                    ),
+                    SheetFieldRow(
+                      dark: dark,
+                      label: '端口',
+                      hint: '8096',
+                      controller: _port,
+                      keyboard: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    ),
+                    SheetSwitchRow(
+                      dark: dark,
+                      label: 'https',
+                      value: _https,
+                      onChanged: (v) => setState(() => _https = v),
+                    ),
+                  ],
+                ),
                 if (_message.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(4, 14, 4, 0),
@@ -520,26 +517,30 @@ class _LineSheetState extends State<_LineSheet> {
                   ),
                 if (widget.existing != null) ...[
                   const SizedBox(height: 22),
-                  SheetGroup(dark: dark, children: [
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _delete,
-                      child: SizedBox(
-                        height: 48,
-                        child: Center(
-                          child: Text(
-                            '删除线路',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: const Color(0xFFE5484D)
-                                  .withValues(alpha: dark ? 0.9 : 1),
+                  SheetGroup(
+                    dark: dark,
+                    children: [
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _delete,
+                        child: SizedBox(
+                          height: 48,
+                          child: Center(
+                            child: Text(
+                              '删除线路',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: const Color(
+                                  0xFFE5484D,
+                                ).withValues(alpha: dark ? 0.9 : 1),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ]),
+                    ],
+                  ),
                 ],
               ],
             ),

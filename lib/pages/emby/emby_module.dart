@@ -18,10 +18,7 @@ final embyModule = createModule(
   path: '/emby',
   register: (c) {
     c
-      ..route(
-        '/',
-        child: (context, state) => const EmbyPage(),
-      )
+      ..route('/', child: (context, state) => const EmbyPage())
       ..route(
         '/library',
         child: (context, state) {
@@ -42,10 +39,7 @@ final embyModule = createModule(
           return EmbyDetailPage(item: args);
         },
       )
-      ..route(
-        '/search',
-        child: (context, state) => const EmbySearchPage(),
-      )
+      ..route('/search', child: (context, state) => const EmbySearchPage())
       ..route(
         '/player',
         child: (context, state) {
@@ -56,10 +50,7 @@ final embyModule = createModule(
           return EmbyPlayerPage(launch: args);
         },
       )
-      ..route(
-        '/servers',
-        child: (context, state) => const EmbyServerPage(),
-      )
+      ..route('/servers', child: (context, state) => const EmbyServerPage())
       ..route(
         '/servers/edit',
         child: (context, state) {

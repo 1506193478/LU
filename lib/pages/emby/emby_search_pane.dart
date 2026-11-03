@@ -76,7 +76,9 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
     try {
       final raw = jsonDecode(GStorage.getSetting(_historyKey));
       if (raw is List) {
-        _history = [for (final e in raw) e.toString()].where((e) => e.isNotEmpty).toList();
+        _history = [
+          for (final e in raw) e.toString(),
+        ].where((e) => e.isNotEmpty).toList();
       }
     } catch (_) {
       _history = const <String>[];
@@ -177,10 +179,8 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
 
   /// 去掉全角空格、首尾空白 —— 从别处复制过来的关键词常带这些，Emby 的
   /// `SearchTerm` 会当成内容的一部分，于是搜不到。
-  static String _normalizeKeyword(String value) => value
-      .replaceAll('\u3000', ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  static String _normalizeKeyword(String value) =>
+      value.replaceAll('\u3000', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 
   /// 对每台服务器发一次搜索请求，合并结果并记下来源服务器。
   Future<List<EmbyItem>> _searchAll(
@@ -189,20 +189,24 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
     bool includeEpisodes = false,
   }) async {
     final service = EmbyService.instance;
-    final lists = await Future.wait(targets.map((s) async {
-      try {
-        return await service.clientFor(s).search(
-              userId: s.userId,
-              keyword: keyword,
-              includeItemTypes: includeEpisodes
-                  ? 'Movie,Series,BoxSet,Video,Episode'
-                  : 'Movie,Series,BoxSet,Video',
-            );
-      } catch (_) {
-        // 某台挂了不影响别的。
-        return <EmbyItem>[];
-      }
-    }));
+    final lists = await Future.wait(
+      targets.map((s) async {
+        try {
+          return await service
+              .clientFor(s)
+              .search(
+                userId: s.userId,
+                keyword: keyword,
+                includeItemTypes: includeEpisodes
+                    ? 'Movie,Series,BoxSet,Video,Episode'
+                    : 'Movie,Series,BoxSet,Video',
+              );
+        } catch (_) {
+          // 某台挂了不影响别的。
+          return <EmbyItem>[];
+        }
+      }),
+    );
 
     final origin = <String, EmbyServer>{};
     final merged = <EmbyItem>[];
@@ -225,7 +229,10 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
   void _onChanged(String value) {
     // 输入停顿 350ms 才真的去搜，避免打一个字打一次接口。
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () => _run(value.trim()));
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _run(value.trim()),
+    );
     if (mounted) setState(() {});
   }
 
@@ -242,7 +249,11 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
           color: const Color(0xFF0A84FF).withValues(alpha: 0.14),
           borderRadius: BorderRadius.circular(9),
         ),
-        child: const Icon(Icons.dns_rounded, size: 17, color: Color(0xFF0A84FF)),
+        child: const Icon(
+          Icons.dns_rounded,
+          size: 17,
+          color: Color(0xFF0A84FF),
+        ),
       ),
     );
   }
@@ -333,68 +344,68 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
             // 搜索框只在「媒体库」页签出现：播放记录是本地列表，没有可搜的东西，
             // 留着只会让人以为能在记录里搜。
             if (_scope == 0)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-              child: Container(
-                height: 38,
-                decoration: BoxDecoration(
-                  color: dark
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : const Color(0xFFF1F1F4),
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 11),
-                    Icon(
-                      Icons.search_rounded,
-                      size: 18,
-                      color: dark ? Colors.white38 : const Color(0xFF9A9AA0),
-                    ),
-                    const SizedBox(width: 7),
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focus,
-                        onChanged: _onChanged,
-                        onSubmitted: (v) => _run(v.trim(), force: true),
-                        textInputAction: TextInputAction.search,
-                        style: const TextStyle(fontSize: 15),
-                        decoration: InputDecoration(
-                          isDense: true,
-                          border: InputBorder.none,
-                          hintText: '搜索',
-                          hintStyle: TextStyle(
-                            fontSize: 15,
-                            color: dark
-                                ? Colors.white30
-                                : const Color(0xFF9A9AA0),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+                child: Container(
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: dark
+                        ? Colors.white.withValues(alpha: 0.10)
+                        : const Color(0xFFF1F1F4),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 11),
+                      Icon(
+                        Icons.search_rounded,
+                        size: 18,
+                        color: dark ? Colors.white38 : const Color(0xFF9A9AA0),
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focus,
+                          onChanged: _onChanged,
+                          onSubmitted: (v) => _run(v.trim(), force: true),
+                          textInputAction: TextInputAction.search,
+                          style: const TextStyle(fontSize: 15),
+                          decoration: InputDecoration(
+                            isDense: true,
+                            border: InputBorder.none,
+                            hintText: '搜索',
+                            hintStyle: TextStyle(
+                              fontSize: 15,
+                              color: dark
+                                  ? Colors.white30
+                                  : const Color(0xFF9A9AA0),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    if (_controller.text.isNotEmpty)
-                      GestureDetector(
-                        onTap: () {
-                          _controller.clear();
-                          _run('');
-                          setState(() {});
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          child: Icon(
-                            Icons.close_rounded,
-                            size: 16,
-                            color: dark
-                                ? Colors.white38
-                                : const Color(0xFF9A9AA0),
+                      if (_controller.text.isNotEmpty)
+                        GestureDetector(
+                          onTap: () {
+                            _controller.clear();
+                            _run('');
+                            setState(() {});
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16,
+                              color: dark
+                                  ? Colors.white38
+                                  : const Color(0xFF9A9AA0),
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
             if (_scope == 0 && keyword.isEmpty && _history.isNotEmpty)
               _HistoryChips(
                 history: _history,
@@ -643,13 +654,13 @@ class _SearchPoster extends StatelessWidget {
                   children: [
                     if (imageUrl.isEmpty)
                       Container(
-                        color: dark
-                            ? Colors.white12
-                            : const Color(0xFFECECF1),
+                        color: dark ? Colors.white12 : const Color(0xFFECECF1),
                         child: Icon(
                           Icons.movie_outlined,
                           size: 24,
-                          color: dark ? Colors.white24 : const Color(0xFFB4B4BA),
+                          color: dark
+                              ? Colors.white24
+                              : const Color(0xFFB4B4BA),
                         ),
                       )
                     else
@@ -831,7 +842,9 @@ class _ScopeSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
-    final bg = dark ? Colors.white.withValues(alpha: 0.10) : const Color(0xFFEDEDF2);
+    final bg = dark
+        ? Colors.white.withValues(alpha: 0.10)
+        : const Color(0xFFEDEDF2);
 
     return Container(
       height: 30,

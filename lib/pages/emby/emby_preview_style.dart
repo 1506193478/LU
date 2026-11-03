@@ -40,8 +40,9 @@ class PvColors {
       isDark(context) ? const Color(0xFF74747C) : const Color(0xFF9A9AA0);
 
   /// `--hair` 分隔线。
-  static Color hair(BuildContext context) =>
-      isDark(context) ? Colors.white.withValues(alpha: 0.08) : const Color(0x13000000);
+  static Color hair(BuildContext context) => isDark(context)
+      ? Colors.white.withValues(alpha: 0.08)
+      : const Color(0x13000000);
 
   /// `--blue` #007AFF。
   static const blue = Color(0xFF007AFF);
@@ -86,8 +87,9 @@ class PvColors {
       isDark(context) ? const Color(0xFF55555C) : const Color(0xFFC4C4C9);
 
   /// 搜索条底 #EFEFF3。
-  static Color searchFill(BuildContext context) =>
-      isDark(context) ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFEFEFF3);
+  static Color searchFill(BuildContext context) => isDark(context)
+      ? Colors.white.withValues(alpha: 0.08)
+      : const Color(0xFFEFEFF3);
 
   /// 搜索占位字 #8A8A8E。
   static Color searchHint(BuildContext context) =>
@@ -103,49 +105,47 @@ class PvText {
 
   /// `.page-title` 34px w800 ls-1.1。
   static TextStyle pageTitle(BuildContext context) => TextStyle(
-        fontSize: 34,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -1.1,
-        height: 1.1,
-        color: PvColors.ink(context),
-      );
+    fontSize: 34,
+    fontWeight: FontWeight.w800,
+    letterSpacing: -1.1,
+    height: 1.1,
+    color: PvColors.ink(context),
+  );
 
   /// `.sect h3` 17px w700 ls-0.4。
   static TextStyle section(BuildContext context) => TextStyle(
-        fontSize: 17,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.4,
-        color: PvColors.ink(context),
-      );
+    fontSize: 17,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.4,
+    color: PvColors.ink(context),
+  );
 
   /// `.sect .cnt` 12.5 灰。
   static TextStyle count(BuildContext context) => TextStyle(
-        fontSize: 12.5,
-        fontWeight: FontWeight.w500,
-        color: PvColors.ink3(context),
-      );
+    fontSize: 12.5,
+    fontWeight: FontWeight.w500,
+    color: PvColors.ink3(context),
+  );
 
   /// `.row .rt` 15px w500。
   static TextStyle rowTitle(BuildContext context) => TextStyle(
-        fontSize: 15,
-        fontWeight: FontWeight.w500,
-        letterSpacing: -0.15,
-        color: PvColors.ink(context),
-      );
+    fontSize: 15,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.15,
+    color: PvColors.ink(context),
+  );
 
   /// `.row .rs` 13 灰。
-  static TextStyle rowSub(BuildContext context) => TextStyle(
-        fontSize: 13,
-        color: PvColors.ink3(context),
-      );
+  static TextStyle rowSub(BuildContext context) =>
+      TextStyle(fontSize: 13, color: PvColors.ink3(context));
 
   /// `.glabel` 11.5 w600 灰。
   static TextStyle groupLabel(BuildContext context) => TextStyle(
-        fontSize: 11.5,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.3,
-        color: PvColors.ink3(context),
-      );
+    fontSize: 11.5,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.3,
+    color: PvColors.ink3(context),
+  );
 
   /// `.statcard b` 21 w800 ls-0.6。
   static const statNum = TextStyle(
@@ -156,19 +156,19 @@ class PvText {
 
   /// `.statcard span` 11.5 灰。
   static TextStyle statLabel(BuildContext context) => TextStyle(
-        fontSize: 11.5,
-        fontWeight: FontWeight.w500,
-        color: PvColors.ink3(context),
-      );
+    fontSize: 11.5,
+    fontWeight: FontWeight.w500,
+    color: PvColors.ink3(context),
+  );
 
   /// `.libcard .nm` 16 w700 ls-0.4。
   static TextStyle libName(BuildContext context) => TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w700,
-        letterSpacing: -0.4,
-        height: 1.2,
-        color: const Color(0xFF17171B),
-      );
+    fontSize: 16,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.4,
+    height: 1.2,
+    color: const Color(0xFF17171B),
+  );
 
   /// `.libcard .stats` 12.5。
   static const libStat = TextStyle(
@@ -178,10 +178,7 @@ class PvText {
   );
 
   /// `.libcard .foot` 12 灰。
-  static const libFoot = TextStyle(
-    fontSize: 12,
-    color: Color(0xFF8A8A8E),
-  );
+  static const libFoot = TextStyle(fontSize: 12, color: Color(0xFF8A8A8E));
 }
 
 /// iOS 风设置分组：白底圆角 16。
@@ -277,16 +274,20 @@ class PvRow extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: PvText.rowTitle(context)),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: PvText.rowTitle(context),
+                  ),
                   if (subtitle != null && subtitle!.isNotEmpty) ...[
                     const SizedBox(height: 2),
-                    Text(subtitle!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: PvText.rowSub(context)),
+                    Text(
+                      subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: PvText.rowSub(context),
+                    ),
                   ],
                 ],
               ),
@@ -297,8 +298,11 @@ class PvRow extends StatelessWidget {
             ],
             if (trailing == PvRowTrailing.chevron) ...[
               const SizedBox(width: 6),
-              Icon(Icons.chevron_right_rounded,
-                  size: 17, color: PvColors.chev(context)),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 17,
+                color: PvColors.chev(context),
+              ),
             ],
             if (trailing == PvRowTrailing.widget && trailingWidget != null)
               trailingWidget!,
@@ -307,9 +311,7 @@ class PvRow extends StatelessWidget {
       ),
     );
 
-    final body = onTap == null
-        ? row
-        : InkWell(onTap: onTap, child: row);
+    final body = onTap == null ? row : InkWell(onTap: onTap, child: row);
 
     if (!showDivider) return body;
     // `.row + .row::before`：左侧 15px 起的分隔线。
@@ -378,8 +380,11 @@ class PvSearchField extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.search_rounded,
-              size: 17, color: PvColors.searchHint(context)),
+          Icon(
+            Icons.search_rounded,
+            size: 17,
+            color: PvColors.searchHint(context),
+          ),
           const SizedBox(width: 7),
           Expanded(
             child: TextField(
@@ -390,8 +395,10 @@ class PvSearchField extends StatelessWidget {
                 isCollapsed: true,
                 border: InputBorder.none,
                 hintText: hint,
-                hintStyle:
-                    TextStyle(fontSize: 15, color: PvColors.searchHint(context)),
+                hintStyle: TextStyle(
+                  fontSize: 15,
+                  color: PvColors.searchHint(context),
+                ),
               ),
             ),
           ),
@@ -405,7 +412,12 @@ class PvSearchField extends StatelessWidget {
 
 /// `.page-head` + `.page-title`：34px 大标题行，右侧可选操作按钮。
 class PvPageHead extends StatelessWidget {
-  const PvPageHead({super.key, required this.title, this.actions = const [], this.topPadding = 14});
+  const PvPageHead({
+    super.key,
+    required this.title,
+    this.actions = const [],
+    this.topPadding = 14,
+  });
 
   final String title;
   final List<Widget> actions;
@@ -507,8 +519,11 @@ class PvSectionHead extends StatelessWidget {
             GestureDetector(
               onTap: onMore,
               behavior: HitTestBehavior.opaque,
-              child: Icon(Icons.chevron_right_rounded,
-                  size: 19, color: const Color(0xFFB0B0B6)),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 19,
+                color: const Color(0xFFB0B0B6),
+              ),
             ),
           ],
         ],
@@ -572,7 +587,9 @@ class PvLibCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
     final List<Color> colors = dark
-        ? tone.map((c) => Color.lerp(c, const Color(0xFF232227), 0.82)!).toList()
+        ? tone
+              .map((c) => Color.lerp(c, const Color(0xFF232227), 0.82)!)
+              .toList()
         : tone;
 
     return GestureDetector(
@@ -610,7 +627,9 @@ class PvLibCard extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                       letterSpacing: -0.4,
                       height: 1.2,
-                      color: dark ? const Color(0xFFEDEDEF) : const Color(0xFF17171B),
+                      color: dark
+                          ? const Color(0xFFEDEDEF)
+                          : const Color(0xFF17171B),
                     ),
                   ),
                 ),
@@ -643,7 +662,9 @@ class PvLibCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
-                        color: dark ? const Color(0xFFB9B9C0) : const Color(0xFF5E5E64),
+                        color: dark
+                            ? const Color(0xFFB9B9C0)
+                            : const Color(0xFF5E5E64),
                       ),
                     ),
                   ],
@@ -656,20 +677,28 @@ class PvLibCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Text(foot![0],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: dark ? const Color(0xFF8A8A92) : const Color(0xFF8A8A8E),
-                        )),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(foot![1],
+                    child: Text(
+                      foot![0],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
-                        color: dark ? const Color(0xFF8A8A92) : const Color(0xFF8A8A8E),
-                      )),
+                        color: dark
+                            ? const Color(0xFF8A8A92)
+                            : const Color(0xFF8A8A8E),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    foot![1],
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: dark
+                          ? const Color(0xFF8A8A92)
+                          : const Color(0xFF8A8A8E),
+                    ),
+                  ),
                 ],
               ),
           ],
@@ -711,13 +740,17 @@ Future<T?> showPvMenu<T>({
               child: Row(
                 children: [
                   if (item.checked)
-                    Icon(Icons.check_rounded,
-                        size: 17, color: PvColors.ink(context))
+                    Icon(
+                      Icons.check_rounded,
+                      size: 17,
+                      color: PvColors.ink(context),
+                    )
                   else if (item.icon != null)
                     Icon(item.icon, size: 21, color: const Color(0xFF3B4252))
                   else
                     const SizedBox(width: 21),
-                  if (item.icon != null || item.checked) const SizedBox(width: 11),
+                  if (item.icon != null || item.checked)
+                    const SizedBox(width: 11),
                   Expanded(
                     child: Text(
                       item.label,
@@ -726,7 +759,9 @@ Future<T?> showPvMenu<T>({
                         fontWeight: FontWeight.w500,
                         color: item.destructive
                             ? PvColors.red
-                            : (dark ? const Color(0xFFEDEDEF) : const Color(0xFF17171B)),
+                            : (dark
+                                  ? const Color(0xFFEDEDEF)
+                                  : const Color(0xFF17171B)),
                       ),
                     ),
                   ),
@@ -751,13 +786,13 @@ class PvMenuItem {
   });
 
   const PvMenuItem.divider()
-      : label = '',
-        icon = null,
-        onTap = null,
-        value = null,
-        checked = false,
-        isDivider = true,
-        destructive = false;
+    : label = '',
+      icon = null,
+      onTap = null,
+      value = null,
+      checked = false,
+      isDivider = true,
+      destructive = false;
 
   final String label;
   final IconData? icon;

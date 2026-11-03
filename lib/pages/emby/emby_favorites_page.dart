@@ -91,8 +91,11 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
           .clientFor(server)
           .setFavorite(item.id, false, userId: server.userId);
       if (!mounted) return;
-      setState(() =>
-          _items = _items.where((e) => e.id != item.id).toList(growable: false));
+      setState(
+        () => _items = _items
+            .where((e) => e.id != item.id)
+            .toList(growable: false),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -117,8 +120,11 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded,
-              size: 20, color: PvColors.ink(context)),
+          icon: Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 20,
+            color: PvColors.ink(context),
+          ),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
         title: Text(
@@ -135,8 +141,11 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
           if (server != null)
             IconButton(
               tooltip: '刷新',
-              icon: Icon(Icons.refresh_rounded,
-                  size: 20, color: PvColors.ink2(context)),
+              icon: Icon(
+                Icons.refresh_rounded,
+                size: 20,
+                color: PvColors.ink2(context),
+              ),
               onPressed: _load,
             ),
         ],
@@ -169,7 +178,10 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
                 _error,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 12.5, height: 1.5, color: PvColors.ink3(context)),
+                  fontSize: 12.5,
+                  height: 1.5,
+                  color: PvColors.ink3(context),
+                ),
               ),
               const SizedBox(height: 16),
               FilledButton(onPressed: _load, child: const Text('重试')),
@@ -180,8 +192,10 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
     }
     if (server == null) {
       return Center(
-        child: Text('还没有连接 Emby 服务器',
-            style: TextStyle(fontSize: 13.5, color: PvColors.ink3(context))),
+        child: Text(
+          '还没有连接 Emby 服务器',
+          style: TextStyle(fontSize: 13.5, color: PvColors.ink3(context)),
+        ),
       );
     }
     if (_items.isEmpty) {
@@ -191,8 +205,11 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.favorite_border_rounded,
-                  size: 40, color: PvColors.chev(context)),
+              Icon(
+                Icons.favorite_border_rounded,
+                size: 40,
+                color: PvColors.chev(context),
+              ),
               const SizedBox(height: 12),
               Text(
                 '还没有收藏',

@@ -146,9 +146,11 @@ class _LuCloudBrowsePageState extends State<LuCloudBrowsePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.cloud_off_rounded,
-                  size: 46,
-                  color: dark ? Colors.white24 : const Color(0xFFC9C9CF)),
+              Icon(
+                Icons.cloud_off_rounded,
+                size: 46,
+                color: dark ? Colors.white24 : const Color(0xFFC9C9CF),
+              ),
               const SizedBox(height: 12),
               Text(
                 _error,
@@ -194,13 +196,13 @@ class _LuCloudBrowsePageState extends State<LuCloudBrowsePage> {
             f.isDir
                 ? Icons.folder_rounded
                 : (f.looksLikeVideo
-                    ? Icons.play_circle_outline_rounded
-                    : Icons.insert_drive_file_outlined),
+                      ? Icons.play_circle_outline_rounded
+                      : Icons.insert_drive_file_outlined),
             color: f.isDir
                 ? const Color(0xFFFFB321)
                 : (f.looksLikeVideo
-                    ? const Color(0xFF2FBF5C)
-                    : (dark ? Colors.white38 : const Color(0xFF9A9AA0))),
+                      ? const Color(0xFF2FBF5C)
+                      : (dark ? Colors.white38 : const Color(0xFF9A9AA0))),
             size: 26,
           ),
           title: Text(

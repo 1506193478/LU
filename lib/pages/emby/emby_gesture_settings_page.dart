@@ -99,8 +99,7 @@ class _EmbyGestureSettingsPageState extends State<EmbyGestureSettingsPage> {
                 value: _prefs.doubleTapSeconds,
                 options: const {5: '5 秒', 10: '10 秒', 15: '15 秒', 30: '30 秒'},
                 enabled: _prefs.doubleTapSeek,
-                onChanged: (v) =>
-                    _update(_prefs.copyWith(doubleTapSeconds: v)),
+                onChanged: (v) => _update(_prefs.copyWith(doubleTapSeconds: v)),
               ),
               SettingsTile.switchTile(
                 leading: Icons.play_circle_outline_rounded,
@@ -127,12 +126,7 @@ class _EmbyGestureSettingsPageState extends State<EmbyGestureSettingsPage> {
                 title: const Text('长按倍率'),
                 value: _prefs.longPressRate,
                 // double 当 map key 不能用 const（== 被重写过），这里去掉 const。
-                options: {
-                  1.5: '1.5×',
-                  2.0: '2.0×',
-                  3.0: '3.0×',
-                  4.0: '4.0×',
-                },
+                options: {1.5: '1.5×', 2.0: '2.0×', 3.0: '3.0×', 4.0: '4.0×'},
                 enabled: _prefs.longPressSpeed,
                 onChanged: (v) => _update(_prefs.copyWith(longPressRate: v)),
               ),
@@ -174,9 +168,7 @@ class _EmbyGestureSettingsPageState extends State<EmbyGestureSettingsPage> {
                 SettingsTile.switchTile(
                   leading: Icons.bookmark_added_outlined,
                   title: const Text('记住缩放大小'),
-                  description: const Text(
-                    '开：按影片记住倍率，重启 App 后还在；关：每次起播回到 100%',
-                  ),
+                  description: const Text('开：按影片记住倍率，重启 App 后还在；关：每次起播回到 100%'),
                   initialValue: _prefs.rememberZoom,
                   onToggle: (v) async {
                     final next = _prefs.copyWith(rememberZoom: v ?? false);

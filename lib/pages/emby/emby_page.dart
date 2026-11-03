@@ -104,11 +104,13 @@ class _EmbyPageState extends State<EmbyPage> {
     // 音乐 / 书籍类库不进首页，最多取 4 条轨避免一次打太多请求。
     final rails = <_LibRail>[];
     final railLibs = libraries
-        .where((lib) =>
-            lib.collectionType != 'music' &&
-            lib.collectionType != 'audiobooks' &&
-            lib.collectionType != 'books' &&
-            lib.collectionType != 'playlists')
+        .where(
+          (lib) =>
+              lib.collectionType != 'music' &&
+              lib.collectionType != 'audiobooks' &&
+              lib.collectionType != 'books' &&
+              lib.collectionType != 'playlists',
+        )
         .take(4);
     final railFutures = <Future<_LibRail?>>[
       for (final lib in railLibs)
@@ -128,8 +130,10 @@ class _EmbyPageState extends State<EmbyPage> {
             } catch (_) {}
             return _LibRail(library: lib, items: items, count: count);
           } catch (e) {
-            KazumiLogger().w('Emby home: failed to load rail ${lib.name}',
-                error: e);
+            KazumiLogger().w(
+              'Emby home: failed to load rail ${lib.name}',
+              error: e,
+            );
             return null;
           }
         }(),
@@ -217,7 +221,10 @@ class _EmbyPageState extends State<EmbyPage> {
             index = found < 0 ? 0 : found;
           }
         } catch (e) {
-          KazumiLogger().w('Emby home: failed to load episodes for play', error: e);
+          KazumiLogger().w(
+            'Emby home: failed to load episodes for play',
+            error: e,
+          );
         }
       }
       if (!mounted) return;
@@ -226,7 +233,9 @@ class _EmbyPageState extends State<EmbyPage> {
         arguments: EmbyPlaybackLaunch(
           server: server,
           title: item.isEpisode
-              ? (item.seriesName?.isNotEmpty == true ? item.seriesName! : item.name)
+              ? (item.seriesName?.isNotEmpty == true
+                    ? item.seriesName!
+                    : item.name)
               : item.name,
           episodes: episodes,
           initialIndex: index,
@@ -270,9 +279,7 @@ class _EmbyPageState extends State<EmbyPage> {
                 onOpenDetail: _openDetail,
                 onPlay: (item) => _play(item),
               ),
-              EmbyMinePane(
-                libraryCount: _libCount,
-              ),
+              EmbyMinePane(libraryCount: _libCount),
             ],
           ),
           // 二级导航：浮在底栏上方，不占内容高度。
@@ -295,7 +302,9 @@ class _EmbyPageState extends State<EmbyPage> {
             left: 0,
             right: 0,
             bottom: MediaQuery.paddingOf(context).bottom + 6,
-            child: Center(child: _EmbySubDock(index: _pane, onChanged: _pickPane)),
+            child: Center(
+              child: _EmbySubDock(index: _pane, onChanged: _pickPane),
+            ),
           ),
         ],
       ),
@@ -376,8 +385,9 @@ class _SubDockButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color ink =
-        selected ? PvColors.subInk(context) : const Color(0xFF6C6C72);
+    final Color ink = selected
+        ? PvColors.subInk(context)
+        : const Color(0xFF6C6C72);
 
     return PressableInk(
       onTap: onTap,
@@ -422,7 +432,11 @@ class PressableInk extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(16), child: child),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: child,
+      ),
     );
   }
 }
@@ -532,8 +546,9 @@ class _HomeBody extends StatelessWidget {
     final bool desktop = embyIsDesktop(context);
 
     final heroItems = _heroItems();
-    final double heroHeight =
-        desktop ? 380 : (MediaQuery.sizeOf(context).height * 0.59).clamp(440.0, 560.0);
+    final double heroHeight = desktop
+        ? 380
+        : (MediaQuery.sizeOf(context).height * 0.59).clamp(440.0, 560.0);
 
     return RefreshIndicator(
       onRefresh: () async => onRetry(),
@@ -550,18 +565,26 @@ class _HomeBody extends StatelessWidget {
                 bottom: false,
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(
-                      embyPagePadding(context) - 6, 10, embyPagePadding(context), 0),
+                    embyPagePadding(context) - 6,
+                    10,
+                    embyPagePadding(context),
+                    0,
+                  ),
                   child: Row(
                     children: [
-                      _ServerChipWithDrop(server: server, onManage: onOpenServers),
+                      _ServerChipWithDrop(
+                        server: server,
+                        onManage: onOpenServers,
+                      ),
                       const Spacer(),
                       _HeartButton(
-                        onTap: () => ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                          const SnackBar(
-                            content: Text('已收藏这个服务器'),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        ),
+                        onTap: () =>
+                            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                              const SnackBar(
+                                content: Text('已收藏这个服务器'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            ),
                       ),
                     ],
                   ),
@@ -575,14 +598,18 @@ class _HomeBody extends StatelessWidget {
               count: '${data.resume.length}',
               onMore: () {},
             ),
-            SliverToBoxAdapter(child: _ResumeRail(data: data, onPlay: onPlay)),
+            SliverToBoxAdapter(
+              child: _ResumeRail(data: data, onPlay: onPlay),
+            ),
           ],
           PvSliverHead(
             title: '我的媒体',
             count: '${data.libraries.length}',
             onMore: () {},
           ),
-          SliverToBoxAdapter(child: _MediaFolderRail(data: data, onOpen: onOpenLibrary)),
+          SliverToBoxAdapter(
+            child: _MediaFolderRail(data: data, onOpen: onOpenLibrary),
+          ),
           for (final rail in data.rails) ...[
             PvSliverHead(
               title: rail.library.name,
@@ -600,7 +627,9 @@ class _HomeBody extends StatelessWidget {
           ],
           if (data.counts != null)
             SliverToBoxAdapter(child: _StatsRow(counts: data.counts!)),
-          const SliverPadding(padding: EdgeInsets.only(bottom: pvSubDockClearance)),
+          const SliverPadding(
+            padding: EdgeInsets.only(bottom: pvSubDockClearance),
+          ),
         ],
       ),
     );
@@ -642,9 +671,13 @@ class _HomeBody extends StatelessWidget {
           title: item.name,
           score: item.communityRating?.toStringAsFixed(1),
           year: item.productionYear?.toString(),
-          badge: (item.officialRating ?? '').isEmpty ? null : item.officialRating,
+          badge: (item.officialRating ?? '').isEmpty
+              ? null
+              : item.officialRating,
           genres: item.genres.isEmpty ? null : item.genres.take(2).join(' / '),
-          desc: (item.overview ?? '').trim().isEmpty ? null : item.overview!.trim(),
+          desc: (item.overview ?? '').trim().isEmpty
+              ? null
+              : item.overview!.trim(),
           onTap: () => item.isEpisode ? onPlay(item) : onOpenDetail(item),
         ),
     ];
@@ -671,8 +704,8 @@ class PvSliverHead extends SliverToBoxAdapter {
     String? count,
     VoidCallback? onMore,
   }) : super(
-          child: PvSectionHead(title, count: count, onMore: onMore),
-        );
+         child: PvSectionHead(title, count: count, onMore: onMore),
+       );
 }
 
 /// 服务器胶囊 + 页内下拉（预览稿 `.chip2` + `#chipDrop`）。
@@ -694,8 +727,7 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null) return;
-    final origin =
-        box.localToGlobal(Offset.zero, ancestor: overlay);
+    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
     final service = EmbyService.instance;
     final servers = service.servers;
     final active = service.activeServer;
@@ -764,8 +796,11 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
                 borderRadius: BorderRadius.circular(6),
               ),
               alignment: Alignment.center,
-              child: const Icon(Icons.play_arrow_rounded,
-                  size: 15, color: Colors.white),
+              child: const Icon(
+                Icons.play_arrow_rounded,
+                size: 15,
+                color: Colors.white,
+              ),
             ),
             const SizedBox(width: 7),
             ConstrainedBox(
@@ -778,13 +813,18 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
                   fontSize: 14.5,
                   fontWeight: FontWeight.w600,
                   letterSpacing: -0.2,
-                  color: dark ? const Color(0xFFEDEDEF) : const Color(0xFF1B1B1F),
+                  color: dark
+                      ? const Color(0xFFEDEDEF)
+                      : const Color(0xFF1B1B1F),
                 ),
               ),
             ),
             const SizedBox(width: 6),
-            Icon(Icons.expand_more_rounded,
-                size: 14, color: dark ? const Color(0xFF9A9AA2) : const Color(0xFF5A5A60)),
+            Icon(
+              Icons.expand_more_rounded,
+              size: 14,
+              color: dark ? const Color(0xFF9A9AA2) : const Color(0xFF5A5A60),
+            ),
           ],
         ),
       ),
@@ -825,7 +865,11 @@ class _HeartButton extends StatelessWidget {
           ],
         ),
         alignment: Alignment.center,
-        child: const Icon(Icons.favorite_rounded, size: 19, color: PvColors.red),
+        child: const Icon(
+          Icons.favorite_rounded,
+          size: 19,
+          color: PvColors.red,
+        ),
       ),
     );
   }
@@ -841,8 +885,9 @@ class _ResumeRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final server = data.server!;
-    final double cardWidth =
-        embyIsDesktop(context) ? 300 : MediaQuery.sizeOf(context).width * 0.58;
+    final double cardWidth = embyIsDesktop(context)
+        ? 300
+        : MediaQuery.sizeOf(context).width * 0.58;
     return SizedBox(
       height: cardWidth * 9 / 16 + 52,
       child: ListView.separated(
@@ -869,7 +914,9 @@ class _ResumeRail extends StatelessWidget {
               imageUrl: imageUrl,
               headers: embyAuthHeaders(server),
               title: item.isEpisode
-                  ? (item.seriesName?.isNotEmpty == true ? item.seriesName! : item.name)
+                  ? (item.seriesName?.isNotEmpty == true
+                        ? item.seriesName!
+                        : item.name)
                   : item.name,
               subtitle: item.isEpisode ? item.cardSubtitle : '继续观看',
               timeLabel: _timeLabel(item),
@@ -893,6 +940,7 @@ class _ResumeRail extends StatelessWidget {
       final s = d.inSeconds % 60;
       return '$m:${s.toString().padLeft(2, '0')}';
     }
+
     return '▶ ${fmt(watched)} / ${fmt(total)}';
   }
 }
@@ -915,8 +963,9 @@ class _MediaFolderRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final server = data.server!;
-    final double cardWidth =
-        embyIsDesktop(context) ? 260 : MediaQuery.sizeOf(context).width * 0.47;
+    final double cardWidth = embyIsDesktop(context)
+        ? 260
+        : MediaQuery.sizeOf(context).width * 0.47;
     return SizedBox(
       height: cardWidth * 9 / 16 + 34,
       child: ListView.separated(
@@ -997,8 +1046,7 @@ class _PosterRail extends StatelessWidget {
           ),
           headers: embyAuthHeaders(server),
           // 预览稿海报右上角是集数徽标、右下角是评分。
-          countBadge:
-              item.isSeries && count > 0 ? _formatCount(count) : null,
+          countBadge: item.isSeries && count > 0 ? _formatCount(count) : null,
           score: item.communityRating?.toStringAsFixed(1),
           onTap: () => onTap(item),
         );
@@ -1026,9 +1074,7 @@ class _StatsRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             boxShadow: dark
                 ? null
-                : const [
-                    BoxShadow(color: Color(0x0D000000), blurRadius: 3),
-                  ],
+                : const [BoxShadow(color: Color(0x0D000000), blurRadius: 3)],
           ),
           child: Column(
             children: [
@@ -1106,7 +1152,11 @@ class _NoServerGuide extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _hint(context, '1', '地址填服务器根地址，例如 http://192.168.1.10:8096'),
+                    _hint(
+                      context,
+                      '1',
+                      '地址填服务器根地址，例如 http://192.168.1.10:8096',
+                    ),
                     _hint(context, '2', '局域网自签证书的服务器，打开「允许自签证书」'),
                     _hint(context, '3', 'Emby 和 Jellyfin 都支持，不用区分'),
                   ],
@@ -1144,9 +1194,7 @@ class _NoServerGuide extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Expanded(
-            child: Text(text, style: theme.textTheme.bodyMedium),
-          ),
+          Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
         ],
       ),
     );

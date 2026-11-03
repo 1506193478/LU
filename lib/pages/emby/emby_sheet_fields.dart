@@ -89,8 +89,7 @@ class SheetTopBar extends StatelessWidget {
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: onSave == null
-                                ? const Color(0xFF007AFF)
-                                    .withValues(alpha: 0.4)
+                                ? const Color(0xFF007AFF).withValues(alpha: 0.4)
                                 : const Color(0xFF007AFF),
                           ),
                         ),
@@ -120,8 +119,9 @@ class SheetGroupLabel extends StatelessWidget {
         style: TextStyle(
           fontSize: 12.5,
           fontWeight: FontWeight.w500,
-          color:
-              dark ? Colors.white.withValues(alpha: 0.4) : const Color(0xFF8A8A8E),
+          color: dark
+              ? Colors.white.withValues(alpha: 0.4)
+              : const Color(0xFF8A8A8E),
         ),
       ),
     );
@@ -230,7 +230,9 @@ class SheetFieldRow extends StatelessWidget {
                         hintText: hint,
                         hintStyle: TextStyle(
                           fontSize: 15,
-                          color: dark ? Colors.white24 : const Color(0xFFB4B4BA),
+                          color: dark
+                              ? Colors.white24
+                              : const Color(0xFFB4B4BA),
                         ),
                       ),
                     ),
@@ -285,8 +287,9 @@ class SheetSwitchRow extends StatelessWidget {
               activeColor: Colors.white,
               activeTrackColor: const Color(0xFF34C759),
               inactiveThumbColor: Colors.white,
-              inactiveTrackColor:
-                  dark ? Colors.white.withValues(alpha: 0.18) : const Color(0xFFE4E4E9),
+              inactiveTrackColor: dark
+                  ? Colors.white.withValues(alpha: 0.18)
+                  : const Color(0xFFE4E4E9),
             ),
           ),
           const SizedBox(width: 6),
@@ -341,7 +344,9 @@ class SheetArrowRow extends StatelessWidget {
             ),
           if (expanded != null)
             Icon(
-              expanded! ? Icons.expand_more_rounded : Icons.chevron_right_rounded,
+              expanded!
+                  ? Icons.expand_more_rounded
+                  : Icons.chevron_right_rounded,
               size: 20,
               color: const Color(0xFF007AFF),
             )
@@ -416,8 +421,9 @@ class SheetNestedSwitchRow extends StatelessWidget {
               activeColor: Colors.white,
               activeTrackColor: const Color(0xFF34C759),
               inactiveThumbColor: Colors.white,
-              inactiveTrackColor:
-                  dark ? Colors.white.withValues(alpha: 0.18) : const Color(0xFFE4E4E9),
+              inactiveTrackColor: dark
+                  ? Colors.white.withValues(alpha: 0.18)
+                  : const Color(0xFFE4E4E9),
             ),
           ),
         ],
@@ -441,7 +447,9 @@ class SheetHint extends StatelessWidget {
         text,
         style: TextStyle(
           fontSize: 12,
-          color: dark ? Colors.white.withValues(alpha: 0.35) : const Color(0xFF8A8A8E),
+          color: dark
+              ? Colors.white.withValues(alpha: 0.35)
+              : const Color(0xFF8A8A8E),
         ),
       ),
     );

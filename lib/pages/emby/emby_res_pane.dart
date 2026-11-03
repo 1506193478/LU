@@ -68,12 +68,13 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   @override
   void initState() {
     super.initState();
-    _showSearch =
-        GStorage.getSetting(const SettingKey<bool>(
-      'pv.resShowSearch',
-      true,
-      group: SettingGroup.emby,
-    ));
+    _showSearch = GStorage.getSetting(
+      const SettingKey<bool>(
+        'pv.resShowSearch',
+        true,
+        group: SettingGroup.emby,
+      ),
+    );
     _loadCounts();
   }
 
@@ -117,16 +118,30 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   /// `file_picker` 的 custom 类型必须给扩展名（不带点、小写），它据此在
   /// iOS 上映射成 UTType。给全一点：国产剧常见 mkv / rmvb / ts 这些。
   static const List<String> kVaultVideoExtensions = <String>[
-    'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v',
-    'ts', 'm2ts', 'mpg', 'mpeg', 'rmvb', 'rm', '3gp', 'ogv',
+    'mp4',
+    'mkv',
+    'avi',
+    'mov',
+    'wmv',
+    'flv',
+    'webm',
+    'm4v',
+    'ts',
+    'm2ts',
+    'mpg',
+    'mpeg',
+    'rmvb',
+    'rm',
+    '3gp',
+    'ogv',
   ];
 
   static String _vaultTitle(String kind) => switch (kind) {
-        'private' => '本地私密',
-        'gallery' => '相册视频',
-        'link' => '网络链接',
-        _ => '本地文件',
-      };
+    'private' => '本地私密',
+    'gallery' => '相册视频',
+    'link' => '网络链接',
+    _ => '本地文件',
+  };
 
   /// 把相册/临时目录里的文件搬进应用私有目录。
   ///
@@ -141,7 +156,8 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
         await target.create(recursive: true);
       }
       final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-      final dest = '${target.path}/${DateTime.now().millisecondsSinceEpoch}_$safe';
+      final dest =
+          '${target.path}/${DateTime.now().millisecondsSinceEpoch}_$safe';
       await File(src).copy(dest);
       return dest;
     } catch (_) {
@@ -151,9 +167,12 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   Future<void> _openVault(String kind) async {
     if (!mounted) return;
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => EmbyVaultBrowsePage(title: _vaultTitle(kind), kind: kind),
-    ));
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            EmbyVaultBrowsePage(title: _vaultTitle(kind), kind: kind),
+      ),
+    );
     if (mounted) setState(() {});
   }
 
@@ -186,15 +205,21 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
       // 少数 ROM 会忽略扩展名过滤，允许勾非视频文件。挑出来直接挡掉，
       // 不然列表里会出现一堆打不开的东西。
       final bad = picked
-          .where((f) =>
-              !kVaultVideoExtensions.any((e) => f.name.toLowerCase().endsWith('.$e')))
+          .where(
+            (f) => !kVaultVideoExtensions.any(
+              (e) => f.name.toLowerCase().endsWith('.$e'),
+            ),
+          )
           .toList();
       if (bad.isNotEmpty) {
         _toast('跳过 ${bad.length} 个非视频文件');
       }
       final videos = picked
-          .where((f) =>
-              kVaultVideoExtensions.any((e) => f.name.toLowerCase().endsWith('.$e')))
+          .where(
+            (f) => kVaultVideoExtensions.any(
+              (e) => f.name.toLowerCase().endsWith('.$e'),
+            ),
+          )
           .toList();
       if (videos.isEmpty) return;
       await LuMediaVault.instance.addEntries(kind, videos);
@@ -219,9 +244,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
               child: Row(
-                children: [
-                  Text('添加到本地私密', style: PvText.rowTitle(context)),
-                ],
+                children: [Text('添加到本地私密', style: PvText.rowTitle(context))],
               ),
             ),
             ListTile(
@@ -265,8 +288,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
       final picker = ImagePicker();
       final file = await picker.pickVideo(source: ImageSource.gallery);
       if (file == null) return;
-      final String stored =
-          await _persistCopy(kind, file.path, file.name);
+      final String stored = await _persistCopy(kind, file.path, file.name);
       await LuMediaVault.instance.addEntries(kind, [
         (name: file.name, source: stored),
       ]);
@@ -303,8 +325,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             child: const Text('取消'),
           ),
           TextButton(
-            onPressed: () =>
-                Navigator.of(context).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
             child: const Text('播放'),
           ),
         ],
@@ -334,10 +355,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
       minWidth: 240,
       items: [
         for (final (label, type) in entries)
-          PvMenuItem(
-            label,
-            onTap: () => _openForm(type),
-          ),
+          PvMenuItem(label, onTap: () => _openForm(type)),
       ],
     );
   }
@@ -369,29 +387,41 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
       position: const RelativeRect.fromLTRB(120, 110, 20, 260),
       minWidth: 240,
       items: [
-        PvMenuItem('显示观看时间',
-            checked: _showWatchedTime,
-            onTap: () => setState(() => _showWatchedTime = !_showWatchedTime)),
-        PvMenuItem('显示媒体统计',
-            checked: _showMediaStats,
-            onTap: () => setState(() => _showMediaStats = !_showMediaStats)),
-        PvMenuItem('连接状态',
-            checked: _showConnState,
-            onTap: () => setState(() => _showConnState = !_showConnState)),
-        PvMenuItem('搜索框', checked: _showSearch, onTap: () async {
-          setState(() => _showSearch = !_showSearch);
-          await GStorage.putSetting(
-            const SettingKey<bool>(
-              'pv.resShowSearch',
-              true,
-              group: SettingGroup.emby,
-            ),
-            _showSearch,
-          );
-        }),
-        PvMenuItem('毛玻璃效果',
-            checked: _glass,
-            onTap: () => setState(() => _glass = !_glass)),
+        PvMenuItem(
+          '显示观看时间',
+          checked: _showWatchedTime,
+          onTap: () => setState(() => _showWatchedTime = !_showWatchedTime),
+        ),
+        PvMenuItem(
+          '显示媒体统计',
+          checked: _showMediaStats,
+          onTap: () => setState(() => _showMediaStats = !_showMediaStats),
+        ),
+        PvMenuItem(
+          '连接状态',
+          checked: _showConnState,
+          onTap: () => setState(() => _showConnState = !_showConnState),
+        ),
+        PvMenuItem(
+          '搜索框',
+          checked: _showSearch,
+          onTap: () async {
+            setState(() => _showSearch = !_showSearch);
+            await GStorage.putSetting(
+              const SettingKey<bool>(
+                'pv.resShowSearch',
+                true,
+                group: SettingGroup.emby,
+              ),
+              _showSearch,
+            );
+          },
+        ),
+        PvMenuItem(
+          '毛玻璃效果',
+          checked: _glass,
+          onTap: () => setState(() => _glass = !_glass),
+        ),
       ],
     );
   }
@@ -433,16 +463,20 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
               showStats: _showMediaStats,
               showWatched: _showWatchedTime,
               servers: [
-                ...embyServers.map((s) => _ServerEntry(
-                      title: s.name,
-                      subtitle: '主线路',
-                      kind: 'emby',
-                      online: true,
-                      emby: s,
-                      stats: _counts[s.id],
-                    )),
+                ...embyServers.map(
+                  (s) => _ServerEntry(
+                    title: s.name,
+                    subtitle: '主线路',
+                    kind: 'emby',
+                    online: true,
+                    emby: s,
+                    stats: _counts[s.id],
+                  ),
+                ),
                 // Emby / Jellyfin 已经进 EmbyService 了，别再重复出一张卡。
-                ...vaultServers.where((v) => !v.isEmbyLike).map(
+                ...vaultServers
+                    .where((v) => !v.isEmbyLike)
+                    .map(
                       (v) => _ServerEntry(
                         title: v.displayName,
                         subtitle: v.host,
@@ -452,14 +486,14 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                       ),
                     ),
                 ...LuCloudStore.instance.accounts.map(
-                      (a) => _ServerEntry(
-                        title: a.label.isNotEmpty ? a.label : a.typeLabel,
-                        subtitle: a.typeLabel,
-                        kind: a.type,
-                        online: true,
-                        cloud: a,
-                      ),
-                    ),
+                  (a) => _ServerEntry(
+                    title: a.label.isNotEmpty ? a.label : a.typeLabel,
+                    subtitle: a.typeLabel,
+                    kind: a.type,
+                    online: true,
+                    cloud: a,
+                  ),
+                ),
               ],
               onLocalFiles: () => _importLocal('local'),
               onPrivate: _importPrivate,
@@ -472,20 +506,22 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                 }
                 final cloud = entry.cloud;
                 if (cloud != null) {
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => LuCloudBrowsePage(account: cloud),
-                  ));
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => LuCloudBrowsePage(account: cloud),
+                    ),
+                  );
                   return;
                 }
                 final v = entry.vault;
                 if (v == null) return;
                 if (v.isWebdav) {
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => EmbyVaultBrowsePage(
-                      title: v.displayName,
-                      server: v,
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          EmbyVaultBrowsePage(title: v.displayName, server: v),
                     ),
-                  ));
+                  );
                   return;
                 }
                 if (v.isEmbyLike) {
@@ -504,8 +540,11 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                     items: [
                       PvMenuItem(
                         '编辑',
-                        onTap: () =>
-                            showLuCloudSheet(context, type: cloud.type, existing: cloud),
+                        onTap: () => showLuCloudSheet(
+                          context,
+                          type: cloud.type,
+                          existing: cloud,
+                        ),
                       ),
                       PvMenuItem(
                         '删除',
@@ -527,17 +566,21 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                 }
                 await showPvMenu<Object>(
                   context: context,
-                  position:
-                      const RelativeRect.fromLTRB(120, 200, 20, 200),
+                  position: const RelativeRect.fromLTRB(120, 200, 20, 200),
                   minWidth: 220,
                   items: [
-                    PvMenuItem('编辑', onTap: () => _openForm(v.type, existing: v)),
-                    PvMenuItem('删除',
-                        destructive: true,
-                        onTap: () async {
-                          await LuMediaVault.instance.removeServer(v.id);
-                          if (mounted) setState(() {});
-                        }),
+                    PvMenuItem(
+                      '编辑',
+                      onTap: () => _openForm(v.type, existing: v),
+                    ),
+                    PvMenuItem(
+                      '删除',
+                      destructive: true,
+                      onTap: () async {
+                        await LuMediaVault.instance.removeServer(v.id);
+                        if (mounted) setState(() {});
+                      },
+                    ),
                   ],
                 );
               },
@@ -715,8 +758,11 @@ class _LibGlyph extends StatelessWidget {
             color: const Color(0xFF2FBF5C),
             borderRadius: BorderRadius.circular(9),
           ),
-          child: const Icon(Icons.play_arrow_rounded,
-              color: Colors.white, size: 21),
+          child: const Icon(
+            Icons.play_arrow_rounded,
+            color: Colors.white,
+            size: 21,
+          ),
         );
       case _Glyph.link:
         return Container(
@@ -740,8 +786,11 @@ class _LibGlyph extends StatelessWidget {
             end: Alignment.bottomCenter,
             colors: [Color(0xFFFFD05E), Color(0xFFFFA514)],
           ).createShader(r),
-          child: const Icon(Icons.photo_library_rounded,
-              size: 33, color: Colors.white),
+          child: const Icon(
+            Icons.photo_library_rounded,
+            size: 33,
+            color: Colors.white,
+          ),
         );
       case _Glyph.folder:
       case _Glyph.folderLock:
@@ -758,13 +807,20 @@ class _LibGlyph extends StatelessWidget {
                   end: Alignment.bottomCenter,
                   colors: [Color(0xFFFFC94D), Color(0xFFFFA514)],
                 ).createShader(r),
-                child: const Icon(Icons.folder_rounded,
-                    size: 34, color: Colors.white),
+                child: const Icon(
+                  Icons.folder_rounded,
+                  size: 34,
+                  color: Colors.white,
+                ),
               ),
               if (kind == _Glyph.folderLock)
                 const Padding(
                   padding: EdgeInsets.only(top: 4),
-                  child: Icon(Icons.lock_rounded, size: 12, color: Colors.white),
+                  child: Icon(
+                    Icons.lock_rounded,
+                    size: 12,
+                    color: Colors.white,
+                  ),
                 ),
             ],
           ),
@@ -808,12 +864,17 @@ class _LibCard extends StatelessWidget {
         ? <Color>[
             const Color(0xFF26282F),
             const Color(0xFF24262C),
-            Color.alphaBlend(tint.withValues(alpha: 0.18), const Color(0xFF23252B)),
+            Color.alphaBlend(
+              tint.withValues(alpha: 0.18),
+              const Color(0xFF23252B),
+            ),
           ]
         : _toneLight[tone]!;
 
     final ink = PvColors.ink(context);
-    final ink3 = dark ? Colors.white.withValues(alpha: 0.42) : const Color(0xFF8A8A8E);
+    final ink3 = dark
+        ? Colors.white.withValues(alpha: 0.42)
+        : const Color(0xFF8A8A8E);
 
     return GestureDetector(
       onTap: onTap,
@@ -880,19 +941,23 @@ class _LibCard extends StatelessWidget {
                 padding: const EdgeInsets.only(top: 9),
                 child: Row(
                   children: [
-                    Icon(Icons.movie_creation_outlined,
-                        size: 13,
-                        color: dark
-                            ? Colors.white.withValues(alpha: 0.5)
-                            : const Color(0xFF5E5E64)),
+                    Icon(
+                      Icons.movie_creation_outlined,
+                      size: 13,
+                      color: dark
+                          ? Colors.white.withValues(alpha: 0.5)
+                          : const Color(0xFF5E5E64),
+                    ),
                     const SizedBox(width: 4),
                     Text(stats!.$1, style: _statStyle(dark)),
                     const SizedBox(width: 11),
-                    Icon(Icons.videocam_outlined,
-                        size: 13,
-                        color: dark
-                            ? Colors.white.withValues(alpha: 0.5)
-                            : const Color(0xFF5E5E64)),
+                    Icon(
+                      Icons.videocam_outlined,
+                      size: 13,
+                      color: dark
+                          ? Colors.white.withValues(alpha: 0.5)
+                          : const Color(0xFF5E5E64),
+                    ),
                     const SizedBox(width: 4),
                     Text(stats!.$2, style: _statStyle(dark)),
                   ],
@@ -913,10 +978,7 @@ class _LibCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                Text(
-                  footRight,
-                  style: TextStyle(fontSize: 12, color: ink3),
-                ),
+                Text(footRight, style: TextStyle(fontSize: 12, color: ink3)),
               ],
             ),
           ],
@@ -926,10 +988,12 @@ class _LibCard extends StatelessWidget {
   }
 
   static TextStyle _statStyle(bool dark) => TextStyle(
-        fontSize: 12.5,
-        fontWeight: FontWeight.w500,
-        color: dark ? Colors.white.withValues(alpha: 0.55) : const Color(0xFF5E5E64),
-      );
+    fontSize: 12.5,
+    fontWeight: FontWeight.w500,
+    color: dark
+        ? Colors.white.withValues(alpha: 0.55)
+        : const Color(0xFF5E5E64),
+  );
 }
 
 // ---------------------------------------------------------------- 我的
@@ -977,8 +1041,9 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
     final server = EmbyService.instance.activeServer;
     if (server == null) return;
     try {
-      final version =
-          await EmbyService.instance.clientFor(server).fetchServerVersion();
+      final version = await EmbyService.instance
+          .clientFor(server)
+          .fetchServerVersion();
       if (!mounted) return;
       setState(() => _version = version);
     } catch (_) {
@@ -1052,9 +1117,11 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 title: '收藏',
                 value: _favoriteCount == 0 ? null : '$_favoriteCount 部',
                 onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const EmbyFavoritesPage(),
-                  ));
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EmbyFavoritesPage(),
+                    ),
+                  );
                   if (mounted) _loadFavorites();
                 },
               ),
@@ -1072,9 +1139,11 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                     ? null
                     : '${EmbyStreamPrefs.mode.label}${EmbyStreamPrefs.bitrateMbps > 0 ? ' · ${EmbyStreamPrefs.bitrateMbps}M' : ''}',
                 onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const EmbyStreamSettingsPage(),
-                  ));
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EmbyStreamSettingsPage(),
+                    ),
+                  );
                   if (mounted) setState(() {});
                 },
                 showDivider: false,
@@ -1090,9 +1159,11 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 title: '播放手势',
                 value: '亮度 / 音量 / 倍速',
                 onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const EmbyGestureSettingsPage(),
-                  ));
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EmbyGestureSettingsPage(),
+                    ),
+                  );
                   if (mounted) setState(() {});
                 },
               ),
@@ -1102,9 +1173,11 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 title: '屏幕方向',
                 value: EmbyDisplayPrefs.enter.label,
                 onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const EmbyDisplayPrefsPage(),
-                  ));
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EmbyDisplayPrefsPage(),
+                    ),
+                  );
                   if (mounted) setState(() {});
                 },
               ),
@@ -1214,11 +1287,13 @@ class _PvSwitchRowState extends State<PvSwitchRow> {
   @override
   void initState() {
     super.initState();
-    _value = GStorage.getSetting(SettingKey<bool>(
-      widget.prefKey,
-      widget.defaultValue,
-      group: SettingGroup.player,
-    ));
+    _value = GStorage.getSetting(
+      SettingKey<bool>(
+        widget.prefKey,
+        widget.defaultValue,
+        group: SettingGroup.player,
+      ),
+    );
   }
 
   Future<void> _toggle(bool next) async {

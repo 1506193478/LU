@@ -18,17 +18,16 @@ void luPlay(
   int index = 0,
 }) {
   final items = <EmbyItem>[];
-  final list = playlist ??
-      [
-        (title: title, url: url),
-      ];
+  final list = playlist ?? [(title: title, url: url)];
   for (var i = 0; i < list.length; i++) {
-    items.add(EmbyItem(
-      id: 'local-$i',
-      name: list[i].title,
-      type: 'Movie',
-      directUrl: list[i].url,
-    ));
+    items.add(
+      EmbyItem(
+        id: 'local-$i',
+        name: list[i].title,
+        type: 'Movie',
+        directUrl: list[i].url,
+      ),
+    );
   }
   final start = index.clamp(0, items.length - 1);
 

@@ -87,11 +87,7 @@ class _EmbyVaultBrowsePageState extends State<EmbyVaultBrowsePage> {
       _toast('${entry.name} 不是视频文件');
       return;
     }
-    luPlay(
-      context,
-      title: entry.name,
-      url: client.playableUrl(entry),
-    );
+    luPlay(context, title: entry.name, url: client.playableUrl(entry));
   }
 
   bool _looksLikeVideo(String name) {

@@ -64,7 +64,9 @@ class _CloudSheetState extends State<_CloudSheet> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _label = TextEditingController(text: e?.label ?? LuCloudDrive.labelOf(_type));
+    _label = TextEditingController(
+      text: e?.label ?? LuCloudDrive.labelOf(_type),
+    );
     _user = TextEditingController(text: e?.user ?? '');
     _password = TextEditingController();
     _token = TextEditingController(text: e?.token ?? '');
@@ -108,8 +110,10 @@ class _CloudSheetState extends State<_CloudSheet> {
     final session = _qr;
     if (session == null) return;
     try {
-      final (state, account) =
-          await LuCloudApi.poll115Qr(session, label: _label.text.trim());
+      final (state, account) = await LuCloudApi.poll115Qr(
+        session,
+        label: _label.text.trim(),
+      );
       if (!mounted) return;
       if (state == LuQrState.expired) {
         _poll?.cancel();
@@ -131,7 +135,9 @@ class _CloudSheetState extends State<_CloudSheet> {
       if (state != _qrState) {
         setState(() {
           _qrState = state;
-          _qrTip = state == LuQrState.scanned ? '已扫码，请在手机上确认' : '用 115 App 扫码登录';
+          _qrTip = state == LuQrState.scanned
+              ? '已扫码，请在手机上确认'
+              : '用 115 App 扫码登录';
         });
       }
     } catch (_) {
@@ -184,7 +190,8 @@ class _CloudSheetState extends State<_CloudSheet> {
             label: _label.text.trim(),
             user: _user.text.trim(),
             token: _token.text.trim(),
-            addedAt: widget.existing?.addedAt ??
+            addedAt:
+                widget.existing?.addedAt ??
                 DateTime.now().millisecondsSinceEpoch,
           );
         default:
@@ -192,7 +199,8 @@ class _CloudSheetState extends State<_CloudSheet> {
             id: widget.existing?.id ?? LuCloudDrive.accountId(_type),
             type: _type,
             label: _label.text.trim(),
-            addedAt: widget.existing?.addedAt ??
+            addedAt:
+                widget.existing?.addedAt ??
                 DateTime.now().millisecondsSinceEpoch,
           );
       }
@@ -232,8 +240,11 @@ class _CloudSheetState extends State<_CloudSheet> {
                 SizedBox(
                   width: 52,
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                        size: 19, color: Color(0xFF007AFF)),
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 19,
+                      color: Color(0xFF007AFF),
+                    ),
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
                 ),
@@ -286,56 +297,64 @@ class _CloudSheetState extends State<_CloudSheet> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
               children: [
-                _Group(dark: dark, children: [
-                  _LabeledInput(
-                    dark: dark,
-                    label: '名称',
-                    hint: 'Name (可选)',
-                    controller: _label,
-                  ),
-                ]),
+                _Group(
+                  dark: dark,
+                  children: [
+                    _LabeledInput(
+                      dark: dark,
+                      label: '名称',
+                      hint: 'Name (可选)',
+                      controller: _label,
+                    ),
+                  ],
+                ),
                 if (_mode == 'password') ...[
                   _GroupLabel(dark: dark, text: '登录信息'),
-                  _Group(dark: dark, children: [
-                    _LabeledInput(
-                      dark: dark,
-                      label: '账号',
-                      hint: '手机号 / 邮箱',
-                      controller: _user,
-                    ),
-                    _LabeledInput(
-                      dark: dark,
-                      label: '密码',
-                      hint: 'Password',
-                      controller: _password,
-                      obscure: _obscure,
-                      suffix: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => setState(() => _obscure = !_obscure),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Icon(
-                            _obscure
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
-                            size: 17,
-                            color: const Color(0xFF007AFF),
+                  _Group(
+                    dark: dark,
+                    children: [
+                      _LabeledInput(
+                        dark: dark,
+                        label: '账号',
+                        hint: '手机号 / 邮箱',
+                        controller: _user,
+                      ),
+                      _LabeledInput(
+                        dark: dark,
+                        label: '密码',
+                        hint: 'Password',
+                        controller: _password,
+                        obscure: _obscure,
+                        suffix: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => setState(() => _obscure = !_obscure),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            child: Icon(
+                              _obscure
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              size: 17,
+                              color: const Color(0xFF007AFF),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ]),
+                    ],
+                  ),
                   _Hint(dark: dark, text: '登录后拿到的令牌只存在本机，不会上传'),
                 ],
                 if (_mode == 'qrcode') _buildQr(dark),
                 if (_mode == 'token') ...[
                   _GroupLabel(dark: dark, text: '授权令牌'),
-                  _Group(dark: dark, children: [
-                    _TokenField(dark: dark, controller: _token),
-                  ]),
+                  _Group(
+                    dark: dark,
+                    children: [_TokenField(dark: dark, controller: _token)],
+                  ),
                   _Hint(dark: dark, text: LuCloudDrive.tokenHint(_type)),
                 ],
-                if (_mode == 'none') _Hint(dark: dark, text: '这家没有公开接口，暂时只能保存账号信息。'),
+                if (_mode == 'none')
+                  _Hint(dark: dark, text: '这家没有公开接口，暂时只能保存账号信息。'),
                 if (_message.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(4, 14, 4, 0),
@@ -398,7 +417,9 @@ class _CloudSheetState extends State<_CloudSheet> {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 13,
-                            color: dark ? Colors.white54 : const Color(0xFF8A8A8E),
+                            color: dark
+                                ? Colors.white54
+                                : const Color(0xFF8A8A8E),
                           ),
                         ),
                       ),
@@ -440,7 +461,9 @@ class _GroupLabel extends StatelessWidget {
         style: TextStyle(
           fontSize: 12.5,
           fontWeight: FontWeight.w500,
-          color: dark ? Colors.white.withValues(alpha: 0.4) : const Color(0xFF8A8A8E),
+          color: dark
+              ? Colors.white.withValues(alpha: 0.4)
+              : const Color(0xFF8A8A8E),
         ),
       ),
     );
@@ -601,7 +624,9 @@ class _Hint extends StatelessWidget {
         text,
         style: TextStyle(
           fontSize: 12,
-          color: dark ? Colors.white.withValues(alpha: 0.35) : const Color(0xFF8A8A8E),
+          color: dark
+              ? Colors.white.withValues(alpha: 0.35)
+              : const Color(0xFF8A8A8E),
         ),
       ),
     );

@@ -138,10 +138,7 @@ class _EmbyRecordsPaneState extends State<EmbyRecordsPane> {
             padding: const EdgeInsets.fromLTRB(2, 12, 2, 8),
             child: Row(
               children: [
-                Text(
-                  group.key,
-                  style: PvText.groupLabel(context),
-                ),
+                Text(group.key, style: PvText.groupLabel(context)),
                 const SizedBox(width: 8),
                 Text(
                   '${group.value.length} 条',
@@ -161,10 +158,7 @@ class _EmbyRecordsPaneState extends State<EmbyRecordsPane> {
                   },
                   child: Text(
                     '清空',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: PvColors.blue,
-                    ),
+                    style: TextStyle(fontSize: 12.5, color: PvColors.blue),
                   ),
                 ),
               ],
@@ -221,7 +215,8 @@ class _RecordCard extends StatelessWidget {
     // 副标题：优先用「S01E02 · 集名」这种能一眼定位的写法。
     final sub = <String>[
       if (record.subtitle.isNotEmpty) record.subtitle,
-      if (record.durationMs > 0) _fmt(Duration(milliseconds: record.durationMs)),
+      if (record.durationMs > 0)
+        _fmt(Duration(milliseconds: record.durationMs)),
     ].join(' · ');
 
     return GestureDetector(
@@ -247,13 +242,13 @@ class _RecordCard extends StatelessWidget {
                   children: [
                     if (imageUrl.isEmpty)
                       Container(
-                        color: dark
-                            ? Colors.white12
-                            : const Color(0xFFECECF1),
+                        color: dark ? Colors.white12 : const Color(0xFFECECF1),
                         child: Icon(
                           Icons.movie_outlined,
                           size: 24,
-                          color: dark ? Colors.white24 : const Color(0xFFB4B4BA),
+                          color: dark
+                              ? Colors.white24
+                              : const Color(0xFFB4B4BA),
                         ),
                       )
                     else
@@ -325,8 +320,9 @@ class _RecordCard extends StatelessWidget {
                           ? 0
                           : record.progress.clamp(0.0, 1.0),
                       minHeight: 3.5,
-                      backgroundColor:
-                          dark ? Colors.white12 : const Color(0xFFEDEDF2),
+                      backgroundColor: dark
+                          ? Colors.white12
+                          : const Color(0xFFEDEDF2),
                       valueColor: const AlwaysStoppedAnimation(
                         Color(0xFF3A5680),
                       ),

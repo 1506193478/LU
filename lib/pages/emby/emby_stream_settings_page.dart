@@ -135,7 +135,7 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
                 ),
                 _RadioRow(
                   title: 'AVPlayer 优先',
-                  subtitle: '除本地文件外都走 AVPlayer。系统级硬解，字幕以外挂/搜索为主',
+                  subtitle: '强制服务器转码后走 AVPlayer（它播不了 MKV 原盘，所以直连被跳过）',
                   selected: _kernel == 'av',
                   onTap: () => _setKernel('av'),
                 ),

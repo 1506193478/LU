@@ -285,8 +285,10 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
         onRetry: _reload,
         emptyTitle: '没有可播放的内容',
         emptyMessage: '这部剧在 Emby 服务端还没有任何剧集文件。',
-        builder: (context, data) =>
-            ColoredBox(color: RexPalette.of(context).canvas, child: _body(context, data)),
+        builder: (context, data) => ColoredBox(
+          color: RexPalette.of(context).canvas,
+          child: _body(context, data),
+        ),
       ),
     );
   }
@@ -509,12 +511,14 @@ class _InfoColumn extends StatelessWidget {
         final episodes = snapshot.data ?? const <EmbyItem>[];
         final bool loading = snapshot.connectionState != ConnectionState.done;
         final bool failed = snapshot.hasError;
-        final int safePicked =
-            episodes.isEmpty ? 0 : picked.clamp(0, episodes.length - 1);
+        final int safePicked = episodes.isEmpty
+            ? 0
+            : picked.clamp(0, episodes.length - 1);
         final pickedItem = episodes.isEmpty ? item : episodes[safePicked];
         final source = mediaCache[pickedItem.id];
-        final String seasonName =
-            seasons.isEmpty ? item.name : _currentSeasonName(seasons);
+        final String seasonName = seasons.isEmpty
+            ? item.name
+            : _currentSeasonName(seasons);
         final String? overview = _overviewFor(pickedItem);
 
         return Column(
@@ -539,7 +543,7 @@ class _InfoColumn extends StatelessWidget {
                       color: Color(0x73000000),
                       blurRadius: 18,
                       offset: Offset(0, 3),
-                    )
+                    ),
                   ],
                 ),
               ),
@@ -707,18 +711,20 @@ class _InfoColumn extends StatelessWidget {
 
   void _openAllEpisodes(BuildContext context, List<EmbyItem> episodes) {
     Navigator.of(context)
-        .push<int>(MaterialPageRoute<int>(
-          builder: (_) => _AllEpisodesPage(
-            seasonName: _currentSeasonName(seasons),
-            server: server,
-            episodes: episodes,
-            descending: descending,
-            pickedIndex: picked,
+        .push<int>(
+          MaterialPageRoute<int>(
+            builder: (_) => _AllEpisodesPage(
+              seasonName: _currentSeasonName(seasons),
+              server: server,
+              episodes: episodes,
+              descending: descending,
+              pickedIndex: picked,
+            ),
           ),
-        ))
+        )
         .then((index) {
-      if (index != null) onPickedFromAllPage(index);
-    });
+          if (index != null) onPickedFromAllPage(index);
+        });
   }
 }
 
@@ -734,7 +740,10 @@ class _RateRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final chips = <Widget>[
       if (item.communityRating != null) ...[
-        const Text('★', style: TextStyle(color: Color(0xFFFFD166), fontSize: 14)),
+        const Text(
+          '★',
+          style: TextStyle(color: Color(0xFFFFD166), fontSize: 14),
+        ),
         const SizedBox(width: 3),
         Text(
           item.communityRating!.toStringAsFixed(1),
@@ -750,12 +759,19 @@ class _RateRow extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.white.withValues(alpha: 0.85), width: 1.3),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.85),
+              width: 1.3,
+            ),
             borderRadius: BorderRadius.circular(5),
           ),
           child: Text(
             item.officialRating!,
-            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       if (item.genres.isNotEmpty)
@@ -830,7 +846,9 @@ class _MetaRow extends StatelessWidget {
   String _formatRuntime(Duration value) {
     if (value.inHours >= 1) {
       final minutes = value.inMinutes % 60;
-      return minutes == 0 ? '${value.inHours} 小时' : '${value.inHours} 小时 $minutes 分';
+      return minutes == 0
+          ? '${value.inHours} 小时'
+          : '${value.inHours} 小时 $minutes 分';
     }
     return '${value.inMinutes} 分钟';
   }
@@ -864,7 +882,11 @@ class _PlayButton extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(24),
             boxShadow: const [
-              BoxShadow(color: Color(0x1A141E32), blurRadius: 16, offset: Offset(0, 4)),
+              BoxShadow(
+                color: Color(0x1A141E32),
+                blurRadius: 16,
+                offset: Offset(0, 4),
+              ),
             ],
           ),
           child: Row(
@@ -876,7 +898,11 @@ class _PlayButton extends StatelessWidget {
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.play_arrow_rounded, size: 22, color: Color(0xFF111111)),
+                  : const Icon(
+                      Icons.play_arrow_rounded,
+                      size: 22,
+                      color: Color(0xFF111111),
+                    ),
               const SizedBox(width: 8),
               Text(
                 label,
@@ -910,7 +936,12 @@ class _ActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget circle({required bool on, required IconData icon, required String tip, required VoidCallback onTap}) {
+    Widget circle({
+      required bool on,
+      required IconData icon,
+      required String tip,
+      required VoidCallback onTap,
+    }) {
       return Tooltip(
         message: tip,
         child: InkResponse(
@@ -949,7 +980,9 @@ class _ActionRow extends StatelessWidget {
         const SizedBox(width: 34),
         circle(
           on: favorite,
-          icon: favorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          icon: favorite
+              ? Icons.favorite_rounded
+              : Icons.favorite_border_rounded,
           tip: favorite ? '取消收藏' : '收藏',
           onTap: onToggleFavorite,
         ),
@@ -980,11 +1013,7 @@ class _Overview extends StatelessWidget {
         prefix + text,
         maxLines: expanded ? null : 3,
         overflow: expanded ? null : TextOverflow.ellipsis,
-        style: TextStyle(
-          color: p.inkSecondary,
-          fontSize: 12.5,
-          height: 1.65,
-        ),
+        style: TextStyle(color: p.inkSecondary, fontSize: 12.5, height: 1.65),
       ),
     );
   }
@@ -1023,16 +1052,27 @@ class _SeasonBar extends StatelessWidget {
             PopupMenuButton<String>(
               initialValue: currentSeasonId,
               onSelected: onSwitchSeason,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               itemBuilder: (context) => [
                 for (final s in seasons)
                   PopupMenuItem<String>(
                     value: s.id,
                     child: Row(
                       children: [
-                        Expanded(child: Text(s.name, style: const TextStyle(fontSize: 14))),
+                        Expanded(
+                          child: Text(
+                            s.name,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ),
                         if (s.id == currentSeasonId)
-                          const Icon(Icons.check_rounded, size: 16, color: Color(0xFF0A84FF)),
+                          const Icon(
+                            Icons.check_rounded,
+                            size: 16,
+                            color: Color(0xFF0A84FF),
+                          ),
                       ],
                     ),
                   ),
@@ -1050,7 +1090,11 @@ class _SeasonBar extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: p.inkPrimary),
+                  Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: p.inkPrimary,
+                  ),
                 ],
               ),
             )
@@ -1160,9 +1204,17 @@ class _EpNumButton extends StatelessWidget {
               shape: BoxShape.circle,
               color: selected
                   ? Theme.of(context).colorScheme.surface
-                  : Theme.of(context).colorScheme.surface.withValues(alpha: 0.66),
+                  : Theme.of(
+                      context,
+                    ).colorScheme.surface.withValues(alpha: 0.66),
               boxShadow: selected
-                  ? const [BoxShadow(color: Color(0x29000000), blurRadius: 8, offset: Offset(0, 2))]
+                  ? const [
+                      BoxShadow(
+                        color: Color(0x29000000),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ]
                   : const [BoxShadow(color: Color(0x0D000000), blurRadius: 2)],
             ),
             child: Text(
@@ -1172,7 +1224,9 @@ class _EpNumButton extends StatelessWidget {
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                 color: selected
                     ? Theme.of(context).colorScheme.onSurface
-                    : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.72),
+                    : Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.72),
               ),
             ),
           ),
@@ -1467,11 +1521,16 @@ class _MediaInfoScroll extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: p.surface,
                   borderRadius: BorderRadius.circular(15),
-                  border: Border.all(color: p.hairlineStrong.withValues(alpha: 0.6)),
+                  border: Border.all(
+                    color: p.hairlineStrong.withValues(alpha: 0.6),
+                  ),
                 ),
                 child: Text(
                   chip,
@@ -1564,32 +1623,35 @@ class _AllEpisodesPage extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: LayoutBuilder(builder: (context, c) {
-                // 跟详情页集卡对齐：图片固定 3:4 竖版，下面留一行集号。
-                final double cardWidth = (c.maxWidth - 40 - 12) / 2;
-                final double extent = cardWidth * 4 / 3 + 7 + 21;
-                return GridView.builder(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 34),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 18,
-                  crossAxisSpacing: 12,
-                  mainAxisExtent: extent,
-                ),
-                itemCount: episodes.length,
-                itemBuilder: (context, listIndex) {
-                  final int i = _order[listIndex.clamp(0, episodes.length - 1)];
-                  final item = episodes[i];
-                  return _AllEpisodeCard(
-                    item: item,
-                    server: server,
-                    index: i,
-                    selected: i == pickedIndex,
-                    onTap: () => Navigator.of(context).pop(i),
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  // 跟详情页集卡对齐：图片固定 3:4 竖版，下面留一行集号。
+                  final double cardWidth = (c.maxWidth - 40 - 12) / 2;
+                  final double extent = cardWidth * 4 / 3 + 7 + 21;
+                  return GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 34),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 18,
+                      crossAxisSpacing: 12,
+                      mainAxisExtent: extent,
+                    ),
+                    itemCount: episodes.length,
+                    itemBuilder: (context, listIndex) {
+                      final int i =
+                          _order[listIndex.clamp(0, episodes.length - 1)];
+                      final item = episodes[i];
+                      return _AllEpisodeCard(
+                        item: item,
+                        server: server,
+                        index: i,
+                        selected: i == pickedIndex,
+                        onTap: () => Navigator.of(context).pop(i),
+                      );
+                    },
                   );
                 },
-                );
-              }),
+              ),
             ),
           ],
         ),
@@ -1613,7 +1675,10 @@ class _CircleCheck extends StatelessWidget {
         height: 34,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: p.inkPrimary.withValues(alpha: 0.28), width: 1.6),
+          border: Border.all(
+            color: p.inkPrimary.withValues(alpha: 0.28),
+            width: 1.6,
+          ),
         ),
         child: Icon(Icons.check_rounded, size: 17, color: p.inkPrimary),
       ),
@@ -1669,9 +1734,10 @@ class _AllEpisodeCard extends StatelessWidget {
               boxShadow: selected
                   ? const [
                       BoxShadow(
-                          color: Color(0x38000000),
-                          blurRadius: 14,
-                          offset: Offset(0, 3)),
+                        color: Color(0x38000000),
+                        blurRadius: 14,
+                        offset: Offset(0, 3),
+                      ),
                     ]
                   : const [],
             ),

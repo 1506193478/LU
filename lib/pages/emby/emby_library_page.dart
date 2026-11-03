@@ -123,7 +123,9 @@ class _EmbyLibraryPageState extends State<EmbyLibraryPage> {
     await service.load();
     final server = service.activeServer;
     if (server == null) return const [];
-    return service.clientFor(server).fetchItemsPaged(
+    return service
+        .clientFor(server)
+        .fetchItemsPaged(
           userId: server.userId,
           parentId: widget.library.id,
           startIndex: startIndex,

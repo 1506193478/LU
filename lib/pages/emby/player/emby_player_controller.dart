@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
@@ -215,6 +216,10 @@ class EmbyPlayerController extends ChangeNotifier {
   bool _avCompletedHandled = false;
 
   /// 内核偏好：`auto` / `av` / `mpv`（见 [SettingsKeys.embyIosKernel]）。
+  ///
+  /// 「AVPlayer 优先」在 [_open] 里会跳过直连、强制转码——因为 AVPlayer
+  /// 只认 MP4/MOV/HLS 这类它认识的容器，直连原盘（MKV 等）塞给它必死；
+  /// 转出来的 HLS（H264/AAC/TS）则 100% 兼容。
   bool _shouldUseAv() {
     if (!Platform.isIOS) return false;
     // 这一集已经回退过 mpv 就不再尝试 AV：重试会把刚被服务端回收的
@@ -222,7 +227,6 @@ class EmbyPlayerController extends ChangeNotifier {
     if (_avFallbackUsed) return false;
     final pref = GStorage.getSetting(SettingsKeys.embyIosKernel);
     if (pref == 'mpv') return false;
-    if (pref == 'av') return !_isLocalDirect;
     return _isHls;
   }
 
@@ -389,13 +393,17 @@ class EmbyPlayerController extends ChangeNotifier {
       // _preferTranscodeRetry 再进来，直接拿 HLS。
       _avFallbackUsed = false;
       _mpvDowngradeTried = false;
+      // 「AVPlayer 优先」：跳过直连探测、直接让服务端出 HLS——AVPlayer
+      // 播不了 MKV 这类原盘容器，直连给它必死；强制转码后 100% 兼容。
+      final pref = GStorage.getSetting(SettingsKeys.embyIosKernel);
       final resolution = await EmbyStreamResolver.resolve(
         client: _client,
         itemId: item.id,
         userId: launch.server.userId,
         preferDirect:
             GStorage.getSetting(SettingsKeys.embyDirectPlay) &&
-            !_preferTranscodeRetry,
+            !_preferTranscodeRetry &&
+            pref != 'av',
       );
       if (_disposed) return;
 
@@ -658,9 +666,11 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 起播看门狗：25 秒内没等到时长就视为连接失败，走重试 / 回退。
   void _armAvWatchdog() {
     _avWatchdog?.cancel();
-    _avWatchdog = Timer(const Duration(seconds: 25), () {
+    // 12 秒足够服务端拉起转码（正常 2~5 秒）；再久基本就是流本身有问题，
+    // 磨蹭只会让用户等更久才看到降级。
+    _avWatchdog = Timer(const Duration(seconds: 12), () {
       if (_disposed || _av == null) return;
-      unawaited(_avConnectFailed('连接超时（服务器 25 秒内没有出流）'));
+      unawaited(_avConnectFailed('连接超时（服务器 12 秒内没有出流）'));
     });
   }
 
@@ -669,9 +679,9 @@ class EmbyPlayerController extends ChangeNotifier {
     _avWatchdog = null;
   }
 
-  /// AV 起播失败：转码拉起慢的情况重试 2 次（等 3 秒再开，服务端往往
-  /// 就绪了）；还不行就整套退掉、自动回退 mpv——对用户来说「能播」比
-  /// 「用哪个内核」重要得多。
+  /// AV 起播失败：错误事件驱动的失败等 1 秒重试 1 次（转码拉起慢的场景
+  /// 基本就能成）；还不行就整套退掉、自动回退 libmpv 并明确提示——对用户
+  /// 来说「能播」比「用哪个内核」重要得多，且降级必须可感知，不能静默。
   Future<void> _avConnectFailed(String message) async {
     _cancelAvWatchdog();
     final engine = _av;
@@ -681,9 +691,9 @@ class EmbyPlayerController extends ChangeNotifier {
       // 已经出流了，迟到的错误事件不影响正在播的画面。
       return;
     }
-    if (_avRetries < 2) {
+    if (_avRetries < 1) {
       _avRetries += 1;
-      await Future<void>.delayed(const Duration(seconds: 3));
+      await Future<void>.delayed(const Duration(seconds: 1));
       if (_disposed || _av == null || !identical(_av, engine)) return;
       if (engine.duration > Duration.zero || playing) return;
       await _avDoOpen(engine);
@@ -701,6 +711,7 @@ class EmbyPlayerController extends ChangeNotifier {
     if (_disposed) return;
     _avFallbackUsed = true;
     await _teardownPlayer();
+    unawaited(KazumiDialog.showToast(message: 'AVPlayer 播不了这部，已自动切换 libmpv'));
     await _open(_index);
   }
 

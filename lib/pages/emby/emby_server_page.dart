@@ -151,16 +151,18 @@ class _ServerTile extends StatelessWidget {
                   server.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '${server.userName} · ${server.url}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -294,11 +296,11 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
   }
 
   String get _baseUrl => buildBaseUrl(
-        host: _host.text.trim(),
-        path: _path.text.trim(),
-        port: int.tryParse(_port.text.trim()) ?? 0,
-        https: _https,
-      );
+    host: _host.text.trim(),
+    path: _path.text.trim(),
+    port: int.tryParse(_port.text.trim()) ?? 0,
+    https: _https,
+  );
 
   Future<void> _save() async {
     if (_busy) return;
@@ -363,9 +365,7 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
       await _persist(
         EmbyServer(
           id: id,
-          name: _name.text.trim().isEmpty
-              ? auth.serverName
-              : _name.text.trim(),
+          name: _name.text.trim().isEmpty ? auth.serverName : _name.text.trim(),
           url: baseUrl,
           userId: auth.userId,
           userName: auth.userName,
@@ -412,10 +412,10 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
         addedAt: widget.server == null
             ? DateTime.now().millisecondsSinceEpoch
             : (LuMediaVault.instance.servers
-                    .where((v) => v.id == id)
-                    .map((v) => v.addedAt)
-                    .firstOrNull ??
-                DateTime.now().millisecondsSinceEpoch),
+                      .where((v) => v.id == id)
+                      .map((v) => v.addedAt)
+                      .firstOrNull ??
+                  DateTime.now().millisecondsSinceEpoch),
         backupLines: _lines,
       ),
     );
@@ -440,109 +440,116 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
           children: [
-            SheetGroup(dark: dark, children: [
-              SheetFieldRow(
-                dark: dark,
-                label: '名称',
-                hint: 'Name (可选)',
-                controller: _name,
-              ),
-              SheetFieldRow(
-                dark: dark,
-                label: '备注',
-                hint: 'Note (可选)',
-                controller: _note,
-              ),
-            ]),
+            SheetGroup(
+              dark: dark,
+              children: [
+                SheetFieldRow(
+                  dark: dark,
+                  label: '名称',
+                  hint: 'Name (可选)',
+                  controller: _name,
+                ),
+                SheetFieldRow(
+                  dark: dark,
+                  label: '备注',
+                  hint: 'Note (可选)',
+                  controller: _note,
+                ),
+              ],
+            ),
             SheetGroupLabel(dark: dark, text: '服务器地址'),
-            SheetGroup(dark: dark, children: [
-              SheetFieldRow(
-                dark: dark,
-                label: '主机',
-                hint: 'Host (必填)',
-                controller: _host,
-                keyboard: TextInputType.url,
-              ),
-              SheetFieldRow(
-                dark: dark,
-                label: '路径',
-                hint: 'Path (可选)',
-                controller: _path,
-              ),
-              SheetFieldRow(
-                dark: dark,
-                label: '端口',
-                hint: 'Port (可选)',
-                controller: _port,
-                keyboard: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              ),
-              SheetSwitchRow(
-                dark: dark,
-                label: 'https',
-                value: _https,
-                onChanged: _busy
-                    ? (_) {}
-                    : (v) => setState(() => _https = v),
-              ),
-            ]),
+            SheetGroup(
+              dark: dark,
+              children: [
+                SheetFieldRow(
+                  dark: dark,
+                  label: '主机',
+                  hint: 'Host (必填)',
+                  controller: _host,
+                  keyboard: TextInputType.url,
+                ),
+                SheetFieldRow(
+                  dark: dark,
+                  label: '路径',
+                  hint: 'Path (可选)',
+                  controller: _path,
+                ),
+                SheetFieldRow(
+                  dark: dark,
+                  label: '端口',
+                  hint: 'Port (可选)',
+                  controller: _port,
+                  keyboard: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+                SheetSwitchRow(
+                  dark: dark,
+                  label: 'https',
+                  value: _https,
+                  onChanged: _busy ? (_) {} : (v) => setState(() => _https = v),
+                ),
+              ],
+            ),
             SheetGroupLabel(dark: dark, text: '登录信息'),
-            SheetGroup(dark: dark, children: [
-              SheetFieldRow(
-                dark: dark,
-                label: '用户',
-                hint: 'Username (可选)',
-                controller: _username,
-              ),
-              SheetFieldRow(
-                dark: dark,
-                label: '密码',
-                hint: isNew ? 'Password' : '留空沿用已保存凭据',
-                controller: _password,
-                obscure: !_passwordVisible,
-                suffix: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () =>
-                      setState(() => _passwordVisible = !_passwordVisible),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Icon(
-                      _passwordVisible
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                      size: 17,
-                      color: const Color(0xFF007AFF),
+            SheetGroup(
+              dark: dark,
+              children: [
+                SheetFieldRow(
+                  dark: dark,
+                  label: '用户',
+                  hint: 'Username (可选)',
+                  controller: _username,
+                ),
+                SheetFieldRow(
+                  dark: dark,
+                  label: '密码',
+                  hint: isNew ? 'Password' : '留空沿用已保存凭据',
+                  controller: _password,
+                  obscure: !_passwordVisible,
+                  suffix: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () =>
+                        setState(() => _passwordVisible = !_passwordVisible),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Icon(
+                        _passwordVisible
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        size: 17,
+                        color: const Color(0xFF007AFF),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ]),
-            SheetGroup(dark: dark, children: [
-              SheetArrowRow(
-                dark: dark,
-                label: '备用线路',
-                value: _lines.isEmpty ? '未设置' : '${_lines.length} 条',
-                onTap: _busy ? () {} : _openLines,
-              ),
-              SheetArrowRow(
-                dark: dark,
-                label: '高级设置',
-                expanded: _advanced,
-                onTap: () => setState(() => _advanced = !_advanced),
-              ),
-              if (_advanced)
-                SheetNestedSwitchRow(
-                  dark: dark,
-                  title: 'STRM 优先使用原始路径播放',
-                  subtitle: '如果你不清楚作用，请不要开启!',
-                  value: _strm,
-                  onChanged: (v) => setState(() => _strm = v),
-                ),
-            ]),
-            SheetHint(
-              dark: dark,
-              text: '主线路登录失败时会依次尝试备用线路，保存成功后自动切到这台服务器。',
+              ],
             ),
+            SheetGroup(
+              dark: dark,
+              children: [
+                SheetArrowRow(
+                  dark: dark,
+                  label: '备用线路',
+                  value: _lines.isEmpty ? '未设置' : '${_lines.length} 条',
+                  onTap: _busy ? () {} : _openLines,
+                ),
+                SheetArrowRow(
+                  dark: dark,
+                  label: '高级设置',
+                  expanded: _advanced,
+                  onTap: () => setState(() => _advanced = !_advanced),
+                ),
+                if (_advanced)
+                  SheetNestedSwitchRow(
+                    dark: dark,
+                    title: 'STRM 优先使用原始路径播放',
+                    subtitle: '如果你不清楚作用，请不要开启!',
+                    value: _strm,
+                    onChanged: (v) => setState(() => _strm = v),
+                  ),
+              ],
+            ),
+            SheetHint(dark: dark, text: '主线路登录失败时会依次尝试备用线路，保存成功后自动切到这台服务器。'),
             const SizedBox(height: 18),
             FilledButton.icon(
               onPressed: _busy ? null : _save,

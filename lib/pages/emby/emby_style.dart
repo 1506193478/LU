@@ -186,8 +186,9 @@ class EmbyPageShell extends StatelessWidget {
     final RexPalette p = RexPalette.of(context);
     final double pad = embyPagePadding(context);
     final Color ink = overlay ? Colors.white : p.inkPrimary;
-    final Color subInk =
-        overlay ? Colors.white.withValues(alpha: 0.72) : p.inkSecondary;
+    final Color subInk = overlay
+        ? Colors.white.withValues(alpha: 0.72)
+        : p.inkSecondary;
 
     final Widget bar = Padding(
       padding: EdgeInsets.fromLTRB(pad - 6, RexSpace.xs, pad - 6, RexSpace.xs),
@@ -357,14 +358,13 @@ class EmbyRail extends StatelessWidget {
       height: railHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: padding ??
+        padding:
+            padding ??
             EdgeInsets.symmetric(horizontal: embyPagePadding(context)),
         itemCount: itemCount,
         separatorBuilder: (_, _) => const SizedBox(width: RexSpace.rail),
-        itemBuilder: (context, index) => SizedBox(
-          width: width,
-          child: itemBuilder(context, index),
-        ),
+        itemBuilder: (context, index) =>
+            SizedBox(width: width, child: itemBuilder(context, index)),
       ),
     );
   }
@@ -470,11 +470,11 @@ class _EmbyPosterTileState extends State<EmbyPosterTile> {
                             top: 6,
                             right: 6,
                             child: Container(
-                              constraints:
-                                  const BoxConstraints(minWidth: 21),
+                              constraints: const BoxConstraints(minWidth: 21),
                               height: 21,
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 5),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                              ),
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: const Color(0xFF3E7BFA),
@@ -669,7 +669,9 @@ class EmbyHero extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.16),
-                            borderRadius: BorderRadius.circular(RexRadius.badge),
+                            borderRadius: BorderRadius.circular(
+                              RexRadius.badge,
+                            ),
                           ),
                           child: Text(
                             eyebrow!,
@@ -803,11 +805,7 @@ class _HeroButton extends StatelessWidget {
 
 /// 服务器切换胶囊。
 class EmbyServerChip extends StatelessWidget {
-  const EmbyServerChip({
-    super.key,
-    required this.server,
-    required this.onTap,
-  });
+  const EmbyServerChip({super.key, required this.server, required this.onTap});
 
   final EmbyServer server;
   final VoidCallback onTap;
@@ -907,7 +905,9 @@ class EmbyResumeCard extends StatelessWidget {
                     bottom: 8,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 3),
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.55),
                         borderRadius: BorderRadius.circular(6),

@@ -79,16 +79,14 @@ class EmbyFutureView<T> extends StatelessWidget {
   }
 
   Widget _empty(BuildContext context) => SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: GeneralErrorWidget(
-          title: emptyTitle,
-          errMsg: emptyMessage,
-          icon: Icons.inbox_rounded,
-          actions: [
-            TextButton(onPressed: onRetry, child: const Text('刷新')),
-          ],
-        ),
-      );
+    padding: const EdgeInsets.all(24),
+    child: GeneralErrorWidget(
+      title: emptyTitle,
+      errMsg: emptyMessage,
+      icon: Icons.inbox_rounded,
+      actions: [TextButton(onPressed: onRetry, child: const Text('刷新'))],
+    ),
+  );
 }
 
 /// 封面卡：媒体库和剧集列表共用。
@@ -125,10 +123,7 @@ class EmbyPosterCard extends StatelessWidget {
     final Widget cover = AspectRatio(
       aspectRatio: aspectRatio,
       child: neu
-          ? NeuMedia(
-              radius: radius - 6,
-              child: _image(context),
-            )
+          ? NeuMedia(radius: radius - 6, child: _image(context))
           : ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: _image(context),
@@ -181,8 +176,7 @@ class EmbyPosterCard extends StatelessWidget {
                   child: InkWell(onTap: onTap, child: body),
                 ),
         ),
-        if (trailing != null)
-          Positioned(top: 6, right: 6, child: trailing!),
+        if (trailing != null) Positioned(top: 6, right: 6, child: trailing!),
       ],
     );
   }
@@ -230,8 +224,9 @@ class EmbyIntro extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 description,
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -256,9 +251,9 @@ class GeneralEmbyEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GeneralErrorWidget(
-        title: title,
-        errMsg: message,
-        icon: Icons.inbox_rounded,
-        actions: [?action],
-      );
+    title: title,
+    errMsg: message,
+    icon: Icons.inbox_rounded,
+    actions: [?action],
+  );
 }
