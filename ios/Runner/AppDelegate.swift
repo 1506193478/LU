@@ -20,7 +20,7 @@ import app_links
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-        AvPlayerEnginePlugin.register(with: engineBridge.applicationRegistrar)
+        AvPlayerEnginePlugin.register(with: engineBridge.applicationRegistrar.registrar(forPlugin: "AvPlayerEnginePlugin"))
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",
@@ -178,14 +178,14 @@ import app_links
     private var pendingResult: FlutterResult?
     private var isListening = false
 
-    public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    @objc public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         eventSink = events
         isListening = true
         addPeriodicObserver()
         return nil
     }
 
-    public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    @objc public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         isListening = false
         eventSink = nil
         return nil
@@ -194,8 +194,10 @@ import app_links
     // ---- Texture ----
 
     public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
-        guard let output = output else { return nil }
-        let buffer = output.copyPixelBuffer(forItemTime: player?.currentTime(), itemTimeForDisplay: nil)
+        guard let output = output, let player = player else { return nil }
+        let time = player.currentTime()
+        guard time.isNumeric else { return nil }
+        let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
         if buffer.width == 0 { return nil }
         return Unmanaged<CVPixelBuffer>.passRetained(buffer)
     }
@@ -224,9 +226,9 @@ import app_links
             player?.currentItem?.audioTimePitchAlgorithm = .timeDomain
             result(nil)
         case "selectAudioTrack":
-            selectTrack(trackId: call.arguments as? String ?? "", mediaType: .audio, result: result)
+            selectTrack(trackId: call.arguments as? String ?? "", characteristic: .audio, result: result)
         case "selectSubtitleTrack":
-            selectTrack(trackId: call.arguments as? String ?? "", mediaType: .legible, result: result)
+            selectTrack(trackId: call.arguments as? String ?? "", characteristic: .legible, result: result)
         case "getTracks":
             result(trackInfo())
         case "getPosition":
@@ -292,28 +294,36 @@ import app_links
         }
     }
 
-    private func selectTrack(trackId: String, mediaType: AVMediaType, result: @escaping FlutterResult) {
+    private func selectTrack(trackId: String, characteristic: AVMediaCharacteristic, result: @escaping FlutterResult) {
         guard let item = player?.currentItem else { result(nil); return }
-        let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: mediaType)
-        if trackId == "no" {
-            item.selectMediaOption(nil, in: group!)
+        guard let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: characteristic) else {
             result(nil); return
         }
-        if let group = group, let index = Int(trackId), index < group.options.count {
-            item.selectMediaOption(group.options[index], in: group)
+        if trackId == "no" {
+            item.selectMediaOption(nil, inMediaSelectionGroup: group)
+            result(nil); return
+        }
+        if let index = Int(trackId), index < group.options.count {
+            item.selectMediaOption(group.options[index], inMediaSelectionGroup: group)
         }
         result(nil)
     }
 
     private func trackInfo() -> [[String: Any]] {
         guard let item = player?.currentItem else { return [] }
+        let groups: [(AVMediaCharacteristic, String)] = [
+            (AVMediaCharacteristic.audio, "audio"),
+            (AVMediaCharacteristic.legible, "subtitle"),
+        ]
         var out: [[String: Any]] = []
-        for (mediaType, kind) in [(AVMediaType.audio, "audio"), (AVMediaType.legible, "subtitle")] {
-            let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: mediaType)
+        for (characteristic, kind) in groups {
+            let group = item.asset.mediaSelectionGroup(forMediaCharacteristic: characteristic)
             var list: [[String: Any]] = []
-            for (i, option) in (group?.options ?? []).enumerated() {
+            let options = group?.options ?? []
+            for index in 0..<options.count {
+                let option = options[index]
                 list.append([
-                    "id": String(i),
+                    "id": String(index),
                     "title": option.displayName,
                     "language": option.extendedLanguageTag ?? "",
                 ])
