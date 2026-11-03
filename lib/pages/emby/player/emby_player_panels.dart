@@ -49,7 +49,7 @@ Future<T?> showEmbyPlayerSheet<T>(
     header: hideHeaderWhenWide ? null : title,
     // 竖屏手机窄，菜单跟着收窄一点，不然左右都没边距。
     width: size.width < 420 ? (size.width - 48).clamp(220.0, 300.0) : 288,
-    children: [builder(context)],
+    builder: builder,
   );
 }
 

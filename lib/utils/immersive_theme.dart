@@ -54,10 +54,12 @@ double immersiveTabBarInset(BuildContext context) =>
     immersiveTabBarGap +
     MediaQuery.paddingOf(context).bottom;
 
-const BorderRadius immersiveBorderRadius =
-    BorderRadius.all(Radius.circular(immersiveRadius));
-const BorderRadius immersiveBorderRadiusLarge =
-    BorderRadius.all(Radius.circular(immersiveRadiusLarge));
+const BorderRadius immersiveBorderRadius = BorderRadius.all(
+  Radius.circular(immersiveRadius),
+);
+const BorderRadius immersiveBorderRadiusLarge = BorderRadius.all(
+  Radius.circular(immersiveRadiusLarge),
+);
 
 /// 深色模式的容器灰阶，从最底到最高逐层提亮。
 const Color _darkSurface = Color(0xFF15171C);
@@ -85,20 +87,19 @@ ColorScheme _immersiveColorScheme({
   ColorScheme? colorScheme,
 }) {
   final bool dark = brightness == Brightness.dark;
-  final ColorScheme seed = colorScheme ??
+  final ColorScheme seed =
+      colorScheme ??
       ColorScheme.fromSeed(
         seedColor: color ?? kDefaultAccent,
         brightness: brightness,
       );
   return seed.copyWith(
     surface: dark ? _darkSurface : _lightSurface,
-    surfaceContainerLowest:
-        dark ? _darkSurfaceLowest : _lightSurfaceLowest,
+    surfaceContainerLowest: dark ? _darkSurfaceLowest : _lightSurfaceLowest,
     surfaceContainerLow: dark ? _darkSurfaceLow : _lightSurfaceLow,
     surfaceContainer: dark ? _darkSurfaceContainer : _lightSurfaceContainer,
     surfaceContainerHigh: dark ? _darkSurfaceHigh : _lightSurfaceHigh,
-    surfaceContainerHighest:
-        dark ? _darkSurfaceHighest : _lightSurfaceHighest,
+    surfaceContainerHighest: dark ? _darkSurfaceHighest : _lightSurfaceHighest,
     outline: dark ? _darkOutline : _lightOutline,
     outlineVariant: dark ? _darkOutlineVariant : _lightOutlineVariant,
     // 关闭 M3 的高程染色，避免容器被强调色污染。
@@ -130,11 +131,20 @@ ThemeData buildImmersiveTheme({
     progressIndicatorTheme: progressIndicatorTheme2024,
     sliderTheme: sliderTheme2024,
     pageTransitionsTheme: pageTransitionsTheme2024,
+    // ---- iOS 交互层（全局一次生效） ----
+    // Material 的水波纹在 iOS 上不存在：iOS 的按压反馈是「内容自己变暗」，
+    // 涟漪一出来整页的交互语言就露馅了。这里全局关掉，onTap 行为不变，
+    // 51 处 InkWell 不用逐个包。
+    splashFactory: NoSplash.splashFactory,
+    splashColor: Colors.transparent,
+    highlightColor: Colors.transparent,
+    hoverColor: scheme.onSurface.withValues(alpha: 0.04),
   );
 
   return base.copyWith(
-    scaffoldBackgroundColor:
-        dark ? immersiveDarkScaffold : immersiveLightScaffold,
+    scaffoldBackgroundColor: dark
+        ? immersiveDarkScaffold
+        : immersiveLightScaffold,
     // 卡片一律无边框、无阴影、大圆角。
     cardTheme: CardThemeData(
       elevation: 0,
@@ -143,9 +153,7 @@ ThemeData buildImmersiveTheme({
       // 卡片一律用 Pv 的白卡（深色 #1F1E22），不再跟 M3 的
       // surfaceContainerLow 走 —— 后者跟页面底色差得太少，整页糊成一片。
       color: dark ? immersiveDarkCard : immersiveLightCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: immersiveBorderRadius,
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: immersiveBorderRadius),
     ),
     // AppBar 融入背景，滚动时不抬升高程。
     appBarTheme: AppBarTheme(
@@ -162,9 +170,7 @@ ThemeData buildImmersiveTheme({
       color: scheme.outlineVariant.withValues(alpha: 0.6),
     ),
     listTileTheme: ListTileThemeData(
-      shape: const RoundedRectangleBorder(
-        borderRadius: immersiveBorderRadius,
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: immersiveBorderRadius),
       iconColor: scheme.onSurfaceVariant,
     ),
     dialogTheme: DialogThemeData(
@@ -202,8 +208,7 @@ ThemeData buildImmersiveTheme({
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: scheme.surfaceContainerHigh,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: const OutlineInputBorder(
         borderRadius: immersiveBorderRadius,
         borderSide: BorderSide.none,
@@ -262,19 +267,21 @@ ThemeData buildImmersiveTheme({
       ),
     ),
     tabBarTheme: const TabBarThemeData(dividerHeight: 0),
-    // 开关/单选/复选统一吃强调色，避免和自制粘土控件并排时配色打架。
+    // 开关做成 iOS 的样子：绿色轨道、白色圆钮、无描边。之前用强调色（紫），
+    // 和粘土控件并排不打架，但用户一眼就能看出「这不是 iOS 的开关」。
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
-        (states) => states.contains(WidgetState.selected)
-            ? scheme.onPrimary
-            : scheme.outline,
+        (states) => states.contains(WidgetState.dragged)
+            ? const Color(0xFFF2F2F7)
+            : Colors.white,
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)
-            ? scheme.primary
-            : scheme.surfaceContainerHighest,
+            ? const Color(0xFF34C759)
+            : (dark ? const Color(0xFF39393D) : const Color(0xFFE9E9EA)),
       ),
       trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+      trackOutlineWidth: WidgetStateProperty.all(0),
     ),
     radioTheme: RadioThemeData(
       fillColor: WidgetStateProperty.resolveWith(

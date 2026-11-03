@@ -353,11 +353,24 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   // ------------------------------------------------------------ 交互
 
-  /// 先关掉当前菜单，等它收完再开下一层。
+  /// 打开一个菜单页。
   ///
-  /// 不这样的话，上一张卡片还在退场、下一张已经开始进场，两张会叠在一起。
-  void _next(VoidCallback open) {
-    Future<void>.delayed(const Duration(milliseconds: 120), open);
+  /// 已经有菜单开着 → push 进当前卡片（顶部出现「‹ 上一级」返回行，换页时
+  /// 卡片高度平滑过渡）；没有 → 新开一张。根级面板和二级面板走同一个入口，
+  /// 这样从哪里进都长一个样。
+  Future<void> _showMenuPage(String title, WidgetBuilder builder) async {
+    final menu = embyMenu;
+    if (menu != null) {
+      menu.push(title, builder);
+      return;
+    }
+    await showEmbyPlayerSheet<void>(
+      context,
+      title: title,
+      isDesktop: _isDesktop,
+      builder: builder,
+    );
+    _resumeAutoHide();
   }
 
   void _toggleControls() {
@@ -460,11 +473,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   Future<void> _openMore() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '更多',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyMorePanel(
+    await _showMenuPage(
+      '更多',
+      (ctx) => buildEmbyMorePanel(
         ctx,
         EmbyMorePanelActions(
           decodeLabel: controller.decodeMode.label,
@@ -472,26 +483,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           sleepLabel: embySleepLabel(controller.sleepMode),
           background: controller.backgroundAudio,
           progressAlways: controller.progressAlwaysVisible,
-          onDecode: () {
-            Navigator.of(ctx).pop();
-            _next(_openDecode);
-          },
-          onPlaybackMode: () {
-            Navigator.of(ctx).pop();
-            _next(_openPlaybackMode);
-          },
-          onIntroOutro: () {
-            Navigator.of(ctx).pop();
-            _next(_openIntroOutro);
-          },
-          onSleep: () {
-            Navigator.of(ctx).pop();
-            _next(_openSleep);
-          },
-          onInfo: () {
-            Navigator.of(ctx).pop();
-            _next(_openInfo);
-          },
+          onDecode: _openDecode,
+          onPlaybackMode: _openPlaybackMode,
+          onIntroOutro: _openIntroOutro,
+          onSleep: _openSleep,
+          onInfo: _openInfo,
           onBackground: () {
             controller.setBackgroundAudio(!controller.backgroundAudio);
             Navigator.of(ctx).pop();
@@ -505,16 +501,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         ),
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openDecode() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '解码',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyDecodePanel(
+    await _showMenuPage(
+      '解码',
+      (ctx) => buildEmbyDecodePanel(
         current: controller.decodeMode,
         onSelect: (mode) {
           controller.setDecodeMode(mode);
@@ -522,16 +515,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openPlaybackMode() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '顺序播放',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyPlaybackModePanel(
+    await _showMenuPage(
+      '顺序播放',
+      (ctx) => buildEmbyPlaybackModePanel(
         current: controller.playbackMode,
         onSelect: (mode) {
           controller.setPlaybackMode(mode);
@@ -539,16 +529,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openIntroOutro() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '片头片尾',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyIntroOutroPanel(
+    await _showMenuPage(
+      '片头片尾',
+      (ctx) => buildEmbyIntroOutroPanel(
         introSkip: controller.introSkip,
         outroSkip: controller.outroSkip,
         onMarkOutro: () {
@@ -559,16 +546,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         onOutroChanged: controller.setOutroSkip,
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openSleep() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '定时关闭',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbySleepPanel(
+    await _showMenuPage(
+      '定时关闭',
+      (ctx) => buildEmbySleepPanel(
         current: controller.sleepMode,
         onSelect: (mode) {
           controller.setSleepTimer(mode);
@@ -576,16 +560,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openChapters() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '章节',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyChapterPanel(
+    await _showMenuPage(
+      '章节',
+      (ctx) => buildEmbyChapterPanel(
         chapters: controller.chapters,
         current: controller.position,
         onSelect: (start) {
@@ -594,17 +575,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openEpisodes() async {
     _pauseAutoHide();
     final int index = controller.index;
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '选集',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyEpisodePanel(
+    await _showMenuPage(
+      '选集',
+      (ctx) => buildEmbyEpisodePanel(
         ctx,
         episodes: widget.launch.episodes,
         currentIndex: controller.index,
@@ -614,16 +592,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openSpeed() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '自定义',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbySpeedPanel(
+    await _showMenuPage(
+      '自定义',
+      (ctx) => buildEmbySpeedPanel(
         current: controller.speed,
         onSelect: (value) {
           controller.setSpeed(value);
@@ -631,16 +606,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openAudio() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '音轨',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyAudioPanel(
+    await _showMenuPage(
+      '音轨',
+      (ctx) => buildEmbyAudioPanel(
         tracks: controller.audioTracks,
         current: controller.currentAudio,
         gain: controller.audioGain,
@@ -652,22 +624,16 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           controller.selectAudio(track);
           Navigator.of(ctx).pop();
         },
-        onEnhance: () {
-          Navigator.of(ctx).pop();
-          _next(_openGain);
-        },
+        onEnhance: _openGain,
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openGain() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '音频增强',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyGainPanel(
+    await _showMenuPage(
+      '音频增强',
+      (ctx) => buildEmbyGainPanel(
         current: controller.audioGain,
         onSelect: (gain) {
           controller.setAudioGain(gain);
@@ -675,7 +641,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   void _toast(String message) {
@@ -687,12 +652,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   Future<void> _openSubtitle() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '字幕',
-      isDesktop: _isDesktop,
-      hideHeaderWhenWide: true,
-      builder: (ctx) => buildEmbySubtitlePanel(
+    await _showMenuPage(
+      '字幕',
+      (ctx) => buildEmbySubtitlePanel(
         tracks: controller.allSubtitleTracks,
         current: controller.currentSubtitle,
         secondary: controller.secondarySubtitle,
@@ -703,26 +665,16 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         onSelectSecondary: (track) {
           controller.selectSecondarySubtitle(track);
         },
-        onSettings: () {
-          Navigator.of(ctx).pop();
-          _next(_openSubtitleSettings);
-        },
+        onSettings: _openSubtitleSettings,
         onDisableForever: () {
           controller.disableSubtitleForever();
           Navigator.of(ctx).pop();
           _toast('这一集不再自动显示字幕');
         },
-        onSearch: () {
-          Navigator.of(ctx).pop();
-          _next(_openSubtitleSearch);
-        },
-        onImport: () {
-          Navigator.of(ctx).pop();
-          _next(_importSubtitle);
-        },
+        onSearch: _openSubtitleSearch,
+        onImport: _importSubtitle,
       ),
     );
-    _resumeAutoHide();
   }
 
   /// 本地导入：挑一个字幕文件，立刻挂到当前这一条上。
@@ -757,11 +709,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     String error = '';
     var loading = true;
 
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '字幕搜索',
-      isDesktop: _isDesktop,
-      builder: (ctx) => StatefulBuilder(
+    await _showMenuPage(
+      '字幕搜索',
+      (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) {
           if (loading) {
             unawaited(() async {
@@ -848,7 +798,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         },
       ),
     );
-    _resumeAutoHide();
   }
 
   Color _hintInk(BuildContext context) =>
@@ -863,11 +812,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     // 显示不动、而且每次都基于同一个旧值算——点十下也还是 +0.5s，
     // 表现出来就是「字幕设置没接入」。
     var current = controller.subtitleSettings;
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '字幕设置',
-      isDesktop: _isDesktop,
-      builder: (ctx) => StatefulBuilder(
+    await _showMenuPage(
+      '字幕设置',
+      (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) => buildEmbySubtitleSettingsPanel(
           settings: current,
           subtitleActive: (controller.currentSubtitle?.id ?? 'no') != 'no',
@@ -884,16 +831,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         ),
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openAspect() async {
     _pauseAutoHide();
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '画面比例',
-      isDesktop: _isDesktop,
-      builder: (ctx) => Padding(
+    await _showMenuPage(
+      '画面比例',
+      (ctx) => Padding(
         padding: const EdgeInsets.only(top: 4, bottom: 16),
         child: buildEmbyAspectPanel(
           current: _aspect,
@@ -904,17 +848,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         ),
       ),
     );
-    _resumeAutoHide();
   }
 
   Future<void> _openInfo() async {
     _pauseAutoHide();
     final item = controller.current;
-    await showEmbyPlayerSheet<void>(
-      context,
-      title: '媒体信息',
-      isDesktop: _isDesktop,
-      builder: (ctx) => buildEmbyInfoPanel(
+    await _showMenuPage(
+      '媒体信息',
+      (ctx) => buildEmbyInfoPanel(
         title: item?.seriesName?.trim().isNotEmpty == true
             ? item!.seriesName!.trim()
             : (item?.name ?? ''),
@@ -937,7 +878,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         streamMode: controller.streamModeLabel,
       ),
     );
-    _resumeAutoHide();
   }
 
   String _currentSubtitleLabel() {

@@ -173,6 +173,18 @@ class EmbyPlayerController extends ChangeNotifier {
   bool introSkip = false;
   bool outroSkip = false;
 
+  /// 最近一次「用户主动」seek 的时间。自动跳过片头片尾在它之后 1.5 秒内
+  /// 不能再插手，否则会把人刚跳过去的位置又拽回来——表现出来就是
+  /// 「快进没反应」。
+  DateTime? _lastUserSeek;
+
+  /// 转码会话重建后的保护窗，期间不做落点校验（open+seek 本身就要几秒）。
+  bool _reopenGuard = false;
+
+  /// 这一条是不是服务端转码（HLS）。seek 健壮化要用它决定「重试失败后
+  /// 能不能重建会话」。
+  bool _isHls = false;
+
   /// 当前条目解析出的片头 / 片尾位置。
   Duration? _introStart;
   Duration? _introEnd;
@@ -283,7 +295,6 @@ class EmbyPlayerController extends ChangeNotifier {
 
     // 本地文件 / 相册视频 / 网络链接 / 网盘直链：条目自带地址，不再问服务端。
     final direct = item.directUrl;
-    var isHls = false;
     if (direct != null && direct.isNotEmpty) {
       _url = direct;
       _mediaSourceId = null;
@@ -313,7 +324,7 @@ class EmbyPlayerController extends ChangeNotifier {
         return;
       }
 
-      isHls = resolution.isHls;
+      _isHls = resolution.isHls;
       _url = resolution.url;
       _mediaSourceId = resolution.mediaSourceId;
       streamModeLabel = resolution.modeLabel;
@@ -361,7 +372,9 @@ class EmbyPlayerController extends ChangeNotifier {
       false,
       canInstall: () => !_disposed,
       offset: startAt,
-      videoSourceFormat: isHls ? VideoSourceFormat.hls : VideoSourceFormat.auto,
+      videoSourceFormat: _isHls
+          ? VideoSourceFormat.hls
+          : VideoSourceFormat.auto,
     );
     if (_disposed) return;
 
@@ -527,7 +540,7 @@ class EmbyPlayerController extends ChangeNotifier {
     }
   }
 
-  Future<void> seek(Duration target) async {
+  Future<void> seek(Duration target, {bool user = true}) async {
     final player = playback.mediaPlayer;
     if (player == null) return;
     var clamped = target;
@@ -535,7 +548,54 @@ class EmbyPlayerController extends ChangeNotifier {
     if (duration > Duration.zero && clamped > duration) clamped = duration;
     position = clamped;
     _notify();
+    if (user) _lastUserSeek = DateTime.now();
     await player.seek(clamped);
+    // 转码（HLS）的流向前 seek 可能落到「还没转出来的切片」上，mpv 会静默
+    // 失败——用户看到的就是「快进没反应」。落点校验一次：没到位就重试，
+    // 还不行就重建转码会话直接落到目标位置。
+    if (duration > Duration.zero && !_reopenGuard) {
+      unawaited(_verifySeek(clamped));
+    }
+  }
+
+  /// seek 之后检查位置是否真的过去了。
+  Future<void> _verifySeek(Duration target) async {
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    if (_disposed || !playing) return;
+    if ((position - target).abs() <= const Duration(milliseconds: 900)) return;
+    final player = playback.mediaPlayer;
+    if (player == null) return;
+    await player.seek(target);
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    if (_disposed) return;
+    if ((position - target).abs() <= const Duration(milliseconds: 1200)) return;
+    if (_isHls) unawaited(_reopenAt(target));
+  }
+
+  /// 重新打开当前流并直接落到 [target]。
+  ///
+  /// master.m3u8 是动态清单，重开一次就带着新的播放窗口；先 open 再 seek，
+  /// mpv 会等切片就绪。开着播放状态恢复，别让用户看到「点了快进，画面从头
+  /// 加载然后停住」。
+  Future<void> _reopenAt(Duration target) async {
+    final player = playback.mediaPlayer;
+    final url = _url;
+    if (player == null || url.isEmpty) return;
+    final wasPlaying = playing;
+    _reopenGuard = true;
+    try {
+      await player.open(Media(url));
+      await player.seek(target);
+      if (wasPlaying) await player.play();
+    } catch (_) {
+      // 重建失败就维持现状，别为了一个 seek 把整个播放器搞崩。
+    } finally {
+      unawaited(
+        Future<void>.delayed(const Duration(seconds: 4), () {
+          _reopenGuard = false;
+        }),
+      );
+    }
   }
 
   Future<void> seekBy(Duration delta) => seek(position + delta);
@@ -794,9 +854,16 @@ class EmbyPlayerController extends ChangeNotifier {
 
   void _maybeSkipIntroOutro(Duration value) {
     if (!playing || duration <= Duration.zero) return;
+    // 用户刚主动 seek 过就先别动：跳过逻辑自己再 seek 一次，人只会看到
+    // 「快进 / 拖动没反应」。
+    final last = _lastUserSeek;
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(milliseconds: 1500)) {
+      return;
+    }
     if (introSkip && _introStart != null && _introEnd != null) {
       if (value >= _introStart! && value < _introEnd!) {
-        unawaited(seek(_introEnd!));
+        unawaited(seek(_introEnd!, user: false));
         return;
       }
     }
@@ -804,7 +871,9 @@ class EmbyPlayerController extends ChangeNotifier {
       final outro = _outroUserStart ?? _outroStart;
       if (outro != null && value >= outro) {
         _outroSkipped = true;
-        unawaited(seek(duration - const Duration(milliseconds: 300)));
+        unawaited(
+          seek(duration - const Duration(milliseconds: 300), user: false),
+        );
       }
     }
   }

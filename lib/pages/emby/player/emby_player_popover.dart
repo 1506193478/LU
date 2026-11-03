@@ -239,6 +239,50 @@ class _MenuPressState extends State<_MenuPress> {
   }
 }
 
+/// 当前打开的菜单控制器。
+///
+/// 播放器同一时刻只有一个菜单（和 [embyLastAnchor] 一样是单例假设）。二级
+/// 跳转走 [EmbyMenuController.push]，在同一张卡片里换页——不再「关掉重开」，
+/// 卡片高度也跟着内容平滑过渡，这是 iOS UIMenu 子菜单的样子。
+EmbyMenuController? embyMenu;
+
+/// 菜单里的一页。
+class EmbyMenuPage {
+  const EmbyMenuPage({required this.title, required this.builder});
+
+  final String title;
+  final WidgetBuilder builder;
+}
+
+class EmbyMenuController extends ChangeNotifier {
+  EmbyMenuController(this.root);
+
+  final EmbyMenuPage root;
+  final List<EmbyMenuPage> _stack = <EmbyMenuPage>[];
+
+  EmbyMenuPage get current => _stack.isEmpty ? root : _stack.last;
+
+  /// 返回行上要显示的名字（上一页的标题）。
+  String? get parentTitle {
+    if (_stack.isEmpty) return null;
+    return _stack.length == 1 ? root.title : _stack[_stack.length - 2].title;
+  }
+
+  bool get canPop => _stack.isNotEmpty;
+  int get depth => _stack.length;
+
+  void push(String title, WidgetBuilder builder) {
+    _stack.add(EmbyMenuPage(title: title, builder: builder));
+    notifyListeners();
+  }
+
+  void pop() {
+    if (_stack.isEmpty) return;
+    _stack.removeLast();
+    notifyListeners();
+  }
+}
+
 /// 最近一次点击的按钮矩形。
 ///
 /// 播放器同一时刻只会有一个菜单，用这个全局记录就够了：按钮在 onTap 里先
@@ -253,10 +297,9 @@ Rect? embyLastAnchor;
 Future<T?> showEmbyPopover<T>(
   BuildContext context, {
   required Rect anchor,
-  required List<Widget> children,
+  required WidgetBuilder builder,
   String? header,
   double width = 272,
-  bool autoSeparators = true,
 }) {
   final Size screen = MediaQuery.sizeOf(context);
   final double maxWidth = (screen.width - 24).clamp(160.0, width);
@@ -292,7 +335,12 @@ Future<T?> showEmbyPopover<T>(
 
   unawaitedHaptic();
 
-  return showGeneralDialog<T>(
+  final EmbyMenuController controller = EmbyMenuController(
+    EmbyMenuPage(title: header ?? '', builder: builder),
+  );
+  embyMenu = controller;
+
+  final Future<T?> done = showGeneralDialog<T>(
     context: context,
     barrierDismissible: true,
     barrierLabel: '关闭菜单',
@@ -308,13 +356,15 @@ Future<T?> showEmbyPopover<T>(
         bottom: bottom,
         width: maxWidth,
         maxHeight: maxHeight,
-        header: header,
-        autoSeparators: autoSeparators,
-        children: children,
+        controller: controller,
       );
     },
     transitionBuilder: (ctx, animation, secondary, child) => child,
   );
+  // 菜单关掉后把全局引用摘掉，不然下一个面板会误以为自己还在旧菜单里。
+  return done.whenComplete(() {
+    if (identical(embyMenu, controller)) embyMenu = null;
+  });
 }
 
 void unawaitedHaptic() {
@@ -331,9 +381,7 @@ class _PopoverHost extends StatelessWidget {
     required this.bottom,
     required this.width,
     required this.maxHeight,
-    required this.children,
-    required this.autoSeparators,
-    this.header,
+    required this.controller,
   });
 
   final Animation<double> animation;
@@ -343,23 +391,7 @@ class _PopoverHost extends StatelessWidget {
   final double? bottom;
   final double width;
   final double maxHeight;
-  final List<Widget> children;
-  final bool autoSeparators;
-  final String? header;
-
-  List<Widget> _withSeparators() {
-    if (!autoSeparators) return children;
-    final List<Widget> out = <Widget>[];
-    for (int i = 0; i < children.length; i++) {
-      if (i > 0 &&
-          children[i] is! EmbyMenuHeader &&
-          children[i - 1] is! EmbyMenuHeader) {
-        out.add(const _MenuSeparator());
-      }
-      out.add(children[i]);
-    }
-    return out;
-  }
+  final EmbyMenuController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -388,11 +420,7 @@ class _PopoverHost extends StatelessWidget {
             child: ScaleTransition(
               scale: scale,
               alignment: origin,
-              child: _MenuCard(
-                header: header,
-                maxHeight: maxHeight,
-                children: _withSeparators(),
-              ),
+              child: _MenuCard(controller: controller, maxHeight: maxHeight),
             ),
           ),
         ),
@@ -402,15 +430,10 @@ class _PopoverHost extends StatelessWidget {
 }
 
 class _MenuCard extends StatelessWidget {
-  const _MenuCard({
-    required this.children,
-    required this.maxHeight,
-    this.header,
-  });
+  const _MenuCard({required this.controller, required this.maxHeight});
 
-  final List<Widget> children;
+  final EmbyMenuController controller;
   final double maxHeight;
-  final String? header;
 
   @override
   Widget build(BuildContext context) {
@@ -432,26 +455,59 @@ class _MenuCard extends StatelessWidget {
         // layer 的重绘开销。iOS 菜单的质感靠高不透明度底色 + 强投影就够。
         child: Material(
           color: embyMenuBg,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: maxHeight),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (header != null && header!.isNotEmpty)
-                  EmbyMenuHeader(header!),
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: children,
+          child: AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) {
+              final page = controller.current;
+              final parentTitle = controller.parentTitle;
+              return ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxHeight),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (parentTitle != null)
+                      _MenuBackRow(
+                        title: parentTitle,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          controller.pop();
+                        },
+                      )
+                    else if (page.title.isNotEmpty)
+                      EmbyMenuHeader(page.title),
+                    // 换页：内容轻淡入 + 高度平滑过渡。iOS 的 UIMenu 子页没有
+                    // 明显横滑，重点是「高度变的时候卡片不跳」。
+                    Flexible(
+                      child: AnimatedSize(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.topCenter,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 170),
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          transitionBuilder: (child, anim) => FadeTransition(
+                            opacity: anim,
+                            child: SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0, 0.02),
+                                end: Offset.zero,
+                              ).animate(anim),
+                              child: child,
+                            ),
+                          ),
+                          child: KeyedSubtree(
+                            key: ValueKey<int>(controller.depth),
+                            child: Builder(builder: page.builder),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
@@ -459,11 +515,42 @@ class _MenuCard extends StatelessWidget {
   }
 }
 
-class _MenuSeparator extends StatelessWidget {
-  const _MenuSeparator();
+/// 子页顶部的返回行（对标 iOS 子菜单的「‹ 上一级」）。
+class _MenuBackRow extends StatelessWidget {
+  const _MenuBackRow({required this.title, required this.onTap});
+
+  final String title;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return const Divider(height: 0.5, thickness: 0.5, color: embyMenuLine);
+    return _MenuPress(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.fromLTRB(10, 8, 14, 8),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.chevron_left_rounded,
+              size: 22,
+              color: embyMenuInkSecondary,
+            ),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: embyMenuInkSecondary,
+                  fontSize: 14.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
