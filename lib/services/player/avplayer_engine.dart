@@ -47,6 +47,9 @@ class AvPlayerEngine extends ChangeNotifier {
   int get videoWidth => _width;
   int get videoHeight => _height;
 
+  /// 控制器消费完错误后清掉，避免同一条错误反复触发回退逻辑。
+  void resetError() => error = '';
+
   Future<void> create() async {
     textureId = (await _channel.invokeMethod<int>('create')) ?? -1;
     ready = textureId >= 0;

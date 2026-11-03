@@ -403,12 +403,19 @@ class EmbyPlayerController extends ChangeNotifier {
     final startAt = item.resumePosition?.inSeconds ?? 0;
 
     // iOS + 转码（HLS）优先走 AVPlayer：原生硬解、HDR、seek 稳；其余照旧
-    // media_kit（mpv）。设置里可以强制指定内核做兜底。
+    // media_kit（mpv）。设置里可以强制指定内核做兜底。AV 起播失败会自动
+    // 重试、最终回退 mpv（见 _avConnectFailed）。
     if (_shouldUseAv()) {
       await _openAv(startAt);
       return;
     }
 
+    await _openMpv(startAt);
+  }
+
+  /// mpv / media_kit 路径（Android、Windows、iOS 直连与本地文件，以及
+  /// AVPlayer 起播失败后的兜底）。
+  Future<void> _openMpv(int startAt) async {
     final player = await playback.createVideoController(
       {
         // HLS 的分片请求会继承这些头，只靠地址上的 api_key 不够。
@@ -517,6 +524,14 @@ class EmbyPlayerController extends ChangeNotifier {
 
   // ------------------------------------------------------------ AVPlayer 路径
 
+  /// 起播看门狗。AVPlayer 对「服务端转码还没拉起来」容忍度很差：
+  /// Emby 拉 FFmpeg 要几秒，期间 master.m3u8 可能 404/503，mpv 会耐心
+  /// 重试清单，AVPlayer 直接报错放弃。这就是「Emby 播放老连接不上」的
+  /// 主因（错误又从不透传，用户只看到无限转圈）。
+  Timer? _avWatchdog;
+  int _avRetries = 0;
+  int? _avStartAt;
+
   Future<void> _openAv(int startAt) async {
     final engine = AvPlayerEngine();
     try {
@@ -535,18 +550,11 @@ class EmbyPlayerController extends ChangeNotifier {
     _avCompletedHandled = false;
     _avCues = const [];
     avSubtitleText = '';
+    _avRetries = 0;
+    _avStartAt = startAt;
     engine.addListener(_onAvChanged);
-    await engine.open(
-      _url,
-      // HLS 的分片请求会继承这些头，只靠地址上的 api_key 不够。
-      headers: {
-        'X-Emby-Token': launch.server.accessToken,
-        'Authorization': 'MediaBrowser Token="${launch.server.accessToken}"',
-      },
-    );
-    if (startAt > 0) {
-      await engine.seek(Duration(seconds: startAt));
-    }
+    await _avDoOpen(engine);
+    if (_disposed) return;
     loading = false;
     _notify();
 
@@ -555,6 +563,68 @@ class EmbyPlayerController extends ChangeNotifier {
     unawaited(_logWatch());
     _startProgressTimer();
     _scheduleHideControls();
+  }
+
+  Future<void> _avDoOpen(AvPlayerEngine engine) async {
+    engine.resetError();
+    await engine.open(
+      _url,
+      // HLS 的分片请求会继承这些头，只靠地址上的 api_key 不够。
+      headers: {
+        'X-Emby-Token': launch.server.accessToken,
+        'Authorization': 'MediaBrowser Token="${launch.server.accessToken}"',
+      },
+    );
+    // 续播：此时 duration 多半还是 0，AVPlayer 支持「没就绪先 seek」，
+    // 资产加载完会直接落到目标位置。
+    if ((_avStartAt ?? 0) > 0) {
+      await engine.seek(Duration(seconds: _avStartAt!));
+    }
+    _armAvWatchdog();
+  }
+
+  /// 起播看门狗：25 秒内没等到时长就视为连接失败，走重试 / 回退。
+  void _armAvWatchdog() {
+    _avWatchdog?.cancel();
+    _avWatchdog = Timer(const Duration(seconds: 25), () {
+      if (_disposed || _av == null) return;
+      unawaited(_avConnectFailed('连接超时（服务器 25 秒内没有出流）'));
+    });
+  }
+
+  void _cancelAvWatchdog() {
+    _avWatchdog?.cancel();
+    _avWatchdog = null;
+  }
+
+  /// AV 起播失败：转码拉起慢的情况重试 2 次（等 3 秒再开，服务端往往
+  /// 就绪了）；还不行就整套退掉、自动回退 mpv——对用户来说「能播」比
+  /// 「用哪个内核」重要得多。
+  Future<void> _avConnectFailed(String message) async {
+    _cancelAvWatchdog();
+    final engine = _av;
+    if (engine == null || _disposed) return;
+    if (engine.duration > Duration.zero || playing) {
+      // 已经出流了，迟到的错误事件不影响正在播的画面。
+      return;
+    }
+    if (_avRetries < 2) {
+      _avRetries += 1;
+      await Future<void>.delayed(const Duration(seconds: 3));
+      if (_disposed || _av == null || !identical(_av, engine)) return;
+      if (engine.duration > Duration.zero || playing) return;
+      await _avDoOpen(engine);
+      return;
+    }
+    // 整体回退 mpv。
+    _av = null;
+    engine.removeListener(_onAvChanged);
+    _avCues = const [];
+    avSubtitleText = '';
+    await engine.dispose();
+    if (_disposed) return;
+    await _teardownPlayer();
+    await _openMpv(_avStartAt ?? 0);
   }
 
   /// 把 AVPlayer 引擎的状态灌进控制器的可观察字段——和 mpv 的
@@ -587,6 +657,16 @@ class EmbyPlayerController extends ChangeNotifier {
     // 面板要高亮「当前音轨」；AVPlayer 默认走第一轨，给它补上标记。
     if (currentAudio == null && audioTracks.isNotEmpty) {
       currentAudio = audioTracks.first;
+    }
+    // 出流了：连接成功，看门狗可以收队。
+    if (engine.duration > Duration.zero && _avWatchdog != null) {
+      _cancelAvWatchdog();
+    }
+    // 引擎报错必须透传——之前这里没接，播放失败时用户看到的是无限转圈。
+    if (engine.error.isNotEmpty) {
+      final message = engine.error;
+      engine.resetError();
+      unawaited(_avConnectFailed(message));
     }
     // 内嵌字幕（HLS 里的 mov_text 等）AVPlayerItemVideoOutput 的像素缓冲里
     // 不带渲染结果，列出来也看不了，干脆不进面板；外挂字幕走 _loadAvSubtitle。
@@ -1303,6 +1383,7 @@ class EmbyPlayerController extends ChangeNotifier {
     _progressTimer?.cancel();
     _autoNextTimer?.cancel();
     _cancelSubscriptions();
+    _cancelAvWatchdog();
     // AV 路径先退场。
     final engine = _av;
     if (engine != null) {
