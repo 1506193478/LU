@@ -169,6 +169,14 @@ import app_links
     private var eventSink: FlutterEventSink?
     private var lastReportedPositionMs: Int64 = -1
 
+    // 画中画：AVPictureInPictureController 必须吃一个「挂在视图层级里、
+    // 有有效尺寸」的 AVPlayerLayer。我们渲染走的是 AVPlayerItemVideoOutput
+    // （Flutter 纹理），没有 layer，所以专门造一个屏幕外的宿主 view 给它。
+    // PiP 窗口显示的是这一层，和 Flutter 纹理互不干扰。
+    private var pipController: AVPictureInPictureController?
+    private var pipLayer: AVPlayerLayer?
+    private var pipHost: UIView?
+
     // 供 Dart 查询的缓存值（periodic observer 每 0.5s 刷一次）。
     private var cachedDurationMs: Int64 = 0
     private var cachedBufferedMs: Int64 = 0
@@ -244,6 +252,20 @@ import app_links
             result(Int64(player?.currentTime().seconds.isNaN == true ? 0 : (player?.currentTime().seconds ?? 0) * 1000))
         case "getDuration":
             result(cachedDurationMs)
+        case "isPipAvailable":
+            result(pipController != nil && AVPictureInPictureController.isPictureInPictureSupported())
+        case "startPip":
+            guard let pip = pipController, pip.isPictureInPicturePossible else {
+                result(FlutterError(code: "avplayer", message: "画中画暂时不可用", details: nil))
+                return
+            }
+            pip.startPictureInPicture()
+            result(nil)
+        case "stopPip":
+            if pipController?.isPictureInPictureActive == true {
+                pipController?.stopPictureInPicture()
+            }
+            result(nil)
         case "dispose":
             teardown()
             result(nil)
@@ -314,9 +336,61 @@ import app_links
 
         newPlayer.volume = 1.0
         newPlayer.play()
+        // 后台播放 / PiP / AirPlay 都依赖 playback 类别的音频会话，open 时
+        // 就配好（配不成只影响这几样，不影响前台播放）。
+        configureAudioSession()
+        setupPip(player: newPlayer)
         addPeriodicObserver()
         startDisplayLink()
         result(nil)
+    }
+
+    private func configureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .moviePlayback)
+            try session.setActive(true)
+        } catch {
+            // 静默失败：播放在前台照常，只是退后台可能被系统压掉。
+        }
+    }
+
+    private func setupPip(player newPlayer: AVPlayer) {
+        teardownPip()
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        // 宿主 view 放屏幕外（系统仍认它在视图层级里），160x90 给 layer
+        // 一个有效尺寸；0 尺寸 / 不挂 window 时 startPictureInPicture 静默无效。
+        let host = UIView(frame: CGRect(x: -220, y: -220, width: 160, height: 90))
+        host.alpha = 0.01
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            return
+        }
+        window.addSubview(host)
+        let layer = AVPlayerLayer(player: newPlayer)
+        layer.frame = host.bounds
+        layer.videoGravity = .resizeAspect
+        host.layer.addSublayer(layer)
+        pipHost = host
+        pipLayer = layer
+        let controller = AVPictureInPictureController(playerLayer: layer)
+        // 用户按 Home / 切后台时自动进小窗——这是 iOS 播放器的标准体验。
+        controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        controller?.delegate = self
+        pipController = controller
+    }
+
+    private func teardownPip() {
+        pipController?.delegate = nil
+        if pipController?.isPictureInPictureActive == true {
+            // 换片 / 销毁时先把小窗收掉，别让它挂着旧画面。
+            pipController?.stopPictureInPicture()
+        }
+        pipController = nil
+        pipLayer?.removeFromSuperlayer()
+        pipLayer = nil
+        pipHost?.removeFromSuperview()
+        pipHost = nil
     }
 
     private func seek(ms: Int64, result: @escaping FlutterResult) {
@@ -437,6 +511,7 @@ import app_links
     // ---- 清理 ----
 
     private func teardownPlayerOnly() {
+        teardownPip()
         stopDisplayLink()
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -459,5 +534,46 @@ import app_links
 
     deinit {
         teardown()
+    }
+}
+
+// MARK: - AVPictureInPictureControllerDelegate
+
+extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
+    func pictureInPictureControllerWillStartPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        // 画面走系统小窗了，Flutter 纹理这一路先停掉省电（后台 displayLink
+        // 本来也会被系统挂起，主动停是让「PiP 期间回前台」也不空转）。
+        stopDisplayLink()
+        eventSink?(["type": "pip", "active": true] as [String: Any])
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        if player != nil {
+            startDisplayLink()
+        }
+        eventSink?(["type": "pip", "active": false] as [String: Any])
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        // 用户在小窗点了「还原」：Flutter 播放页还开着，直接认领。
+        completionHandler(true)
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        // 注意不能发 "error" 类型——那会触发 Dart 侧的回退 mpv 逻辑。
+        eventSink?([
+            "type": "pip", "active": false,
+            "message": error.localizedDescription,
+        ] as [String: Any])
     }
 }

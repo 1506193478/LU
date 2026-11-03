@@ -28,9 +28,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import com.ryanheise.audioservice.AudioService
-import com.ryanheise.audioservice.AudioServiceActivity
+import com.ryanheise.audioservice.AudioServiceFragmentActivity
 
-class MainActivity: AudioServiceActivity() {
+// 用 AudioServiceFragmentActivity（= FlutterFragmentActivity + audio_service
+// 的引擎托管）：local_auth / BiometricPrompt 要求主 Activity 是
+// FragmentActivity，AudioServiceActivity（FlutterActivity 系）满足不了。
+class MainActivity: AudioServiceFragmentActivity() {
     private val CHANNEL = "com.predidit.kazumi/intent"
     private val STORAGE_CHANNEL = "com.predidit.kazumi/storage"
     private val PIP_CHANNEL = "com.predidit.kazumi/pip"

@@ -14,10 +14,13 @@ import 'package:XL/pages/emby/emby_display_prefs_page.dart';
 import 'package:XL/pages/emby/emby_favorites_page.dart';
 import 'package:XL/pages/emby/emby_gesture_settings_page.dart';
 import 'package:XL/pages/emby/emby_stream_settings_page.dart';
+import 'package:XL/pages/emby/emby_vault_lock_settings_page.dart';
+import 'package:XL/services/emby/vault_lock.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_server_form_page.dart';
 import 'package:XL/pages/emby/emby_vault_browse_page.dart';
+import 'package:XL/pages/emby/emby_vault_lock_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
@@ -167,6 +170,14 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   Future<void> _openVault(String kind) async {
     if (!mounted) return;
+    // 本地私密要过锁：第一次进先设置密码（顺手问生物解锁），之后每次
+    // 都要验证通过才能看到里面的内容。
+    if (kind == 'private') {
+      final unlocked = await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(builder: (_) => const EmbyVaultLockPage()),
+      );
+      if (unlocked != true || !mounted) return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) =>
@@ -1142,6 +1153,20 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                   await Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const EmbyStreamSettingsPage(),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                },
+              ),
+              PvRow(
+                icon: Icons.lock_rounded,
+                iconColor: const Color(0xFFFF9F0A),
+                title: '本地私密锁',
+                value: VaultLock.isSet ? '已开启' : null,
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const VaultLockSettingsPage(),
                     ),
                   );
                   if (mounted) setState(() {});

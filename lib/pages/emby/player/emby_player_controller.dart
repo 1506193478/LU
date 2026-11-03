@@ -212,6 +212,23 @@ class EmbyPlayerController extends ChangeNotifier {
   /// AV 路径的当前字幕文本（Dart 层渲染，跟着 position 走）。
   String avSubtitleText = '';
 
+  /// 画中画（仅 iOS AVPlayer 内核）：设备支持 + 当前流走 AV 才可用。
+  bool get pipAvailable => _av?.pipAvailable ?? false;
+  bool get pipActive => _av?.pipActive ?? false;
+
+  /// 进画中画。失败（PiP 暂不可用）给个可感知的提示。
+  Future<void> startPip() async {
+    final ok = await _av?.startPip() ?? false;
+    if (!ok && !_disposed) {
+      KazumiDialog.showToast(message: '画中画暂时不可用，请稍后再试');
+    }
+  }
+
+  /// 退画中画，回到 app 内播放。
+  Future<void> stopPip() async {
+    await _av?.stopPip();
+  }
+
   List<SrtCue> _avCues = const [];
   bool _avCompletedHandled = false;
 

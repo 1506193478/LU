@@ -234,6 +234,7 @@ class PvRow extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.value,
+    this.titleColor,
     this.trailing = PvRowTrailing.chevron,
     this.trailingWidget,
     this.onTap,
@@ -245,6 +246,9 @@ class PvRow extends StatelessWidget {
   final String title;
   final String? subtitle;
   final String? value;
+
+  /// 标题颜色，默认跟主题 ink；「关闭密码锁」这类破坏性行传红色。
+  final Color? titleColor;
   final PvRowTrailing trailing;
   final Widget? trailingWidget;
   final VoidCallback? onTap;
@@ -278,7 +282,9 @@ class PvRow extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: PvText.rowTitle(context),
+                    style: PvText.rowTitle(context).copyWith(
+                      color: titleColor,
+                    ),
                   ),
                   if (subtitle != null && subtitle!.isNotEmpty) ...[
                     const SizedBox(height: 2),

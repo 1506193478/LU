@@ -29,6 +29,11 @@ class AvPlayerEngine extends ChangeNotifier {
   bool completed = false;
   String error = '';
 
+  /// 画中画。available 只在设备支持 + 当前流走 AVPlayer 时为 true；
+  /// active 跟着原生 delegate 事件走（含「按 Home 自动进小窗」）。
+  bool pipAvailable = false;
+  bool pipActive = false;
+
   Duration position = Duration.zero;
   Duration duration = Duration.zero;
   Duration buffer = Duration.zero;
@@ -81,6 +86,40 @@ class AvPlayerEngine extends ChangeNotifier {
       'url': url,
       'headers': headers,
     });
+    pipActive = false;
+    unawaited(_refreshPipAvailable());
+  }
+
+  Future<void> _refreshPipAvailable() async {
+    try {
+      final available =
+          await _channel.invokeMethod<bool>('isPipAvailable') ?? false;
+      if (_disposed) return;
+      if (available != pipAvailable) {
+        pipAvailable = available;
+        notifyListeners();
+      }
+    } catch (_) {
+      // 通道没了（页面销毁竞态）就算了。
+    }
+  }
+
+  /// 进画中画。失败（PiP 暂不可用等）返回 false，由上层决定提示文案。
+  Future<bool> startPip() async {
+    try {
+      await _channel.invokeMethod<void>('startPip');
+      return true;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  Future<void> stopPip() async {
+    try {
+      await _channel.invokeMethod<void>('stopPip');
+    } catch (_) {
+      // 页面销毁竞态，无所谓。
+    }
   }
 
   Future<void> play() async {
@@ -194,6 +233,8 @@ class AvPlayerEngine extends ChangeNotifier {
         _height = (event['height'] as int?) ?? 0;
       case 'error':
         error = event['message']?.toString() ?? '播放失败';
+      case 'pip':
+        pipActive = event['active'] == true;
       default:
         return;
     }

@@ -9,6 +9,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   file_selector_windows
   flutter_volume_controller
+  local_auth_windows
   media_kit_video
   screen_retriever_windows
   tray_manager

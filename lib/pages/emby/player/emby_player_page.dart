@@ -10,6 +10,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_panels.dart';
@@ -470,6 +471,22 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     controller.resumeAutoHide();
   }
 
+  /// AirPlay：弹系统的输出路由选择器（原生通道里挂一个隐藏的
+  /// AVRoutePickerView 触发）。AV / mpv 内核都吃系统路由，都能用。
+  static const MethodChannel _castChannel = MethodChannel(
+    'com.predidit.kazumi/cast',
+  );
+
+  Future<void> _openAirplay() async {
+    try {
+      final ok =
+          await _castChannel.invokeMethod<bool>('openRoutePicker') ?? false;
+      if (!ok) KazumiDialog.showToast(message: '附近没有可投屏的设备');
+    } catch (_) {
+      KazumiDialog.showToast(message: '投屏仅在 iOS 设备上可用');
+    }
+  }
+
   Future<void> _openMore() async {
     _pauseAutoHide();
     await _showMenuPage(
@@ -913,6 +930,15 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   /// 画面这一层：桌面端保留原来的「单击显隐 / 双击全屏」，移动端走自己的
   /// 指针手势（见 `_onPointerDown` 一带）。
   Widget _buildGestureSurface() {
+    // 画中画激活时画面在系统小窗里，这层只是个「还在小窗播」的提示牌，
+    // 点一下退小窗回到 app 内播放。其余手势都不用响应。
+    if (controller.pipActive) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => unawaited(controller.stopPip()),
+        child: _buildPipPlaceholder(),
+      );
+    }
     final surface = _buildVideoSurface();
     if (_isDesktop) {
       return GestureDetector(
@@ -1055,6 +1081,43 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       );
     }
     return output;
+  }
+
+  /// 画中画激活时的占位层：画面在系统小窗里，这里只放提示。
+  /// 整层可点（见 [_buildGestureSurface]），点按即退小窗回 app。
+  Widget _buildPipPlaceholder() {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.picture_in_picture_alt_outlined,
+              size: 42,
+              color: Colors.white38,
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              '画中画播放中',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '视频已在小窗继续播放，点按任意处回到播放器',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.55),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildLoading() {
@@ -1372,6 +1435,25 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           iconSize: 16,
           size: 34,
           onTap: _openChapters,
+        ),
+      // 画中画：只有 iOS + AVPlayer 内核 + 设备支持时才有意义（libmpv
+      // 那条路没有 AVPlayerLayer，做不了 PiP）。
+      if (Platform.isIOS &&
+          controller.isAvBackend &&
+          controller.pipAvailable)
+        _CircleAction(
+          icon: Icons.picture_in_picture_alt_outlined,
+          iconSize: 16,
+          size: 34,
+          onTap: () => unawaited(controller.startPip()),
+        ),
+      // AirPlay：弹系统路由选择器（原生通道），AV / mpv 内核都能用。
+      if (Platform.isIOS)
+        _CircleAction(
+          icon: Icons.airplay,
+          iconSize: 16,
+          size: 34,
+          onTap: _openAirplay,
         ),
       _CircleAction(
         icon: Icons.more_horiz_rounded,
