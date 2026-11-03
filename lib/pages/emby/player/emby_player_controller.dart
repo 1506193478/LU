@@ -711,7 +711,7 @@ class EmbyPlayerController extends ChangeNotifier {
     if (_disposed) return;
     _avFallbackUsed = true;
     await _teardownPlayer();
-    unawaited(KazumiDialog.showToast(message: 'AVPlayer 播不了这部，已自动切换 libmpv'));
+    KazumiDialog.showToast(message: 'AVPlayer 播不了这部，已自动切换 libmpv');
     await _open(_index);
   }
 
