@@ -20,7 +20,11 @@ import app_links
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-        AvPlayerEnginePlugin.register(with: self.registrar(forPlugin: "AvPlayerEnginePlugin")!)
+        // AVPlayer 插件必须用 engineBridge.applicationRegistrar（和下面三个
+        // MethodChannel 同源）：隐式引擎架构下 AppDelegate 自己的
+        // registrar(forPlugin:) 拿不到这台引擎的 registrar——之前在这里强解包
+        // nil，一启动就崩（3.9.36 闪退的根因）。
+        AvPlayerEnginePlugin.register(with: engineBridge.applicationRegistrar)
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",
@@ -247,7 +251,11 @@ import app_links
 
     private func createTexture(_ result: @escaping FlutterResult) {
         teardown()
-        textureId = registrar!.textures().register(self)
+        guard let registrar = registrar else {
+            result(FlutterError(code: "avplayer", message: "registrar unavailable", details: nil))
+            return
+        }
+        textureId = registrar.textures().register(self)
         result(Int64(textureId))
     }
 
@@ -397,8 +405,8 @@ import app_links
     }
 
     @objc private func frameTick() {
-        guard textureId >= 0 else { return }
-        registrar!.textures().textureFrameAvailable(textureId)
+        guard textureId >= 0, let registrar = registrar else { return }
+        registrar.textures().textureFrameAvailable(textureId)
     }
 
     // ---- 清理 ----
