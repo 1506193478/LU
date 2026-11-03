@@ -20,11 +20,14 @@ import app_links
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-        // AVPlayer 插件必须用 engineBridge.applicationRegistrar（和下面三个
-        // MethodChannel 同源）：隐式引擎架构下 AppDelegate 自己的
-        // registrar(forPlugin:) 拿不到这台引擎的 registrar——之前在这里强解包
-        // nil，一启动就崩（3.9.36 闪退的根因）。
-        AvPlayerEnginePlugin.register(with: engineBridge.applicationRegistrar)
+        // AVPlayer 插件的 registrar 要从 engineBridge.pluginRegistry 取——这是
+        // 引擎自己的注册表，返回真正的 FlutterPluginRegistrar。两个错误来源都
+        // 踩过：self.registrar(forPlugin:) 在隐式引擎下返回 nil（强解包即崩，
+        // 3.9.36 启动闪退）；engineBridge.applicationRegistrar 是
+        // FlutterApplicationRegistrar，类型不满足 FlutterPluginRegistrar。
+        if let avRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "AvPlayerEnginePlugin") {
+            AvPlayerEnginePlugin.register(with: avRegistrar)
+        }
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",
