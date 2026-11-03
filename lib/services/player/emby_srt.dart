@@ -57,6 +57,38 @@ List<SrtCue> parseSrt(String raw) {
 Duration _time(int h, int m, int s, int ms) =>
     Duration(hours: h, minutes: m, seconds: s, milliseconds: ms);
 
+/// 服务器字幕翻译插件写进字幕文件里的占位行（这一句没翻出来时插件会
+/// 塞一行这种标记）。显示前过滤掉，别让用户在画面上看到调试信息。
+const List<String> _subtitlePlaceholderLines = [
+  '[翻译失败]',
+  '（翻译失败）',
+  '(翻译失败)',
+  '[翻译超时]',
+  '[translation failed]',
+  '[translate failed]',
+];
+
+/// 去掉字幕文本里的占位行；整个 cue 都被清空时返回空串（调用方据此跳过）。
+String sanitizeSubtitleText(String text) {
+  final lines = text
+      .split('\n')
+      .map((l) => l.trim())
+      .where(
+        (l) =>
+            l.isNotEmpty &&
+            !_subtitlePlaceholderLines.contains(l.toLowerCase()),
+      )
+      .toList();
+  return lines.join('\n').trim();
+}
+
+/// 文件级净化：只删占位行，**保留空行**（SRT 靠空行分块，删了结构就坏）。
+/// 给 mpv 路径用——拉下来的整份字幕过滤后再落盘挂载。
+String sanitizeSubtitleFile(String raw) => raw
+    .split('\n')
+    .where((l) => !_subtitlePlaceholderLines.contains(l.trim().toLowerCase()))
+    .join('\n');
+
 /// 去掉 `<i>` 这类内联标签和 VTT 的行定位指令，保留纯文本。
 String _stripTags(String input) => input
     .replaceAll(RegExp(r'<[^>]+>'), '')

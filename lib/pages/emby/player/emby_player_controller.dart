@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
@@ -17,6 +18,7 @@ import 'package:XL/services/emby/emby_stream_resolver.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/emby/emby_subtitle_picker.dart';
 import 'package:XL/services/emby/emby_watch_log.dart';
+import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/player/avplayer_engine.dart';
 import 'package:XL/services/player/emby_srt.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
@@ -215,11 +217,26 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 内核偏好：`auto` / `av` / `mpv`（见 [SettingsKeys.embyIosKernel]）。
   bool _shouldUseAv() {
     if (!Platform.isIOS) return false;
+    // 这一集已经回退过 mpv 就不再尝试 AV：重试会把刚被服务端回收的
+    // 转码会话又耗一遍，用户只会等更久。
+    if (_avFallbackUsed) return false;
     final pref = GStorage.getSetting(SettingsKeys.embyIosKernel);
     if (pref == 'mpv') return false;
     if (pref == 'av') return !_isLocalDirect;
     return _isHls;
   }
+
+  /// 本集是否已经从 AVPlayer 回退过（防循环）。
+  bool _avFallbackUsed = false;
+
+  /// 本集是否已经做过「直连失败 → 降级转码」的重试（防循环）。
+  bool _mpvDowngradeTried = false;
+
+  /// 重试时跳过直连、直接用转码流。
+  bool _preferTranscodeRetry = false;
+
+  /// mpv 这次 open 的时间，用于判断「开播不久就失败」。
+  DateTime? _mpvOpenedAt;
 
   /// 当前条目解析出的片头 / 片尾位置。
   Duration? _introStart;
@@ -302,6 +319,10 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 切到第 [target] 条。
   Future<void> openIndex(int target) async {
     if (target < 0 || target >= launch.episodes.length) return;
+    // 用户主动换集：上一集的降级记录不带走，每集都有完整的一轮机会。
+    if (target != _index) {
+      _preferTranscodeRetry = false;
+    }
     // 已经在放这一条：重复点同一集不该重启引擎。失败状态下允许重来。
     if (target == _index &&
         !loading &&
@@ -348,11 +369,17 @@ class EmbyPlayerController extends ChangeNotifier {
       streamModeLabel = '本地文件';
     } else {
       _isLocalDirect = false;
+      // 每集重置一次性的降级标记；「直连失败降级转码」的重试会带着
+      // _preferTranscodeRetry 再进来，直接拿 HLS。
+      _avFallbackUsed = false;
+      _mpvDowngradeTried = false;
       final resolution = await EmbyStreamResolver.resolve(
         client: _client,
         itemId: item.id,
         userId: launch.server.userId,
-        preferDirect: GStorage.getSetting(SettingsKeys.embyDirectPlay),
+        preferDirect:
+            GStorage.getSetting(SettingsKeys.embyDirectPlay) &&
+            !_preferTranscodeRetry,
       );
       if (_disposed) return;
 
@@ -416,6 +443,7 @@ class EmbyPlayerController extends ChangeNotifier {
   /// mpv / media_kit 路径（Android、Windows、iOS 直连与本地文件，以及
   /// AVPlayer 起播失败后的兜底）。
   Future<void> _openMpv(int startAt) async {
+    _mpvOpenedAt = DateTime.now();
     final player = await playback.createVideoController(
       {
         // HLS 的分片请求会继承这些头，只靠地址上的 api_key 不够。
@@ -510,6 +538,22 @@ class EmbyPlayerController extends ChangeNotifier {
     bind(player.stream.height, (value) {
       videoHeight = value ?? 0;
       _notify();
+    });
+    bind(player.stream.error, (Object e) {
+      // mpv 起播就失败（识别不了格式 / 打不开）：直连流在个别平台上会
+      // 遇到这种情况（iOS 上 libmpv 的容器支持与桌面/Android 不完全一致）。
+      // 自动降级成转码流重试一次——服务器转出来的 H264/AAC 哪都能播。
+      if (_disposed || _mpvDowngradeTried || _isLocalDirect) return;
+      if (_isHls) return; // 转码流失败不在这降级，另有 _reopenAt 兜底。
+      final openedAt = _mpvOpenedAt;
+      if (openedAt == null ||
+          DateTime.now().difference(openedAt) > const Duration(seconds: 12)) {
+        return;
+      }
+      _mpvDowngradeTried = true;
+      _preferTranscodeRetry = true;
+      KazumiLogger().w('EmbyPlayer: 直连打不开，自动降级转码重试 (${e.toString()})');
+      unawaited(_open(_index));
     });
 
     audioTracks = player.state.tracks.audio;
@@ -616,15 +660,19 @@ class EmbyPlayerController extends ChangeNotifier {
       await _avDoOpen(engine);
       return;
     }
-    // 整体回退 mpv。
+    // 重试仍失败：整套退掉 AVPlayer，重新解析一遍再播。
+    // 不能复用旧地址直接开 mpv——AV 那边反复请求很可能已经把服务端的
+    // 转码会话弄死了，旧 master.m3u8 打不开就是「Failed to recognize
+    // file format」。重新 resolve 会拿到全新的会话。
     _av = null;
     engine.removeListener(_onAvChanged);
     _avCues = const [];
     avSubtitleText = '';
     await engine.dispose();
     if (_disposed) return;
+    _avFallbackUsed = true;
     await _teardownPlayer();
-    await _openMpv(_avStartAt ?? 0);
+    await _open(_index);
   }
 
   /// 把 AVPlayer 引擎的状态灌进控制器的可观察字段——和 mpv 的
@@ -708,7 +756,16 @@ class EmbyPlayerController extends ChangeNotifier {
       } else {
         raw = await File(source).readAsString();
       }
-      final cues = parseSrt(raw);
+      final cues = parseSrt(raw)
+          .map(
+            (c) => SrtCue(
+              start: c.start,
+              end: c.end,
+              text: sanitizeSubtitleText(c.text),
+            ),
+          )
+          .where((c) => c.text.isNotEmpty)
+          .toList();
       if (cues.isEmpty) {
         currentSubtitle = SubtitleTrack.no();
       } else {
@@ -969,7 +1026,22 @@ class EmbyPlayerController extends ChangeNotifier {
         unawaited(EmbyStreamPrefs.setSubtitleDisabled(item.id, false));
       }
     }
-    await player.setSubtitleTrack(track);
+    // 服务器字幕不直接喂给 mpv：先拉下来过滤掉翻译插件留下的「[翻译失败]」
+    // 占位行，再从本地文件挂载。字幕翻译是服务器插件干的，app 不做翻译，
+    // 但那些没翻出来的调试行也不该上屏。
+    var finalTrack = track;
+    if (track.uri && track.id.startsWith('http')) {
+      final local = await _prepareSanitizedSubtitleFile(track.id);
+      if (_disposed) return;
+      if (local != null) {
+        finalTrack = SubtitleTrack.uri(
+          local,
+          title: track.title,
+          language: track.language,
+        );
+      }
+    }
+    await player.setSubtitleTrack(finalTrack);
     // 换轨后把延迟/位置/缩放再写一遍：mpv 对「新挂上的外部字幕」不保证
     // 继承上一轨的这几项，用户会看到调好的位置突然跳回底部。
     _applySubtitleSettings();
@@ -1027,7 +1099,20 @@ class EmbyPlayerController extends ChangeNotifier {
     }
     final player = playback.mediaPlayer;
     if (player == null) return false;
-    final track = SubtitleTrack.uri(path, title: label);
+    // 导入的文件同样过一遍占位行过滤（有些下载来的双语字幕也是机器翻译的）。
+    var sourcePath = path;
+    try {
+      final cleaned = sanitizeSubtitleFile(await File(path).readAsString());
+      final dir = await getTemporaryDirectory();
+      final file = File(
+        '${dir.path}/import_sub_${DateTime.now().millisecondsSinceEpoch}.srt',
+      );
+      await file.writeAsString(cleaned, flush: true);
+      sourcePath = file.path;
+    } catch (_) {
+      // 读不了就按原文件挂，别因为净化失败让导入整个失败。
+    }
+    final track = SubtitleTrack.uri(sourcePath, title: label);
     importedSubtitleTracks = [...importedSubtitleTracks, track];
     await player.setSubtitleTrack(track);
     _notify();
@@ -1107,6 +1192,26 @@ class EmbyPlayerController extends ChangeNotifier {
         language: s.language.isEmpty ? null : s.language,
       ),
   ];
+
+  /// 拉服务器字幕 → 过滤占位行 → 写临时文件，返回本地路径。
+  /// 失败返回 null（调用方退回原始 uri：宁可显示带垃圾行，也别没字幕）。
+  Future<String?> _prepareSanitizedSubtitleFile(String url) async {
+    try {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 12);
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      final raw = await response.transform(utf8.decoder).join();
+      client.close();
+      final cleaned = sanitizeSubtitleFile(raw);
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/emby_sub_${url.hashCode.abs()}.srt');
+      await file.writeAsString(cleaned, flush: true);
+      return file.path;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// 副字幕：media_kit 一次只能渲染一路内封字幕，所以副轨只记下来，
   /// 供「双字幕」开关将来做叠加渲染时用，不直接塞给引擎。
