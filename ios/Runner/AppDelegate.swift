@@ -540,7 +540,9 @@ import app_links
 // MARK: - AVPictureInPictureControllerDelegate
 
 extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
-    func pictureInPictureControllerWillStartPictureInPicture(
+    // 注意：类是 public 的，public 协议的实现方法也必须显式 public，
+    // 否则 CI 上编译直接报错（本地不编 iOS 探不到）。
+    public func pictureInPictureControllerWillStartPictureInPicture(
         _ pictureInPictureController: AVPictureInPictureController
     ) {
         // 画面走系统小窗了，Flutter 纹理这一路先停掉省电（后台 displayLink
@@ -549,7 +551,7 @@ extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
         eventSink?(["type": "pip", "active": true] as [String: Any])
     }
 
-    func pictureInPictureControllerDidStopPictureInPicture(
+    public func pictureInPictureControllerDidStopPictureInPicture(
         _ pictureInPictureController: AVPictureInPictureController
     ) {
         if player != nil {
@@ -558,7 +560,7 @@ extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
         eventSink?(["type": "pip", "active": false] as [String: Any])
     }
 
-    func pictureInPictureController(
+    public func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
     ) {
@@ -566,7 +568,7 @@ extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
         completionHandler(true)
     }
 
-    func pictureInPictureController(
+    public func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
     ) {
