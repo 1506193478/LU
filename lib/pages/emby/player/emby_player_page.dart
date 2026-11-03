@@ -14,7 +14,9 @@ import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
+import 'package:XL/utils/motion.dart';
 
 /// Emby 独立播放器。
 ///
@@ -60,13 +62,55 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
   IconData? _hudIcon;
   Timer? _hudTimer;
 
-  // 竖向手势
+  // ---- 手势 ----
+  //
+  // 这一版改成用 Listener 自己算，不再挂一堆 GestureDetector 回调：
+  //   * GestureDetector 里 onScale 和 onHorizontalDrag 互斥，没法「双指缩放
+  //     + 单指横滑」共存；
+  //   * 单击 / 双击要自己控制判定窗口，否则单击永远慢 300ms；
+  //   * 长按倍速和长按退出需要「按下多久」这个原始信息。
+  EmbyGesturePrefs _gesture = EmbyGesturePrefs.current;
+
+  /// 当前按着的手指（多指缩放要用）。
+  final Map<int, Offset> _pointers = <int, Offset>{};
+
+  Offset? _downPos;
+  bool _moved = false;
+  bool _horizontalActive = false;
+  Duration _seekStart = Duration.zero;
+
   double _gestureStartVolume = 100;
-  double _gestureStartBrightness = 0.5;
+  double _gestureStartBrightness = 1;
   bool _verticalIsVolume = true;
   bool _verticalActive = false;
 
-  double _lastBrightness = 0.5;
+  /// 进入播放器时读到的系统亮度，退出时要还回去——以前没还，整个 App
+  /// 跟着变暗，下次进来起手就黑。
+  double _lastBrightness = 1;
+  double? _originalBrightness;
+
+  Timer? _longPressTimer;
+  bool _longPressActive = false;
+  double _speedBeforeLongPress = 1;
+
+  DateTime? _lastTapAt;
+  Offset? _lastTapPos;
+  Timer? _singleTapTimer;
+
+  // ---- 缩放 ----
+  double _zoom = 1;
+  Offset _zoomOffset = Offset.zero;
+  double _zoomStartScale = 1;
+  Offset _zoomStartOffset = Offset.zero;
+  double? _pinchStartDistance;
+  Offset? _pinchStartFocal;
+  bool _pinchActive = false;
+  DateTime _lastZoomHudAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  // ---- 换集 / 屏幕方向 ----
+  String _lastItemId = '';
+  bool _orientationApplied = false;
+  bool _firstItem = true;
 
   @override
   void initState() {
@@ -77,17 +121,34 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       shaderAssetService: inject<ShaderAssetService>(),
     );
     controller.start();
+    _gesture = EmbyGesturePrefs.current;
+    _lastItemId = controller.current?.id ?? '';
     if (!_isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       _readInitialBrightness();
+      unawaited(_applyOrientation(EmbyDisplayPrefs.enter));
+      _restoreZoom(_lastItemId);
     }
+    controller.addListener(_onPlaybackChanged);
   }
 
   @override
   void dispose() {
     _hudTimer?.cancel();
+    _longPressTimer?.cancel();
+    _singleTapTimer?.cancel();
+    controller.removeListener(_onPlaybackChanged);
+    if (_longPressActive) {
+      unawaited(controller.setSpeed(_speedBeforeLongPress));
+    }
+    _saveZoom();
     if (!_isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      // 还原亮度 + 放开方向锁。少了这两行，退出播放器后整个 App 是暗的、
+      // 而且可能卡在横屏。
+      final original = _originalBrightness;
+      if (original != null) unawaited(_applyBrightness(original));
+      unawaited(SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]));
     }
     if (_windowFullscreen) {
       windowManager.setFullScreen(false);
@@ -99,12 +160,99 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
 
   Future<void> _readInitialBrightness() async {
     try {
-      final value =
-          await ScreenBrightnessPlatform.instance.application;
-      if (mounted) _lastBrightness = value;
+      final value = await ScreenBrightnessPlatform.instance.application;
+      _originalBrightness = value;
+      _lastBrightness = value;
     } catch (_) {
-      // 平台不支持就维持默认值，不影响播放。
+      // 平台不支持（或 iOS 没给权限）就按 100% 起手，不要停在 0.5 那种
+      // 「一进来就半黑」的状态。
+      _lastBrightness = 1;
     }
+  }
+
+  /// 按偏好切换屏幕方向。桌面端不锁方向，直接返回。
+  Future<void> _applyOrientation(EmbyOrientationMode mode) async {
+    if (_isDesktop) return;
+    final side = EmbyDisplayPrefs.side;
+    final landscape = switch (side) {
+      EmbyLandscapeSide.left => const <DeviceOrientation>[
+          DeviceOrientation.landscapeLeft
+        ],
+      EmbyLandscapeSide.right => const <DeviceOrientation>[
+          DeviceOrientation.landscapeRight
+        ],
+      EmbyLandscapeSide.auto => const <DeviceOrientation>[
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ],
+    };
+    final List<DeviceOrientation>? target = switch (mode) {
+      EmbyOrientationMode.keep => null,
+      EmbyOrientationMode.landscape => landscape,
+      EmbyOrientationMode.portrait => const <DeviceOrientation>[
+          DeviceOrientation.portraitUp
+        ],
+      EmbyOrientationMode.auto => () {
+          final w = controller.videoWidth;
+          final h = controller.videoHeight;
+          // 尺寸还没出来：等第一帧视频信息回来再决定（见 _onPlaybackChanged）。
+          if (w <= 0 || h <= 0) return null;
+          return w >= h ? landscape : const <DeviceOrientation>[
+            DeviceOrientation.portraitUp
+          ];
+        }(),
+    };
+    if (target == null) return;
+    try {
+      await SystemChrome.setPreferredOrientations(target);
+    } catch (_) {
+      // 某些定制 ROM 会拒绝，忽略即可。
+    }
+  }
+
+  /// 换集 / 首帧就绪时决定要不要重新应用方向。
+  void _onPlaybackChanged() {
+    if (!mounted) return;
+    final id = controller.current?.id ?? '';
+    if (id != _lastItemId) {
+      _saveZoom();
+      _lastItemId = id;
+      if (!_isDesktop) _restoreZoom(id);
+      _orientationApplied = false;
+    }
+    if (!_isDesktop &&
+        !_orientationApplied &&
+        controller.videoWidth > 0 &&
+        controller.videoHeight > 0) {
+      _orientationApplied = true;
+      unawaited(_applyOrientation(
+        _firstItem ? EmbyDisplayPrefs.enter : EmbyDisplayPrefs.onSwitch,
+      ));
+      _firstItem = false;
+    }
+  }
+
+  void _restoreZoom(String itemId) {
+    final value = _gesture.rememberZoom ? EmbyZoomMemory.of(itemId) : 1.0;
+    if (!mounted) return;
+    setState(() {
+      _zoom = value;
+      _zoomOffset = Offset.zero;
+    });
+  }
+
+  void _saveZoom() {
+    if (!_gesture.rememberZoom) return;
+    unawaited(EmbyZoomMemory.put(_lastItemId, _zoom));
+  }
+
+  Offset _clampZoomOffset(Offset value, double zoom, Size size) {
+    final maxX = size.width * (zoom - 1) / 2;
+    final maxY = size.height * (zoom - 1) / 2;
+    return Offset(
+      value.dx.clamp(-maxX, maxX),
+      value.dy.clamp(-maxY, maxY),
+    );
   }
 
   // ------------------------------------------------------------ 交互
@@ -702,32 +850,12 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
                   controller.setControlsVisible(true);
                 }
               },
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _toggleControls,
-                onDoubleTapDown: (details) {
-                  if (_isDesktop) return;
-                  final width = MediaQuery.sizeOf(context).width;
-                  final dx = details.localPosition.dx;
-                  if (dx < width * 0.38) {
-                    _seekBy(const Duration(seconds: -10), label: '快退 10 秒');
-                  } else if (dx > width * 0.62) {
-                    _seekBy(const Duration(seconds: 10), label: '快进 10 秒');
-                  } else {
-                    _toggleControls();
-                  }
-                },
-                onDoubleTap: _isDesktop ? _toggleFullscreen : () {},
-                onHorizontalDragStart: _isDesktop ? null : _onSeekDragStart,
-                onHorizontalDragUpdate: _isDesktop ? null : _onSeekDragUpdate,
-                onHorizontalDragEnd: _isDesktop ? null : _onSeekDragEnd,
-                onVerticalDragStart: _isDesktop ? null : _onVerticalStart,
-                onVerticalDragUpdate: _isDesktop ? null : _onVerticalUpdate,
-                onVerticalDragEnd: _isDesktop ? null : _onVerticalEnd,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _buildVideoSurface(),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                    // 手势只铺在**画面**这一层：控件（按钮 / 进度条）在它上面，
+                    // 点按钮不会顺带把控件收起来。
+                    _buildGestureSurface(),
                     if (show && !controller.loading && controller.error.isEmpty)
                       _ChromeGradient(visible: true),
                     if (controller.loading) _buildLoading(),
@@ -744,8 +872,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
                     ],
                     if (controller.locked) _buildLockedBadge(),
                     if (_hudLabel.isNotEmpty) _buildHud(),
-                  ],
-                ),
+                ],
               ),
             );
           },
@@ -801,6 +928,28 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     );
   }
 
+  /// 画面这一层：桌面端保留原来的「单击显隐 / 双击全屏」，移动端走自己的
+  /// 指针手势（见 `_onPointerDown` 一带）。
+  Widget _buildGestureSurface() {
+    final surface = _buildVideoSurface();
+    if (_isDesktop) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _toggleControls,
+        onDoubleTap: _toggleFullscreen,
+        child: surface,
+      );
+    }
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: _onPointerDown,
+      onPointerMove: _onPointerMove,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: _onPointerCancel,
+      child: surface,
+    );
+  }
+
   Widget _buildVideoSurface() {
     final videoController = controller.videoController;
     if (videoController == null) {
@@ -813,12 +962,24 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       fill: Colors.black,
       subtitleViewConfiguration: _subtitleViewConfig(),
     );
+    Widget output = child;
     final ratio = _videoAspect;
-    if (ratio == null) return child;
-    // 4:3 / 16:9 这类具体比例：把画面裁成该比例居中显示。
-    return Center(
-      child: AspectRatio(aspectRatio: ratio, child: child),
-    );
+    if (ratio != null) {
+      // 4:3 / 16:9 这类具体比例：把画面裁成该比例居中显示。
+      output = Center(
+        child: AspectRatio(aspectRatio: ratio, child: child),
+      );
+    }
+    if (_zoom > 1.001) {
+      // 双指放大：先缩放再平移，裁掉越界的部分，不然会画到控制条上去。
+      output = ClipRect(
+        child: Transform.translate(
+          offset: _zoomOffset,
+          child: Transform.scale(scale: _zoom, child: output),
+        ),
+      );
+    }
+    return output;
   }
 
   Widget _buildLoading() {
@@ -947,10 +1108,17 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 短按先收起控件（视频里那颗按钮的手感），长按才真的退出。
+              // 不想这样的话可以在「播放手势 → 长按返回键退出播放器」关掉。
               _CircleAction(
                 icon: Icons.arrow_back_ios_new_rounded,
                 iconSize: 17,
-                onTap: () => Navigator.of(context).maybePop(),
+                onTap: _gesture.longPressExit
+                    ? _toggleControls
+                    : () => Navigator.of(context).maybePop(),
+                onLongPress: _gesture.longPressExit
+                    ? () => Navigator.of(context).maybePop()
+                    : null,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1124,7 +1292,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
                 position: shown,
                 duration: total,
                 buffer: controller.buffer,
-                enabled: total > Duration.zero,
+                // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
+                enabled: total > Duration.zero && _gesture.dragProgressBar,
                 onDragStart: () {
                   setState(() {
                     _dragging = true;
@@ -1139,6 +1308,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
                 onDragEnd: (value) {
                   controller.seek(value);
                   setState(() => _dragging = false);
+                  if (_gesture.hapticProgress) KazumiHaptics.select();
                   _pauseAutoHide();
                 },
                 onTapSeek: (value) {
@@ -1281,73 +1451,254 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
 
   // ------------------------------------------------------------ 手势
 
-  void _onSeekDragStart(DragStartDetails details) {
-    if (controller.duration == Duration.zero) return;
-    setState(() {
-      _dragging = true;
-      _dragPosition = controller.position;
-    });
-    _pauseAutoHide();
-  }
-
-  void _onSeekDragUpdate(DragUpdateDetails details) {
-    if (!_dragging) return;
-    final width = MediaQuery.sizeOf(context).width;
-    final total = controller.duration;
-    final delta = Duration(
-      microseconds:
-          (details.delta.dx / width * total.inMicroseconds).round(),
-    );
-    var next = _dragPosition + delta;
-    if (next < Duration.zero) next = Duration.zero;
-    if (next > total) next = total;
-    setState(() => _dragPosition = next);
-    _showHud(_fmt(next), icon: Icons.fast_forward_rounded);
-  }
-
-  void _onSeekDragEnd(DragEndDetails details) {
-    if (!_dragging) return;
-    controller.seek(_dragPosition);
-    setState(() => _dragging = false);
-    _pauseAutoHide();
-  }
-
-  void _onVerticalStart(DragStartDetails details) {
-    final width = MediaQuery.sizeOf(context).width;
-    _verticalIsVolume = details.localPosition.dx > width * 0.5;
-    _verticalActive = true;
-    _gestureStartVolume = controller.volume;
-    _gestureStartBrightness = _lastBrightness;
-    _pauseAutoHide();
-  }
-
-  void _onVerticalUpdate(DragUpdateDetails details) {
-    if (!_verticalActive) return;
-    final height = MediaQuery.sizeOf(context).height;
-    final delta = -details.delta.dy / (height * 0.6);
-    if (_verticalIsVolume) {
-      final next = (_gestureStartVolume + delta * 100).clamp(0.0, 100.0);
-      controller.setVolume(next);
-      _showHud(
-        '音量 ${next.round()}%',
-        icon: next <= 0.5
-            ? Icons.volume_off_rounded
-            : (next < 50 ? Icons.volume_down_rounded : Icons.volume_up_rounded),
-      );
-    } else {
-      final next = (_gestureStartBrightness + delta).clamp(0.0, 1.0);
-      _lastBrightness = next;
-      unawaited(_applyBrightness(next));
-      _showHud(
-        '亮度 ${(next * 100).round()}%',
-        icon: Icons.brightness_6_rounded,
-      );
+  void _onPointerDown(PointerDownEvent event) {
+    _pointers[event.pointer] = event.localPosition;
+    if (_pointers.length == 1) {
+      _downPos = event.localPosition;
+      _moved = false;
+      _horizontalActive = false;
+      _verticalActive = false;
+      _longPressTimer?.cancel();
+      if (_gesture.longPressSpeed && !controller.locked) {
+        _longPressTimer = Timer(const Duration(milliseconds: 460), () {
+          if (!mounted || _moved) return;
+          _longPressActive = true;
+          _speedBeforeLongPress = controller.speed;
+          unawaited(controller.setSpeed(_gesture.longPressRate));
+          if (_gesture.hapticLongPress) KazumiHaptics.select();
+          _showHud(
+            '${_speedText(_gesture.longPressRate)}× 倍速中',
+            icon: Icons.fast_forward_rounded,
+          );
+        });
+      }
+    } else if (_pointers.length == 2) {
+      // 第二根手指落下：取消长按（并在按着时先恢复原速），进入缩放。
+      _longPressTimer?.cancel();
+      if (_longPressActive) {
+        _longPressActive = false;
+        unawaited(controller.setSpeed(_speedBeforeLongPress));
+      }
+      if (_gesture.pinchZoom) {
+        _pinchStartDistance = null;
+        _pinchStartFocal = null;
+        _zoomStartScale = _zoom;
+        _zoomStartOffset = _zoomOffset;
+      }
     }
   }
 
-  void _onVerticalEnd(DragEndDetails details) {
-    _verticalActive = false;
-    _pauseAutoHide();
+  void _onPointerMove(PointerMoveEvent event) {
+    if (!_pointers.containsKey(event.pointer)) return;
+    _pointers[event.pointer] = event.localPosition;
+    final size = MediaQuery.sizeOf(context);
+
+    // 双指：缩放 + 拖动画面。
+    if (_pointers.length >= 2) {
+      if (!_gesture.pinchZoom) return;
+      // 双指一旦动过，这次就不能再判成「点击」——否则松开最后一根手指
+      // 会顺带把控件收起来。
+      _pinchActive = true;
+      _moved = true;
+      final pts = _pointers.values.toList();
+      final focal = (pts[0] + pts[1]) / 2;
+      final dist = (pts[0] - pts[1]).distance;
+      _pinchStartDistance ??= dist <= 0 ? 1 : dist;
+      _pinchStartFocal ??= focal;
+      final base = _pinchStartDistance!;
+      final ratio = dist / (base <= 0 ? 1 : base);
+      final next = (_zoomStartScale * ratio).clamp(1.0, 4.0);
+      final moved = focal - _pinchStartFocal!;
+      setState(() {
+        _zoom = next;
+        _zoomOffset = _clampZoomOffset(_zoomStartOffset + moved, next, size);
+      });
+      // HUD 限流 120ms：每帧都刷会把主线程占满，缩放反而发涩。
+      final now = DateTime.now();
+      if (next > 1.02 &&
+          now.difference(_lastZoomHudAt) > const Duration(milliseconds: 120)) {
+        _lastZoomHudAt = now;
+        _showHud('缩放 ${next.toStringAsFixed(1)}×',
+            icon: Icons.zoom_out_map_rounded);
+      }
+      return;
+    }
+
+    final down = _downPos;
+    if (down == null) return;
+    final delta = event.localPosition - down;
+
+    // 超过阈值才锁方向：太小的话点一下就误判成滑动。
+    if (!_moved && delta.distance > 12) {
+      _moved = true;
+      _longPressTimer?.cancel();
+      final horizontal = delta.dx.abs() > delta.dy.abs();
+      _horizontalActive =
+          horizontal && _gesture.seekByDrag && !controller.locked;
+      _verticalActive = !horizontal &&
+          (_gesture.brightness || _gesture.volume) &&
+          !controller.locked;
+      _verticalIsVolume = down.dx > size.width * 0.5;
+      _gestureStartVolume = controller.baseVolume;
+      _gestureStartBrightness = _lastBrightness;
+      _seekStart = controller.position;
+      if (_horizontalActive) _pauseAutoHide();
+    }
+    if (!_moved) return;
+
+    if (_horizontalActive) {
+      final total = controller.duration;
+      if (total <= Duration.zero) return;
+      final target = _seekStart +
+          Duration(
+            microseconds:
+                (delta.dx / size.width * total.inMicroseconds).round(),
+          );
+      final clamped = target < Duration.zero
+          ? Duration.zero
+          : (target > total ? total : target);
+      setState(() {
+        _dragging = true;
+        _dragPosition = clamped;
+      });
+      _showHud(_fmt(clamped), icon: Icons.fast_forward_rounded);
+      return;
+    }
+
+    if (_verticalActive) {
+      final frac = -delta.dy / (size.height * 0.6);
+      if (_verticalIsVolume) {
+        // 用 baseVolume（不含音频增强）算，否则开了 300% 增益时
+        // controller.volume 是 300，随手一滑就被 clamp 到 100。
+        final next = (_gestureStartVolume + frac * 100).clamp(0.0, 100.0);
+        unawaited(controller.setVolume(next));
+        _showHud(
+          '音量 ${next.round()}%',
+          icon: next <= 0.5
+              ? Icons.volume_off_rounded
+              : (next < 50
+                  ? Icons.volume_down_rounded
+                  : Icons.volume_up_rounded),
+        );
+      } else {
+        final next = (_gestureStartBrightness + frac).clamp(0.0, 1.0);
+        _lastBrightness = next;
+        unawaited(_applyBrightness(next));
+        _showHud(
+          '亮度 ${(next * 100).round()}%',
+          icon: Icons.brightness_6_rounded,
+        );
+      }
+    }
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    _pointers.remove(event.pointer);
+    if (_pointers.isNotEmpty) return;
+
+    if (_pinchActive) {
+      _pinchActive = false;
+      // 开了「记住缩放大小」就在松手这一刻落盘，别等退出页面——中途被杀
+      // 进程就白调了。
+      if (_gesture.rememberZoom) _saveZoom();
+      _moved = false;
+      _pauseAutoHide();
+      return;
+    }
+
+    _longPressTimer?.cancel();
+    if (_longPressActive) {
+      _longPressActive = false;
+      unawaited(controller.setSpeed(_speedBeforeLongPress));
+      _pauseAutoHide();
+      return;
+    }
+
+    if (_moved) {
+      if (_horizontalActive) {
+        unawaited(controller.seek(_dragPosition));
+        if (_gesture.hapticSeek) KazumiHaptics.select();
+      }
+      _horizontalActive = false;
+      _verticalActive = false;
+      if (_dragging) setState(() => _dragging = false);
+      _pauseAutoHide();
+      return;
+    }
+
+    // 单击 / 双击
+    final pos = event.localPosition;
+    final now = DateTime.now();
+    final lastAt = _lastTapAt;
+    final lastPos = _lastTapPos;
+    final isDouble = lastAt != null &&
+        now.difference(lastAt) < const Duration(milliseconds: 320) &&
+        lastPos != null &&
+        (lastPos - pos).distance < 56;
+    if (isDouble) {
+      _lastTapAt = null;
+      _singleTapTimer?.cancel();
+      _handleDoubleTap(pos);
+      return;
+    }
+    _lastTapAt = now;
+    _lastTapPos = pos;
+    _singleTapTimer?.cancel();
+    // 开了双击功能就必须等一个窗口，否则单点会先闪一下控件再处理双击。
+    if (_gesture.doubleTapSeek || _gesture.doubleTapPlayPause) {
+      _singleTapTimer = Timer(const Duration(milliseconds: 320), () {
+        if (!mounted) return;
+        if (_gesture.tapToggleControls) _toggleControls();
+      });
+    } else if (_gesture.tapToggleControls) {
+      _toggleControls();
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    _pointers.remove(event.pointer);
+    _longPressTimer?.cancel();
+    if (_longPressActive) {
+      _longPressActive = false;
+      unawaited(controller.setSpeed(_speedBeforeLongPress));
+    }
+    if (_moved) {
+      _horizontalActive = false;
+      _verticalActive = false;
+      if (_dragging) setState(() => _dragging = false);
+    }
+    if (_pointers.isEmpty) {
+      _moved = false;
+      _downPos = null;
+    }
+  }
+
+  void _handleDoubleTap(Offset pos) {
+    if (controller.locked) return;
+    final size = MediaQuery.sizeOf(context);
+    // 放大状态下双击先复位——各家播放器都这么约定，比跳进度更符合预期。
+    if (_gesture.pinchZoom && _zoom > 1.01) {
+      setState(() {
+        _zoom = 1;
+        _zoomOffset = Offset.zero;
+      });
+      if (_gesture.rememberZoom) unawaited(EmbyZoomMemory.put(_lastItemId, 1));
+      _showHud('已复位', icon: Icons.zoom_out_map_rounded);
+      return;
+    }
+    final x = pos.dx / size.width;
+    final seconds = _gesture.doubleTapSeconds;
+    if (x < 0.33 && _gesture.doubleTapSeek) {
+      unawaited(_seekBy(Duration(seconds: -seconds), label: '快退 $seconds 秒'));
+      if (_gesture.hapticSeek) KazumiHaptics.select();
+    } else if (x > 0.67 && _gesture.doubleTapSeek) {
+      unawaited(_seekBy(Duration(seconds: seconds), label: '快进 $seconds 秒'));
+      if (_gesture.hapticSeek) KazumiHaptics.select();
+    } else if (_gesture.doubleTapPlayPause) {
+      unawaited(controller.togglePlay());
+    } else if (_gesture.tapToggleControls) {
+      _toggleControls();
+    }
   }
 
   Future<void> _applyBrightness(double value) async {
@@ -1417,6 +1768,7 @@ class _CircleAction extends StatelessWidget {
   const _CircleAction({
     required this.icon,
     required this.onTap,
+    this.onLongPress,
     this.iconSize = 20,
     this.size = 38,
     this.enabled = true,
@@ -1424,6 +1776,7 @@ class _CircleAction extends StatelessWidget {
 
   final IconData icon;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final double iconSize;
   final double size;
   final bool enabled;
@@ -1432,6 +1785,7 @@ class _CircleAction extends StatelessWidget {
   Widget build(BuildContext context) {
     return _PressScale(
       onTap: enabled ? onTap : null,
+      onLongPress: enabled ? onLongPress : null,
       child: Container(
         width: size,
         height: size,
@@ -1624,11 +1978,15 @@ class _PressScale extends StatefulWidget {
   const _PressScale({
     required this.child,
     this.onTap,
+    this.onLongPress,
     this.scale = 0.95,
   });
 
   final Widget child;
   final VoidCallback? onTap;
+
+  /// 长按（用来做「长按返回键退出播放器」这种二次确认的手势）。
+  final VoidCallback? onLongPress;
   final double scale;
 
   @override
@@ -1649,6 +2007,7 @@ class _PressScaleState extends State<_PressScale> {
         onTapCancel: enabled ? () => setState(() => _down = false) : null,
         onTapUp: enabled ? (_) => setState(() => _down = false) : null,
         onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
         child: AnimatedScale(
           scale: _down ? widget.scale : 1,
           duration: const Duration(milliseconds: 100),

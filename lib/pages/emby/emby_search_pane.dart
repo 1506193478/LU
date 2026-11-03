@@ -5,13 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/pages/emby/emby_records_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/services/emby/emby_service.dart';
 
 /// Emby「搜索」页签。
 ///
-/// 严格按设计稿：大标题「搜索」→ 右上分段控件（媒体库 / 网盘）→ 灰色圆角
+/// 严格按设计稿：大标题「搜索」→ 右上分段控件（媒体库 / 播放记录）→ 灰色圆角
 /// 搜索框 → 结果列表。空态是居中的大放大镜 + 「搜索「XX」中的内容」。
+///
+/// 第二格原来是「网盘」，点开只有一句「暂未开放」，纯占位。现在换成播放记录：
+/// 按服务器分组，卡片带封面、时长、进度，点一下直接续播。
 ///
 /// 这个页只搜 Emby 库里的资源，跟首页番剧的搜索是两套逻辑，互不相干。
 class EmbySearchPane extends StatefulWidget {
@@ -32,7 +36,7 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
 
-  /// 0 = 媒体库，1 = 网盘。设计稿是这两个。
+  /// 0 = 媒体库，1 = 播放记录。
   int _scope = 0;
 
   /// 搜哪台服务器：null = 聚合搜索（所有已添加的都搜）。
@@ -182,7 +186,7 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
     if (mounted) setState(() {});
   }
 
-  String get _scopeName => _scope == 0 ? '所有媒体库' : '网盘';
+  String get _scopeName => _scope == 0 ? '所有媒体库' : '播放记录';
 
   /// 左上角那个蓝色图标按钮：点开选「聚合搜索」或某一台服务器。
   Widget _serverPickerButton() {
@@ -283,7 +287,9 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
                 ),
               ),
             ),
-            // 搜索框
+            // 搜索框只在「媒体库」页签出现：播放记录是本地列表，没有可搜的东西，
+            // 留着只会让人以为能在记录里搜。
+            if (_scope == 0)
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
               child: Container(
@@ -356,12 +362,8 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
 
   Widget _buildBody(bool dark, String keyword) {
     if (_scope == 1) {
-      return _EmptyHint(
-        dark: dark,
-        text: keyword.isEmpty
-            ? '搜索「网盘」中的内容'
-            : '网盘搜索暂未开放，先搜「媒体库」',
-      );
+      // 播放记录有自己的分组列表，不再是一句「暂未开放」。
+      return const EmbyRecordsPane();
     }
     if (_loading) {
       return const Center(
@@ -449,7 +451,7 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
   }
 }
 
-/// 右上角的「媒体库 / 网盘」分段控件（设计稿：浅灰底，选中白色带阴影）。
+/// 右上角的「媒体库 / 播放记录」分段控件（浅灰底，选中白色带阴影）。
 class _ScopeSwitch extends StatelessWidget {
   const _ScopeSwitch({required this.index, required this.onChanged});
 
@@ -496,7 +498,7 @@ class _ScopeSwitch extends StatelessWidget {
                       : null,
                 ),
                 child: Text(
-                  i == 0 ? '媒体库' : '网盘',
+                  i == 0 ? '媒体库' : '播放记录',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,

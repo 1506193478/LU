@@ -10,20 +10,20 @@ import 'package:path_provider/path_provider.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_cloud_browse_page.dart';
 import 'package:XL/pages/emby/emby_cloud_sheet.dart';
+import 'package:XL/pages/emby/emby_display_prefs_page.dart';
 import 'package:XL/pages/emby/emby_favorites_page.dart';
+import 'package:XL/pages/emby/emby_gesture_settings_page.dart';
 import 'package:XL/pages/emby/emby_stream_settings_page.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
-import 'package:XL/pages/emby/emby_playlist_page.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_server_form_page.dart';
 import 'package:XL/pages/emby/emby_vault_browse_page.dart';
+import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
-import 'package:XL/services/emby/emby_watch_log.dart';
 import 'package:XL/services/emby/lu_cloud_drive.dart';
 import 'package:XL/services/emby/lu_media_vault.dart';
 import 'package:XL/services/platform/cast_service.dart';
-import 'package:XL/services/storage/settings_keys.dart';
 import 'package:XL/services/storage/storage.dart';
 
 /// Emby「资源库」页签。
@@ -112,6 +112,15 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   // ------------------------------------------------------------ 本地来源
 
+  /// 能被「本地文件 / 本地私密」导入的扩展名。
+  ///
+  /// `file_picker` 的 custom 类型必须给扩展名（不带点、小写），它据此在
+  /// iOS 上映射成 UTType。给全一点：国产剧常见 mkv / rmvb / ts 这些。
+  static const List<String> kVaultVideoExtensions = <String>[
+    'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v',
+    'ts', 'm2ts', 'mpg', 'mpeg', 'rmvb', 'rm', '3gp', 'ogv',
+  ];
+
   static String _vaultTitle(String kind) => switch (kind) {
         'private' => '本地私密',
         'gallery' => '相册视频',
@@ -151,8 +160,17 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   /// 「本地文件」：只走系统文件选择器，浏览手机/平板里的目录。
   Future<void> _importLocal(String kind) async {
     try {
+      // 注意：这里**不能**用 `FileType.video`。
+      //
+      // `file_picker` 对 `video` 的处理是：iOS 直接弹 PHPicker（系统相册），
+      // Android 发 `ACTION_OPEN_DOCUMENT` 但很多国产 ROM 会把它路由到相册。
+      // 于是「本地文件」和「本地私密 → 从文件选择」打开的都是相册，压根
+      // 碰不到手机目录。改成按扩展名挑（`FileType.custom`），iOS 就会走
+      // 「文件」App（UIDocumentPicker），Android 走文档界面，这才是用户
+      // 说的「访问手机的文件夹」。
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.video,
+        type: FileType.custom,
+        allowedExtensions: kVaultVideoExtensions,
         allowMultiple: true,
       );
       final files = result?.files ?? [];
@@ -165,7 +183,21 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
         _toast('选中的文件读不到路径，换个目录再试');
         return;
       }
-      await LuMediaVault.instance.addEntries(kind, picked);
+      // 少数 ROM 会忽略扩展名过滤，允许勾非视频文件。挑出来直接挡掉，
+      // 不然列表里会出现一堆打不开的东西。
+      final bad = picked
+          .where((f) =>
+              !kVaultVideoExtensions.any((e) => f.name.toLowerCase().endsWith('.$e')))
+          .toList();
+      if (bad.isNotEmpty) {
+        _toast('跳过 ${bad.length} 个非视频文件');
+      }
+      final videos = picked
+          .where((f) =>
+              kVaultVideoExtensions.any((e) => f.name.toLowerCase().endsWith('.$e')))
+          .toList();
+      if (videos.isEmpty) return;
+      await LuMediaVault.instance.addEntries(kind, videos);
       await _openVault(kind);
     } catch (e) {
       _toast('导入失败：${e.toString().split('\n').first}');
@@ -311,9 +343,17 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   }
 
   Future<void> _openForm(String type, {LuVaultServer? existing}) async {
-    // 网盘走各自的授权流程（扫码 / 账号密码 / OAuth），其余走服务器表单。
+    // 网盘走各自的授权流程（扫码 / 账号密码 / OAuth）。
     if (LuCloudDrive.isCloudType(type)) {
       await showLuCloudSheet(context, type: type);
+      if (mounted) setState(() {});
+      return;
+    }
+    // Emby / Jellyfin 统一走整页表单 `/emby/servers/edit`——跟「我的 → 媒体库
+    // 管理」里那一条是同一个页面、同一套逻辑。底部弹窗只剩 WebDAV / SMB / FTP
+    // 在用，避免再出现「两套导入互不相通」。
+    if (type == 'emby' || type == 'jellyfin') {
+      await context.pushNamed('/emby/servers/edit');
       if (mounted) setState(() {});
       return;
     }
@@ -909,14 +949,12 @@ class EmbyMinePane extends StatefulWidget {
 
 class _EmbyMinePaneState extends State<EmbyMinePane> {
   String _version = '';
-  int _recordCount = 0;
   int _favoriteCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
-    _loadRecords();
     _loadFavorites();
   }
 
@@ -946,10 +984,6 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
     } catch (_) {
       // 版本拿不到就不显示。
     }
-  }
-
-  void _loadRecords() {
-    setState(() => _recordCount = EmbyWatchLog.instance.records.length);
   }
 
   void _toast(String message) {
@@ -1013,18 +1047,6 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 onTap: () => context.pushNamed('/emby/servers'),
               ),
               PvRow(
-                icon: Icons.playlist_play_rounded,
-                iconColor: const Color(0xFF5E5CE6),
-                title: '播放列表',
-                value: _recordCount == 0 ? '暂无' : '$_recordCount 部',
-                onTap: () async {
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const EmbyPlaylistPage(),
-                  ));
-                  if (mounted) _loadRecords();
-                },
-              ),
-              PvRow(
                 icon: Icons.favorite_rounded,
                 iconColor: const Color(0xFFFF375F),
                 title: '收藏',
@@ -1062,6 +1084,30 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
           const PvGroupLabel('播放器'),
           PvGroup(
             children: [
+              PvRow(
+                icon: Icons.gesture_rounded,
+                iconColor: const Color(0xFF0A84FF),
+                title: '播放手势',
+                value: '亮度 / 音量 / 倍速',
+                onTap: () async {
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const EmbyGestureSettingsPage(),
+                  ));
+                  if (mounted) setState(() {});
+                },
+              ),
+              PvRow(
+                icon: Icons.screen_rotation_rounded,
+                iconColor: const Color(0xFF5E5CE6),
+                title: '屏幕方向',
+                value: EmbyDisplayPrefs.enter.label,
+                onTap: () async {
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const EmbyDisplayPrefsPage(),
+                  ));
+                  if (mounted) setState(() {});
+                },
+              ),
               PvRow(
                 icon: Icons.monitor_rounded,
                 iconColor: const Color(0xFF5856D6),

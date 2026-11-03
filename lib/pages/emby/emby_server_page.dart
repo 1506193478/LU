@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/widget/clay.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/modules/emby/emby_models.dart';
+import 'package:XL/pages/emby/emby_backup_lines.dart';
+import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/pages/emby/emby_sheet_fields.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
 import 'package:XL/request/clients/emby_client.dart';
 import 'package:XL/services/emby/emby_service.dart';
+import 'package:XL/services/emby/lu_media_vault.dart';
 import 'package:XL/services/logging/logger.dart';
 
 /// 服务器列表：切换、编辑、删除。
@@ -188,7 +193,18 @@ class _ServerTile extends StatelessWidget {
   }
 }
 
-/// 新增 / 编辑服务器。保存前先真的登一次，密码错了当场就知道。
+/// 新增 / 编辑 Emby 服务器（整页表单，全局唯一入口）。
+///
+/// 以前有两条互不相通的路径：
+///   * 这一页（`/emby/servers/edit`）：只有地址 / 账号 / 密码，**没有备用线路**，
+///     而且保存时用的是 `authenticate` 的简化版；
+///   * 资源库那张底部弹窗（`showEmbyServerSheet`）：字段全、备用线路能填、
+///     登录失败不入库——但它只在资源库出现，跟服务器列表不是一套。
+///
+/// 结果就是「从第一种方式导入不能用、备用线路也不生效」。现在把弹窗那套
+/// **运行逻辑**整体搬到这一页：主机 / 路径 / 端口 / https 拆开填、备用线路
+/// 走同一个 `showBackupLinesSheet`、保存前带备用线路去登录、登不上就不入库；
+/// 弹窗对 Emby 关闭，只剩 WebDAV / SMB / FTP 还在用它。
 class EmbyServerEditPage extends StatefulWidget {
   const EmbyServerEditPage({super.key, this.server});
 
@@ -200,43 +216,102 @@ class EmbyServerEditPage extends StatefulWidget {
 }
 
 class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
-  final _formKey = GlobalKey<FormState>();
-  final _url = TextEditingController();
-  final _username = TextEditingController();
-  final _password = TextEditingController();
-  final _name = TextEditingController();
-  bool _allowBadCertificate = false;
+  late final TextEditingController _name;
+  late final TextEditingController _note;
+  late final TextEditingController _host;
+  late final TextEditingController _path;
+  late final TextEditingController _port;
+  late final TextEditingController _username;
+  late final TextEditingController _password;
+
+  bool _https = false;
+  bool _advanced = false;
+  bool _strm = false;
   bool _passwordVisible = false;
   bool _busy = false;
   bool _failed = false;
-  String? _message;
+  String _message = '';
+
+  /// 备用线路。跟底部弹窗共用同一个编辑面板，保存时一起落盘。
+  List<LuBackupLine> _lines = const <LuBackupLine>[];
 
   @override
   void initState() {
     super.initState();
     final server = widget.server;
+    _name = TextEditingController(text: server?.name ?? '');
+    _username = TextEditingController(text: server?.userName ?? '');
+    _password = TextEditingController();
+    _host = TextEditingController();
+    _path = TextEditingController();
+    _port = TextEditingController();
+    _note = TextEditingController();
+
     if (server != null) {
-      _url.text = server.url;
-      _username.text = server.userName;
-      _name.text = server.name;
-      _allowBadCertificate = server.allowBadCertificate;
-      // 已保存的 Token 不复填到密码框：用户改地址才需要重填密码，
-      // 不改的话保存时直接沿用旧 Token。
+      // 地址是拼好的基址，拆回「主机 / 端口 / 路径 / https」四个字段，
+      // 否则用户看到一个整串地址、又没法单独改端口。
+      final Uri? uri = Uri.tryParse(server.url);
+      if (uri != null) {
+        _https = uri.scheme == 'https';
+        _host.text = uri.host;
+        if (uri.hasPort) _port.text = '${uri.port}';
+        _path.text = uri.path.replaceFirst(RegExp(r'^/+'), '');
+      } else {
+        _host.text = server.url;
+      }
+      // 备注和备用线路只存在 LuVaultServer 里，按同一个 id 取回来。
+      for (final v in LuMediaVault.instance.servers) {
+        if (v.id != server.id) continue;
+        _note.text = v.note;
+        _lines = List<LuBackupLine>.of(v.backupLines);
+        _password.text = v.password;
+        break;
+      }
     }
   }
 
   @override
   void dispose() {
-    _url.dispose();
+    _name.dispose();
+    _note.dispose();
+    _host.dispose();
+    _path.dispose();
+    _port.dispose();
     _username.dispose();
     _password.dispose();
-    _name.dispose();
     super.dispose();
   }
 
+  Future<void> _openLines() async {
+    await showBackupLinesSheet(
+      context,
+      lines: _lines,
+      onChanged: (lines) {
+        if (!mounted) return;
+        setState(() => _lines = lines);
+      },
+    );
+  }
+
+  String get _baseUrl => buildBaseUrl(
+        host: _host.text.trim(),
+        path: _path.text.trim(),
+        port: int.tryParse(_port.text.trim()) ?? 0,
+        https: _https,
+      );
+
   Future<void> _save() async {
-    if (_busy || !_formKey.currentState!.validate()) return;
+    if (_busy) return;
     FocusManager.instance.primaryFocus?.unfocus();
+    final host = _host.text.trim();
+    if (host.isEmpty) {
+      setState(() {
+        _failed = true;
+        _message = '请先填主机地址，例如 192.168.1.10';
+      });
+      return;
+    }
+
     setState(() {
       _busy = true;
       _failed = false;
@@ -244,25 +319,35 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
     });
 
     final existing = widget.server;
-    final normalized = normalizeEmbyUrl(_url.text);
+    final String id = existing?.id ?? EmbyService.newServerId();
+    final String baseUrl = _baseUrl;
+    final List<String> backupUrls = [
+      for (final line in _lines)
+        if (line.baseUrl.isNotEmpty) line.baseUrl,
+    ];
+
     try {
-      // 地址没变、密码没填，说明用户只是想改备注或证书开关，沿用旧 Token。
-      final bool reuseToken = existing != null &&
-          existing.url == normalized &&
-          _password.text.isEmpty;
+      // 地址没变、密码也没填 → 只是想改备注：沿用旧 Token，不再登一次。
+      final bool reuseToken =
+          existing != null && existing.url == baseUrl && _password.text.isEmpty;
       if (reuseToken) {
         await _persist(
           existing.copyWith(
             name: _name.text.trim().isEmpty ? existing.name : _name.text.trim(),
-            allowBadCertificate: _allowBadCertificate,
+            allowBadCertificate: true,
+            backupUrls: backupUrls,
           ),
+          id: id,
+          baseUrl: baseUrl,
         );
         return;
       }
 
       final client = EmbyClient(
-        serverUrl: normalized,
-        allowBadCertificate: _allowBadCertificate,
+        serverUrl: baseUrl,
+        // 主线路登不上会自动换备用线路，用户不用先把主线路改对才能存。
+        backupUrls: backupUrls,
+        allowBadCertificate: true,
         deviceId: EmbyService.instance.deviceId,
       );
       final EmbyAuthResult auth;
@@ -277,18 +362,19 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
 
       await _persist(
         EmbyServer(
-          id: existing?.id ?? EmbyService.newServerId(),
+          id: id,
           name: _name.text.trim().isEmpty
               ? auth.serverName
               : _name.text.trim(),
-          url: normalized,
+          url: baseUrl,
           userId: auth.userId,
           userName: auth.userName,
           accessToken: auth.accessToken,
-          allowBadCertificate: _allowBadCertificate,
-          // 这里只是改地址/账号，备用线路列表要保持原样，不能被清空。
-          backupUrls: existing?.backupUrls ?? const <String>[],
+          allowBadCertificate: true,
+          backupUrls: backupUrls,
         ),
+        id: id,
+        baseUrl: baseUrl,
       );
     } catch (e) {
       KazumiLogger().w('Emby: server setup failed', error: e);
@@ -302,183 +388,181 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
     }
   }
 
-  Future<void> _persist(EmbyServer server) async {
+  /// 两边一起写：EmbyService 管播放与接口，LuMediaVault 管资源库卡片和
+  /// 密码 / 备用线路的名字。少写一边就会出现「列表里有、资源库没有」。
+  Future<void> _persist(
+    EmbyServer server, {
+    required String id,
+    required String baseUrl,
+  }) async {
     await EmbyService.instance.upsert(server);
     await EmbyService.instance.setActive(server.id);
+    await LuMediaVault.instance.saveServer(
+      LuVaultServer(
+        id: id,
+        type: 'emby',
+        name: server.name,
+        note: _note.text.trim(),
+        host: _host.text.trim(),
+        path: _path.text.trim(),
+        port: int.tryParse(_port.text.trim()) ?? 0,
+        https: _https,
+        user: _username.text.trim(),
+        password: _password.text,
+        addedAt: widget.server == null
+            ? DateTime.now().millisecondsSinceEpoch
+            : (LuMediaVault.instance.servers
+                    .where((v) => v.id == id)
+                    .map((v) => v.addedAt)
+                    .firstOrNull ??
+                DateTime.now().millisecondsSinceEpoch),
+        backupLines: _lines,
+      ),
+    );
     if (!mounted) return;
     setState(() {
       _busy = false;
       _failed = false;
-      _message = '连接成功';
+      _message = '连接成功 · $baseUrl';
     });
-    // 让用户看到"连接成功"再退回列表。
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await Future<void>.delayed(const Duration(milliseconds: 420));
     if (mounted) Navigator.of(context).maybePop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final dark = PvColors.isDark(context);
     final bool isNew = widget.server == null;
     return PopScope(
       canPop: !_busy,
       child: SettingsDetailScaffold(
         title: Text(isNew ? '添加服务器' : '编辑服务器'),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 640),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Form(
-                    key: _formKey,
-                    onChanged: () {
-                      if (_message != null && !_busy) {
-                        setState(() => _message = null);
-                      }
-                    },
-                    child: NeuSurface(
-                      radius: NeuRadius.card,
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        spacing: 18,
-                        children: [
-                          TextFormField(
-                            controller: _url,
-                            enabled: !_busy,
-                            keyboardType: TextInputType.url,
-                            textInputAction: TextInputAction.next,
-                            autocorrect: false,
-                            decoration: const InputDecoration(
-                              labelText: '服务器地址',
-                              hintText: 'http://192.168.1.10:8096',
-                              border: OutlineInputBorder(),
-                              errorMaxLines: 3,
-                            ),
-                            validator: (value) {
-                              final normalized =
-                                  normalizeEmbyUrl(value ?? '');
-                              if (normalized.isEmpty) {
-                                return '请输入完整地址，例如 http://192.168.1.10:8096';
-                              }
-                              return null;
-                            },
-                          ),
-                          TextFormField(
-                            controller: _username,
-                            enabled: !_busy,
-                            textInputAction: TextInputAction.next,
-                            autocorrect: false,
-                            decoration: const InputDecoration(
-                              labelText: '用户名',
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (value) =>
-                                (value == null || value.trim().isEmpty)
-                                    ? '请填用户名'
-                                    : null,
-                          ),
-                          TextFormField(
-                            controller: _password,
-                            enabled: !_busy,
-                            obscureText: !_passwordVisible,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            onFieldSubmitted: (_) => _save(),
-                            decoration: InputDecoration(
-                              labelText: '密码',
-                              helperText: isNew ? null : '留空则沿用已保存的登录凭据',
-                              border: const OutlineInputBorder(),
-                              suffixIcon: IconButton(
-                                tooltip:
-                                    _passwordVisible ? '隐藏密码' : '显示密码',
-                                onPressed: () => setState(
-                                    () => _passwordVisible = !_passwordVisible),
-                                icon: Icon(_passwordVisible
-                                    ? Icons.visibility_off_rounded
-                                    : Icons.visibility_rounded),
-                              ),
-                            ),
-                            validator: (value) {
-                              if (isNew &&
-                                  (value == null || value.isEmpty)) {
-                                return '请填密码';
-                              }
-                              return null;
-                            },
-                          ),
-                          TextFormField(
-                            controller: _name,
-                            enabled: !_busy,
-                            textInputAction: TextInputAction.done,
-                            decoration: const InputDecoration(
-                              labelText: '备注名（可留空）',
-                              helperText: '留空就用服务器自己的名字',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          SwitchListTile(
-                            value: _allowBadCertificate,
-                            onChanged: _busy
-                                ? null
-                                : (value) => setState(
-                                    () => _allowBadCertificate = value),
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('允许自签证书'),
-                            subtitle: const Text('局域网自建服务器常用自签 HTTPS，开启后才能连上'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  FilledButton.icon(
-                    onPressed: _busy ? null : _save,
-                    icon: const Icon(Icons.login_rounded),
-                    label: Text(_busy ? '正在连接…' : '保存并登录'),
-                  ),
-                  if (_message != null) ...[
-                    const SizedBox(height: 14),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: _failed
-                            ? theme.colorScheme.errorContainer
-                            : theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _failed
-                                ? Icons.error_outline_rounded
-                                : Icons.check_circle_outline_rounded,
-                            size: 20,
-                            color: _failed
-                                ? theme.colorScheme.onErrorContainer
-                                : theme.colorScheme.onPrimaryContainer,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              _message!,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: _failed
-                                    ? theme.colorScheme.onErrorContainer
-                                    : theme.colorScheme.onPrimaryContainer,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+          children: [
+            SheetGroup(dark: dark, children: [
+              SheetFieldRow(
+                dark: dark,
+                label: '名称',
+                hint: 'Name (可选)',
+                controller: _name,
               ),
+              SheetFieldRow(
+                dark: dark,
+                label: '备注',
+                hint: 'Note (可选)',
+                controller: _note,
+              ),
+            ]),
+            SheetGroupLabel(dark: dark, text: '服务器地址'),
+            SheetGroup(dark: dark, children: [
+              SheetFieldRow(
+                dark: dark,
+                label: '主机',
+                hint: 'Host (必填)',
+                controller: _host,
+                keyboard: TextInputType.url,
+              ),
+              SheetFieldRow(
+                dark: dark,
+                label: '路径',
+                hint: 'Path (可选)',
+                controller: _path,
+              ),
+              SheetFieldRow(
+                dark: dark,
+                label: '端口',
+                hint: 'Port (可选)',
+                controller: _port,
+                keyboard: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              ),
+              SheetSwitchRow(
+                dark: dark,
+                label: 'https',
+                value: _https,
+                onChanged: _busy
+                    ? (_) {}
+                    : (v) => setState(() => _https = v),
+              ),
+            ]),
+            SheetGroupLabel(dark: dark, text: '登录信息'),
+            SheetGroup(dark: dark, children: [
+              SheetFieldRow(
+                dark: dark,
+                label: '用户',
+                hint: 'Username (可选)',
+                controller: _username,
+              ),
+              SheetFieldRow(
+                dark: dark,
+                label: '密码',
+                hint: isNew ? 'Password' : '留空沿用已保存凭据',
+                controller: _password,
+                obscure: !_passwordVisible,
+                suffix: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () =>
+                      setState(() => _passwordVisible = !_passwordVisible),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(
+                      _passwordVisible
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 17,
+                      color: const Color(0xFF007AFF),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+            SheetGroup(dark: dark, children: [
+              SheetArrowRow(
+                dark: dark,
+                label: '备用线路',
+                value: _lines.isEmpty ? '未设置' : '${_lines.length} 条',
+                onTap: _busy ? () {} : _openLines,
+              ),
+              SheetArrowRow(
+                dark: dark,
+                label: '高级设置',
+                expanded: _advanced,
+                onTap: () => setState(() => _advanced = !_advanced),
+              ),
+              if (_advanced)
+                SheetNestedSwitchRow(
+                  dark: dark,
+                  title: 'STRM 优先使用原始路径播放',
+                  subtitle: '如果你不清楚作用，请不要开启!',
+                  value: _strm,
+                  onChanged: (v) => setState(() => _strm = v),
+                ),
+            ]),
+            SheetHint(
+              dark: dark,
+              text: '主线路登录失败时会依次尝试备用线路，保存成功后自动切到这台服务器。',
             ),
-          ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: _busy ? null : _save,
+              icon: const Icon(Icons.login_rounded),
+              label: Text(_busy ? '正在连接…' : '保存并登录'),
+            ),
+            if (_message.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                _message,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: _failed
+                      ? const Color(0xFFC0392B)
+                      : const Color(0xFF2E7D32),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
