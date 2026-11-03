@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -15,6 +17,8 @@ import 'package:XL/services/emby/emby_stream_resolver.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/emby/emby_subtitle_picker.dart';
 import 'package:XL/services/emby/emby_watch_log.dart';
+import 'package:XL/services/player/avplayer_engine.dart';
+import 'package:XL/services/player/emby_srt.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/services/video_source/video_source_format.dart';
@@ -185,6 +189,38 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 能不能重建会话」。
   bool _isHls = false;
 
+  /// 当前条目是不是本地/相册直链（不走 Emby 服务器）。
+  bool _isLocalDirect = false;
+
+  // ------------------------------------------------------------ AVPlayer 内核
+
+  /// 非空表示当前这条流走的是 iOS AVPlayer 内核（转码 HLS 优先），
+  /// null 表示 media_kit/mpv。所有引擎相关分支都看它。
+  AvPlayerEngine? _av;
+
+  bool get isAvBackend => _av != null;
+
+  /// AV 路径的画面纹理 id；页面用它渲染 `Texture`。
+  int? get avTextureId {
+    final engine = _av;
+    return (engine != null && engine.ready) ? engine.textureId : null;
+  }
+
+  /// AV 路径的当前字幕文本（Dart 层渲染，跟着 position 走）。
+  String avSubtitleText = '';
+
+  List<SrtCue> _avCues = const [];
+  bool _avCompletedHandled = false;
+
+  /// 内核偏好：`auto` / `av` / `mpv`（见 [SettingsKeys.embyIosKernel]）。
+  bool _shouldUseAv() {
+    if (!Platform.isIOS) return false;
+    final pref = GStorage.getSetting(SettingsKeys.embyIosKernel);
+    if (pref == 'mpv') return false;
+    if (pref == 'av') return !_isLocalDirect;
+    return _isHls;
+  }
+
   /// 当前条目解析出的片头 / 片尾位置。
   Duration? _introStart;
   Duration? _introEnd;
@@ -199,7 +235,7 @@ class EmbyPlayerController extends ChangeNotifier {
 
   /// 解码方式。media_kit 在移动端会走硬解，桌面端视平台而定，
   /// 这里只按平台给一个大致标签，不假装精确。
-  String get decodeLabel => decodeMode.label;
+  String get decodeLabel => _av != null ? 'AVPlayer 硬解' : decodeMode.label;
 
   /// 形如 `1920×1080`，拿不到时返回空串。
   String get resolutionLabel =>
@@ -270,7 +306,7 @@ class EmbyPlayerController extends ChangeNotifier {
     if (target == _index &&
         !loading &&
         error.isEmpty &&
-        playback.mediaPlayer != null) {
+        (playback.mediaPlayer != null || _av != null)) {
       return;
     }
     await _open(target);
@@ -298,6 +334,8 @@ class EmbyPlayerController extends ChangeNotifier {
     if (direct != null && direct.isNotEmpty) {
       _url = direct;
       _mediaSourceId = null;
+      _isHls = false;
+      _isLocalDirect = true;
       _introStart = null;
       _introEnd = null;
       _outroStart = null;
@@ -309,6 +347,7 @@ class EmbyPlayerController extends ChangeNotifier {
       importedSubtitleTracks = const [];
       streamModeLabel = '本地文件';
     } else {
+      _isLocalDirect = false;
       final resolution = await EmbyStreamResolver.resolve(
         client: _client,
         itemId: item.id,
@@ -362,6 +401,13 @@ class EmbyPlayerController extends ChangeNotifier {
 
     // 服务端记着上次看到哪，直接接着播。
     final startAt = item.resumePosition?.inSeconds ?? 0;
+
+    // iOS + 转码（HLS）优先走 AVPlayer：原生硬解、HDR、seek 稳；其余照旧
+    // media_kit（mpv）。设置里可以强制指定内核做兜底。
+    if (_shouldUseAv()) {
+      await _openAv(startAt);
+      return;
+    }
 
     final player = await playback.createVideoController(
       {
@@ -469,6 +515,131 @@ class EmbyPlayerController extends ChangeNotifier {
     videoHeight = player.state.height ?? 0;
   }
 
+  // ------------------------------------------------------------ AVPlayer 路径
+
+  Future<void> _openAv(int startAt) async {
+    final engine = AvPlayerEngine();
+    try {
+      await engine.create();
+    } catch (_) {
+      loading = false;
+      error = 'AVPlayer 初始化失败，可在串流设置里把内核切回 mpv';
+      _notify();
+      return;
+    }
+    if (_disposed) {
+      await engine.dispose();
+      return;
+    }
+    _av = engine;
+    _avCompletedHandled = false;
+    _avCues = const [];
+    avSubtitleText = '';
+    engine.addListener(_onAvChanged);
+    await engine.open(
+      _url,
+      // HLS 的分片请求会继承这些头，只靠地址上的 api_key 不够。
+      headers: {
+        'X-Emby-Token': launch.server.accessToken,
+        'Authorization': 'MediaBrowser Token="${launch.server.accessToken}"',
+      },
+    );
+    if (startAt > 0) {
+      await engine.seek(Duration(seconds: startAt));
+    }
+    loading = false;
+    _notify();
+
+    unawaited(_applyDefaultSubtitle());
+    unawaited(_reportStart());
+    unawaited(_logWatch());
+    _startProgressTimer();
+    _scheduleHideControls();
+  }
+
+  /// 把 AVPlayer 引擎的状态灌进控制器的可观察字段——和 mpv 的
+  /// `_attachStreams` 做的是同一件事，只是源从十几条流变成一个 ChangeNotifier。
+  void _onAvChanged() {
+    final engine = _av;
+    if (engine == null || _disposed) return;
+    position = engine.position;
+    duration = engine.duration;
+    buffer = engine.buffer;
+    if (playing != engine.playing && engine.playing) {
+      _scheduleHideControls();
+    }
+    playing = engine.playing;
+    buffering = engine.buffering;
+    if (engine.completed && !_avCompletedHandled) {
+      _avCompletedHandled = true;
+      completed = true;
+      _handleCompleted();
+    } else if (!engine.completed) {
+      completed = false;
+    }
+    videoWidth = engine.videoWidth;
+    videoHeight = engine.videoHeight;
+    audioTracks = [
+      // AV 的轨 id 就是 AVMediaSelectionGroup 的下标，select 时原样传回去。
+      // 这个 fork 的 AudioTrack 是位置参数（id/title/language）。
+      for (final t in engine.audioTracks) AudioTrack(t.id, t.title, t.language),
+    ];
+    // 面板要高亮「当前音轨」；AVPlayer 默认走第一轨，给它补上标记。
+    if (currentAudio == null && audioTracks.isNotEmpty) {
+      currentAudio = audioTracks.first;
+    }
+    // 内嵌字幕（HLS 里的 mov_text 等）AVPlayerItemVideoOutput 的像素缓冲里
+    // 不带渲染结果，列出来也看不了，干脆不进面板；外挂字幕走 _loadAvSubtitle。
+    _updateAvSubtitleText();
+    _notify();
+  }
+
+  void _updateAvSubtitleText() {
+    if (_avCues.isEmpty) {
+      if (avSubtitleText.isNotEmpty) avSubtitleText = '';
+      return;
+    }
+    final offset = Duration(
+      milliseconds: (subtitleSettings.delay * 1000).round(),
+    );
+    final cue = srtCueAt(_avCues, position - offset);
+    final text = cue?.text ?? '';
+    if (text != avSubtitleText) avSubtitleText = text;
+  }
+
+  /// AV 路径挂字幕：srt/vtt/ass 都让服务器按 `Stream.srt` 交付（服务端会转），
+  /// 拉回来在 Dart 里解析、跟着 position 显示。本地导入的文件直接读。
+  Future<void> _loadAvSubtitle(SubtitleTrack track) async {
+    _avCues = const [];
+    avSubtitleText = '';
+    currentSubtitle = track;
+    _notify();
+    try {
+      final String raw;
+      // uri 轨的地址存在 id 里（SubtitleTrack.uri(url) → id = url）。
+      final source = track.id;
+      if (source.startsWith('http')) {
+        final client = HttpClient()
+          ..connectionTimeout = const Duration(seconds: 12);
+        final request = await client.getUrl(Uri.parse(source));
+        final response = await request.close();
+        raw = await response.transform(utf8.decoder).join();
+        client.close();
+      } else {
+        raw = await File(source).readAsString();
+      }
+      final cues = parseSrt(raw);
+      if (cues.isEmpty) {
+        currentSubtitle = SubtitleTrack.no();
+      } else {
+        _avCues = cues;
+      }
+    } catch (_) {
+      currentSubtitle = SubtitleTrack.no();
+    }
+    _notify();
+  }
+
   void _handleCompleted() {
     // 定时「播完当前后停止」。
     if (sleepMode == 1) {
@@ -521,6 +692,22 @@ class EmbyPlayerController extends ChangeNotifier {
   // ------------------------------------------------------------ 控制
 
   Future<void> togglePlay() async {
+    // AV 路径。
+    final engine = _av;
+    if (engine != null) {
+      final bool wasPlaying = playing;
+      playing = !wasPlaying;
+      _notify();
+      if (wasPlaying) {
+        await engine.pause();
+      } else {
+        if (engine.completed) {
+          await engine.seek(Duration.zero);
+        }
+        await engine.play();
+      }
+      return;
+    }
     final player = playback.mediaPlayer;
     if (player == null) return;
     final bool wasPlaying = player.state.playing;
@@ -541,14 +728,21 @@ class EmbyPlayerController extends ChangeNotifier {
   }
 
   Future<void> seek(Duration target, {bool user = true}) async {
-    final player = playback.mediaPlayer;
-    if (player == null) return;
     var clamped = target;
     if (clamped < Duration.zero) clamped = Duration.zero;
     if (duration > Duration.zero && clamped > duration) clamped = duration;
     position = clamped;
     _notify();
     if (user) _lastUserSeek = DateTime.now();
+    // AV 路径：AVPlayer 对 HLS seek 本来就稳（等切片是原生行为），
+    // 不需要 mpv 那套落点校验 + 会话重建。
+    final engine = _av;
+    if (engine != null) {
+      await engine.seek(clamped);
+      return;
+    }
+    final player = playback.mediaPlayer;
+    if (player == null) return;
     await player.seek(clamped);
     // 转码（HLS）的流向前 seek 可能落到「还没转出来的切片」上，mpv 会静默
     // 失败——用户看到的就是「快进没反应」。落点校验一次：没到位就重试，
@@ -601,6 +795,13 @@ class EmbyPlayerController extends ChangeNotifier {
   Future<void> seekBy(Duration delta) => seek(position + delta);
 
   Future<void> setSpeed(double value) async {
+    final engine = _av;
+    if (engine != null) {
+      await engine.setRate(value);
+      speed = value;
+      _notify();
+      return;
+    }
     final player = playback.mediaPlayer;
     if (player == null) return;
     await player.setRate(value);
@@ -621,9 +822,15 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 实际送给播放器的音量 = 用户音量 × 增益。桌面端 MPV 允许 >100 实现放大，
   /// 移动端会被 ExoPlayer 截到 100（增益上限受平台限制）。
   Future<void> _applyVolume() async {
-    final player = playback.mediaPlayer;
     volume = (baseVolume * audioGain).clamp(0, 1000);
-    if (player != null) await player.setVolume(volume);
+    final engine = _av;
+    if (engine != null) {
+      // AVPlayer 音量上限 1.0，增益放大在移动端本来就受限。
+      await engine.setVolume(volume / 100);
+    } else {
+      final player = playback.mediaPlayer;
+      if (player != null) await player.setVolume(volume);
+    }
     _notify();
   }
 
@@ -641,12 +848,37 @@ class EmbyPlayerController extends ChangeNotifier {
   }
 
   Future<void> selectAudio(AudioTrack track) async {
+    final engine = _av;
+    if (engine != null) {
+      await engine.selectAudioTrack(track.id);
+      currentAudio = track;
+      _notify();
+      return;
+    }
     final player = playback.mediaPlayer;
     if (player == null) return;
     await player.setAudioTrack(track);
   }
 
   Future<void> selectSubtitle(SubtitleTrack track) async {
+    // AV 路径：'no' 清空；其余都是 uri 轨，拉文本自己渲染。
+    final engine = _av;
+    if (engine != null) {
+      if (track.id == 'no') {
+        _avCues = const [];
+        avSubtitleText = '';
+        currentSubtitle = SubtitleTrack.no();
+        _notify();
+        return;
+      }
+      // 用户手动挑了一条，就把他之前的「永久禁用」解开。
+      final item = current;
+      if (item != null && EmbyStreamPrefs.isSubtitleDisabled(item.id)) {
+        unawaited(EmbyStreamPrefs.setSubtitleDisabled(item.id, false));
+      }
+      await _loadAvSubtitle(track);
+      return;
+    }
     final player = playback.mediaPlayer;
     if (player == null) return;
     // 用户手动挑了一条，就把他之前的「永久禁用」解开——不然下一集又自动关掉，
@@ -692,11 +924,29 @@ class EmbyPlayerController extends ChangeNotifier {
 
   /// 本地导入字幕文件（srt / ass / vtt…），立刻挂上。
   Future<bool> importSubtitle(String path, {String? title}) async {
-    final player = playback.mediaPlayer;
-    if (player == null || path.isEmpty) return false;
+    if (path.isEmpty) return false;
     final label = (title == null || title.trim().isEmpty)
         ? path.split(RegExp(r'[\\/]')).last
         : title;
+    // AV 路径：读文件 → 解析 → Dart 层渲染。ass 的排版指令会被剥掉，
+    // 留纯文本。
+    if (_av != null) {
+      try {
+        final cues = parseSrt(await File(path).readAsString());
+        if (cues.isEmpty) return false;
+        final track = SubtitleTrack.uri(path, title: label);
+        importedSubtitleTracks = [...importedSubtitleTracks, track];
+        _avCues = cues;
+        avSubtitleText = '';
+        currentSubtitle = track;
+        _notify();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    final player = playback.mediaPlayer;
+    if (player == null) return false;
     final track = SubtitleTrack.uri(path, title: label);
     importedSubtitleTracks = [...importedSubtitleTracks, track];
     await player.setSubtitleTrack(track);
@@ -760,6 +1010,9 @@ class EmbyPlayerController extends ChangeNotifier {
     String itemId,
     List<EmbyMediaStream> streams,
   ) => [
+    // codec 一律传空 → 服务器按 Stream.srt 交付：mpv 这边本来就只吃文本
+    // 字幕（libass=false），AV 路径的 Dart 解析器也只认 srt，原生 ass 反而
+    // 两边都用不上，还得靠服务端转。
     for (final s in streams)
       SubtitleTrack.uri(
         embySubtitleUrl(
@@ -767,7 +1020,7 @@ class EmbyPlayerController extends ChangeNotifier {
           itemId: itemId,
           index: s.index,
           mediaSourceId: _mediaSourceId,
-          codec: s.codec,
+          codec: null,
           accessToken: launch.server.accessToken,
         ),
         title: s.label,
@@ -1050,6 +1303,17 @@ class EmbyPlayerController extends ChangeNotifier {
     _progressTimer?.cancel();
     _autoNextTimer?.cancel();
     _cancelSubscriptions();
+    // AV 路径先退场。
+    final engine = _av;
+    if (engine != null) {
+      _av = null;
+      engine.removeListener(_onAvChanged);
+      _avCues = const [];
+      avSubtitleText = '';
+      await _reportStopped();
+      await engine.dispose();
+      return;
+    }
     if (playback.mediaPlayer != null) {
       await _reportStopped();
       await playback.stop();
@@ -1077,6 +1341,10 @@ class EmbyPlayerController extends ChangeNotifier {
     _autoNextTimer?.cancel();
     _cancelSleepTimer();
     _cancelSubscriptions();
+    final engine = _av;
+    _av = null;
+    engine?.removeListener(_onAvChanged);
+    unawaited(engine?.dispose());
     unawaited(_reportStopped());
     unawaited(playback.stop());
     super.dispose();

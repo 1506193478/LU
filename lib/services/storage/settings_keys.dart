@@ -106,6 +106,7 @@ class SettingsKeys {
     true,
     group: SettingGroup.danmaku,
   );
+
   /// Off on desktop and on on mobile, like the B 站 client.
   static final pauseOnDanmakuEdit = SettingKey<bool>(
     'pauseOnDanmakuEdit',
@@ -226,6 +227,7 @@ class SettingsKeys {
     true,
     group: SettingGroup.danmaku,
   );
+
   /// 内容沉浸型界面默认深色；手机端拟态风默认浅色。
   ///
   /// 拟态的光影逻辑在浅色下更像"一块被压出来的材料"，深色下反而容易糊；
@@ -368,6 +370,7 @@ class SettingsKeys {
     false,
     group: SettingGroup.player,
   );
+
   /// 自定义规则仓库地址（留空用官方仓库）。
   ///
   /// 填一个以 / 结尾的地址，程序会去取它下面的 index.json。
@@ -402,6 +405,7 @@ class SettingsKeys {
     false,
     group: SettingGroup.theme,
   );
+
   /// 无边框窗口（只对 Windows 生效）。
   ///
   /// 打开后窗口去掉系统标题栏，由 [WindowShell] 接管八向缩放热区和窗口按钮。
@@ -419,6 +423,7 @@ class SettingsKeys {
     false,
     group: SettingGroup.theme,
   );
+
   /// 一次性迁移标记：这一版把默认主色换成固定紫色，需要把老用户身上
   /// 开着的「动态取色」关掉一次（否则主色会跟着系统强调色变，与设计不一致）。
   static const uiAccentMigrated = SettingKey<bool>(
@@ -810,6 +815,7 @@ class SettingsKeys {
     embyStreamBitrate,
     embySubtitleLanguage,
     embySubtitleDisabledIds,
+    embyIosKernel,
   ];
 
   /// Emby / Jellyfin 服务器列表，整份 JSON 数组存在这里。
@@ -860,6 +866,14 @@ class SettingsKeys {
     group: SettingGroup.emby,
   );
 
+  /// iOS 播放内核：`auto`（转码 HLS 走 AVPlayer，其余 mpv）/ `av`（强制
+  /// AVPlayer）/ `mpv`（强制 libmpv，出问题时手动回退）。
+  static const embyIosKernel = SettingKey<String>(
+    _SettingBoxKey.embyIosKernel,
+    'auto',
+    group: SettingGroup.emby,
+  );
+
   /// 首选字幕语言（三字码，`chi` / `eng` / 空=不指定）。
   static const embySubtitleLanguage = SettingKey<String>(
     _SettingBoxKey.embySubtitleLanguage,
@@ -880,7 +894,7 @@ class SettingsKeys {
   static List<SettingKey<Object?>> byGroup(SettingGroup group) {
     return [
       for (final key in all)
-        if (key.group == group) key
+        if (key.group == group) key,
     ];
   }
 
@@ -991,5 +1005,6 @@ class _SettingBoxKey {
       embyStreamMode = 'embyStreamMode',
       embyStreamBitrate = 'embyStreamBitrate',
       embySubtitleLanguage = 'embySubtitleLanguage',
-      embySubtitleDisabledIds = 'embySubtitleDisabledIds';
+      embySubtitleDisabledIds = 'embySubtitleDisabledIds',
+      embyIosKernel = 'embyIosKernel';
 }

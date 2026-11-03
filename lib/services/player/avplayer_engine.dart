@@ -60,7 +60,12 @@ class AvPlayerEngine extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> open(String url) async {
+  /// [headers] 会经 `AVURLAssetHTTPHeaderFieldsKey` 传给 AVURLAsset——HLS 的
+  /// 分片请求也会继承这些头，Emby 转码流光靠地址上的 api_key 不一定够。
+  Future<void> open(
+    String url, {
+    Map<String, String> headers = const {},
+  }) async {
     error = '';
     completed = false;
     buffering = true;
@@ -69,7 +74,10 @@ class AvPlayerEngine extends ChangeNotifier {
     buffer = Duration.zero;
     playing = false;
     notifyListeners();
-    await _channel.invokeMethod<void>('open', url);
+    await _channel.invokeMethod<void>('open', <String, dynamic>{
+      'url': url,
+      'headers': headers,
+    });
   }
 
   Future<void> play() async {

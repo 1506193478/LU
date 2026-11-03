@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/services/storage/storage.dart';
 
 /// 「转码与串流」：决定 Emby 这一条片子是原盘直连还是服务器转码。
 ///
@@ -21,6 +24,7 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
   EmbyStreamMode _mode = EmbyStreamMode.auto;
   int _bitrate = 0;
   EmbyServer? _server;
+  String _kernel = 'auto';
 
   @override
   void initState() {
@@ -28,6 +32,12 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
     _mode = EmbyStreamPrefs.mode;
     _bitrate = EmbyStreamPrefs.bitrateMbps;
     _server = EmbyService.instance.activeServer;
+    _kernel = GStorage.getSetting(SettingsKeys.embyIosKernel);
+  }
+
+  Future<void> _setKernel(String value) async {
+    setState(() => _kernel = value);
+    await GStorage.putSetting(SettingsKeys.embyIosKernel, value);
   }
 
   Future<void> _setMode(EmbyStreamMode mode) async {
@@ -50,8 +60,11 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded,
-              size: 20, color: PvColors.ink(context)),
+          icon: Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 20,
+            color: PvColors.ink(context),
+          ),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
         title: Text(
@@ -69,30 +82,34 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
         padding: const EdgeInsets.only(top: 4, bottom: 40),
         children: [
           const PvGroupLabel('串流方式'),
-          PvGroup(children: [
-            for (var i = 0; i < EmbyStreamMode.values.length; i++)
-              _RadioRow(
-                title: EmbyStreamMode.values[i].label,
-                subtitle: EmbyStreamMode.values[i].description,
-                selected: _mode == EmbyStreamMode.values[i],
-                showDivider: i != EmbyStreamMode.values.length - 1,
-                onTap: () => _setMode(EmbyStreamMode.values[i]),
-              ),
-          ]),
+          PvGroup(
+            children: [
+              for (var i = 0; i < EmbyStreamMode.values.length; i++)
+                _RadioRow(
+                  title: EmbyStreamMode.values[i].label,
+                  subtitle: EmbyStreamMode.values[i].description,
+                  selected: _mode == EmbyStreamMode.values[i],
+                  showDivider: i != EmbyStreamMode.values.length - 1,
+                  onTap: () => _setMode(EmbyStreamMode.values[i]),
+                ),
+            ],
+          ),
           const PvGroupLabel('转码画质上限'),
-          PvGroup(children: [
-            for (var i = 0; i < embyBitratePresets.length; i++)
-              _RadioRow(
-                title: embyBitrateLabel(embyBitratePresets[i]),
-                subtitle: embyBitratePresets[i] == 0
-                    ? '服务器按自己的策略挑，通常等于原片码率'
-                    : _bitrateHint(embyBitratePresets[i]),
-                selected: _bitrate == embyBitratePresets[i],
-                enabled: _mode != EmbyStreamMode.direct,
-                showDivider: i != embyBitratePresets.length - 1,
-                onTap: () => _setBitrate(embyBitratePresets[i]),
-              ),
-          ]),
+          PvGroup(
+            children: [
+              for (var i = 0; i < embyBitratePresets.length; i++)
+                _RadioRow(
+                  title: embyBitrateLabel(embyBitratePresets[i]),
+                  subtitle: embyBitratePresets[i] == 0
+                      ? '服务器按自己的策略挑，通常等于原片码率'
+                      : _bitrateHint(embyBitratePresets[i]),
+                  selected: _bitrate == embyBitratePresets[i],
+                  enabled: _mode != EmbyStreamMode.direct,
+                  showDivider: i != embyBitratePresets.length - 1,
+                  onTap: () => _setBitrate(embyBitratePresets[i]),
+                ),
+            ],
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(32, 2, 32, 18),
             child: Text(
@@ -106,26 +123,67 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
               ),
             ),
           ),
+          if (Platform.isIOS) ...[
+            const PvGroupLabel('iOS 播放内核'),
+            PvGroup(
+              children: [
+                _RadioRow(
+                  title: '自动（推荐）',
+                  subtitle: '服务器转码（HLS）走 AVPlayer 原生硬解，直连和本地文件走 mpv',
+                  selected: _kernel == 'auto',
+                  onTap: () => _setKernel('auto'),
+                ),
+                _RadioRow(
+                  title: 'AVPlayer 优先',
+                  subtitle: '除本地文件外都走 AVPlayer。系统级硬解，字幕以外挂/搜索为主',
+                  selected: _kernel == 'av',
+                  onTap: () => _setKernel('av'),
+                ),
+                _RadioRow(
+                  title: 'libmpv',
+                  subtitle: '全部走 mpv。AVPlayer 播不了的片源在这里手动回退',
+                  selected: _kernel == 'mpv',
+                  showDivider: false,
+                  onTap: () => _setKernel('mpv'),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 2, 32, 18),
+              child: Text(
+                'AVPlayer 的画质由系统硬解接管（HDR 自动生效）；它不支持'
+                '「内嵌字幕直接渲染」，选字幕走外挂或字幕搜索即可。改动下一次'
+                '起播生效。',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.5,
+                  color: PvColors.ink3(context),
+                ),
+              ),
+            ),
+          ],
           const PvGroupLabel('当前服务器'),
-          PvGroup(children: [
-            PvRow(
-              icon: Icons.dns_rounded,
-              iconColor: const Color(0xFF34C759),
-              title: server?.name ?? '还没有服务器',
-              subtitle: server == null ? '先去「媒体库管理」连一台' : server.url,
-              trailing: PvRowTrailing.none,
-            ),
-            PvRow(
-              icon: Icons.swap_vert_rounded,
-              iconColor: const Color(0xFF5E5CE6),
-              title: '当前方式',
-              value: _mode == EmbyStreamMode.direct
-                  ? '原盘直连'
-                  : '${_mode.label}${_bitrate > 0 && _mode != EmbyStreamMode.direct ? ' · ${embyBitrateLabel(_bitrate)}' : ''}',
-              trailing: PvRowTrailing.none,
-              showDivider: false,
-            ),
-          ]),
+          PvGroup(
+            children: [
+              PvRow(
+                icon: Icons.dns_rounded,
+                iconColor: const Color(0xFF34C759),
+                title: server?.name ?? '还没有服务器',
+                subtitle: server == null ? '先去「媒体库管理」连一台' : server.url,
+                trailing: PvRowTrailing.none,
+              ),
+              PvRow(
+                icon: Icons.swap_vert_rounded,
+                iconColor: const Color(0xFF5E5CE6),
+                title: '当前方式',
+                value: _mode == EmbyStreamMode.direct
+                    ? '原盘直连'
+                    : '${_mode.label}${_bitrate > 0 && _mode != EmbyStreamMode.direct ? ' · ${embyBitrateLabel(_bitrate)}' : ''}',
+                trailing: PvRowTrailing.none,
+                showDivider: false,
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.fromLTRB(32, 0, 32, 24),
@@ -191,8 +249,9 @@ class _RadioRow extends StatelessWidget {
                       title,
                       style: TextStyle(
                         fontSize: 15,
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
                         letterSpacing: -0.15,
                         color: ink,
                       ),
@@ -211,8 +270,7 @@ class _RadioRow extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               if (selected)
-                const Icon(Icons.check_rounded,
-                    size: 19, color: PvColors.blue),
+                const Icon(Icons.check_rounded, size: 19, color: PvColors.blue),
             ],
           ),
         ),

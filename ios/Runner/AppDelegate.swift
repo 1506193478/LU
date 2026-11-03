@@ -218,7 +218,7 @@ import app_links
         case "create":
             createTexture(result)
         case "open":
-            open(url: call.arguments as? String ?? "", result: result)
+            open(arguments: call.arguments, result: result)
         case "play":
             player?.play(); result(nil)
         case "pause":
@@ -262,14 +262,36 @@ import app_links
         result(Int64(textureId))
     }
 
-    private func open(url: String, result: @escaping FlutterResult) {
-        guard let registrar = registrar, textureId >= 0, let uri = URL(string: url) else {
+    private func open(arguments: Any?, result: @escaping FlutterResult) {
+        // 兼容两种参数：旧版纯 String；现在 [url, headers]（HLS 分片要带
+        // X-Emby-Token，光靠地址上的 api_key 不够）。
+        var urlString = ""
+        var headers: [String: String] = [:]
+        if let dict = arguments as? [String: Any] {
+            urlString = dict["url"] as? String ?? ""
+            if let raw = dict["headers"] as? [String: String] {
+                headers = raw
+            }
+        } else if let s = arguments as? String {
+            urlString = s
+        }
+        open(urlString: urlString, headers: headers, result: result)
+    }
+
+    private func open(urlString: String, headers: [String: String], result: @escaping FlutterResult) {
+        guard let registrar = registrar, textureId >= 0, let uri = URL(string: urlString) else {
             result(FlutterError(code: "avplayer", message: "texture not created or bad url", details: nil))
             return
         }
         teardownPlayerOnly()
 
-        let item = AVPlayerItem(url: uri)
+        let asset: AVURLAsset
+        if headers.isEmpty {
+            asset = AVURLAsset(url: uri)
+        } else {
+            asset = AVURLAsset(url: uri, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+        }
+        let item = AVPlayerItem(asset: asset)
         let newPlayer = AVPlayer(playerItem: item)
         player = newPlayer
 

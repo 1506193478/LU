@@ -10,7 +10,6 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_panels.dart';
@@ -934,6 +933,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   }
 
   Widget _buildVideoSurface() {
+    // AVPlayer 内核（iOS 转码流）：原生纹理 + Dart 层字幕。
+    final textureId = controller.avTextureId;
+    if (textureId != null) {
+      return _buildAvSurface(textureId);
+    }
     final videoController = controller.videoController;
     if (videoController == null) {
       return const ColoredBox(color: Colors.black);
@@ -955,6 +959,94 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     }
     if (_zoom > 1.001) {
       // 双指放大：先缩放再平移，裁掉越界的部分，不然会画到控制条上去。
+      output = ClipRect(
+        child: Transform.translate(
+          offset: _zoomOffset,
+          child: Transform.scale(scale: _zoom, child: output),
+        ),
+      );
+    }
+    return output;
+  }
+
+  /// AVPlayer 内核的画面层：Texture 渲染 + 自绘字幕 overlay。
+  ///
+  /// 字幕样式刻意和 mpv 路径的 [_subtitleViewConfig] 保持同一套
+  /// （透明底 + 八向描边 + 缩放 + 垂直偏移），两条路径看起来是一个播放器。
+  Widget _buildAvSurface(int textureId) {
+    final double w = controller.videoWidth.toDouble();
+    final double h = controller.videoHeight.toDouble();
+    final Widget video = (w > 0 && h > 0)
+        ? Center(
+            child: AspectRatio(
+              aspectRatio: w / h,
+              child: Texture(textureId: textureId),
+            ),
+          )
+        // 尺寸事件还没到：先全屏铺，第一帧到了自然按比例收。
+        : SizedBox.expand(child: Texture(textureId: textureId));
+
+    final s = controller.subtitleSettings;
+    final double opacity = s.opacity.clamp(0.0, 1.0);
+    final double scale = s.scale.clamp(0.5, 2.0);
+    final Color halo = Colors.black.withValues(alpha: 0.62 * opacity);
+    const List<Offset> ring = [
+      Offset(-1.6, -1.6),
+      Offset(1.6, -1.6),
+      Offset(-1.6, 1.6),
+      Offset(1.6, 1.6),
+      Offset(0, -2.2),
+      Offset(0, 2.2),
+      Offset(-2.2, 0),
+      Offset(2.2, 0),
+    ];
+
+    final Widget child = ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          video,
+          if (controller.avSubtitleText.isNotEmpty)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  22,
+                  0,
+                  22,
+                  18 + s.verticalOffset * 2.6,
+                ),
+                child: Text(
+                  controller.avSubtitleText,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: opacity),
+                    fontSize: 30 * scale,
+                    height: 1.26,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                    backgroundColor: Colors.transparent,
+                    shadows: [
+                      for (final o in ring)
+                        Shadow(offset: o, blurRadius: 2.6, color: halo),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+
+    Widget output = child;
+    final ratio = _videoAspect;
+    if (ratio != null) {
+      output = Center(
+        child: AspectRatio(aspectRatio: ratio, child: child),
+      );
+    }
+    if (_zoom > 1.001) {
       output = ClipRect(
         child: Transform.translate(
           offset: _zoomOffset,
