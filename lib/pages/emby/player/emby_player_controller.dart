@@ -238,6 +238,21 @@ class EmbyPlayerController extends ChangeNotifier {
   /// mpv 这次 open 的时间，用于判断「开播不久就失败」。
   DateTime? _mpvOpenedAt;
 
+  /// AVPlayer 最后一次失败的原因。回退 mpv 后如果 mpv 也失败，
+  /// 两边原因一起显示——一张截图就能看出坏在哪条路。
+  String _lastAvError = '';
+
+  /// 把引擎原始错误压成一行可读的（Exception 壳、堆栈都去掉）。
+  String _shortError(Object e) {
+    var s = e.toString().trim();
+    s = s.replaceFirst(
+      RegExp(r'^(Exception|PlatformException)\s*\(?.*?:\s*'),
+      '',
+    );
+    if (s.length > 160) s = '${s.substring(0, 160)}…';
+    return s;
+  }
+
   /// 当前条目解析出的片头 / 片尾位置。
   Duration? _introStart;
   Duration? _introEnd;
@@ -322,6 +337,7 @@ class EmbyPlayerController extends ChangeNotifier {
     // 用户主动换集：上一集的降级记录不带走，每集都有完整的一轮机会。
     if (target != _index) {
       _preferTranscodeRetry = false;
+      _lastAvError = '';
     }
     // 已经在放这一条：重复点同一集不该重启引擎。失败状态下允许重来。
     if (target == _index &&
@@ -540,20 +556,32 @@ class EmbyPlayerController extends ChangeNotifier {
       _notify();
     });
     bind(player.stream.error, (Object e) {
-      // mpv 起播就失败（识别不了格式 / 打不开）：直连流在个别平台上会
-      // 遇到这种情况（iOS 上 libmpv 的容器支持与桌面/Android 不完全一致）。
-      // 自动降级成转码流重试一次——服务器转出来的 H264/AAC 哪都能播。
-      if (_disposed || _mpvDowngradeTried || _isLocalDirect) return;
-      if (_isHls) return; // 转码流失败不在这降级，另有 _reopenAt 兜底。
+      if (_disposed) return;
+      final String raw = _shortError(e);
       final openedAt = _mpvOpenedAt;
-      if (openedAt == null ||
-          DateTime.now().difference(openedAt) > const Duration(seconds: 12)) {
+      final bool justOpened =
+          openedAt != null &&
+          DateTime.now().difference(openedAt) <= const Duration(seconds: 12);
+      // 直连 + 开播初期：自动降级成转码重试一次（转码出来的 H264/AAC
+      // 哪个平台都能播）。转码流失败不在这降级，走下面的错误显示。
+      if (!_mpvDowngradeTried && !_isLocalDirect && !_isHls && justOpened) {
+        _mpvDowngradeTried = true;
+        _preferTranscodeRetry = true;
+        KazumiLogger().w('EmbyPlayer: 直连打不开，自动降级转码重试 ($raw)');
+        unawaited(_open(_index));
         return;
       }
-      _mpvDowngradeTried = true;
-      _preferTranscodeRetry = true;
-      KazumiLogger().w('EmbyPlayer: 直连打不开，自动降级转码重试 (${e.toString()})');
-      unawaited(_open(_index));
+      // 还没出流就失败：给出带内核/流类型诊断的错误视图，别让页面停在
+      // 黑屏上只有一条 toast。
+      if (!playing && duration <= Duration.zero) {
+        var msg = '[libmpv · ${_isHls ? '转码' : '直连'}] $raw';
+        if (_lastAvError.isNotEmpty) {
+          msg += '\n[此前 AVPlayer 也失败] $_lastAvError';
+        }
+        loading = false;
+        error = msg;
+        _notify();
+      }
     });
 
     audioTracks = player.state.tracks.audio;
@@ -648,6 +676,7 @@ class EmbyPlayerController extends ChangeNotifier {
     _cancelAvWatchdog();
     final engine = _av;
     if (engine == null || _disposed) return;
+    _lastAvError = message;
     if (engine.duration > Duration.zero || playing) {
       // 已经出流了，迟到的错误事件不影响正在播的画面。
       return;
@@ -1231,7 +1260,15 @@ class EmbyPlayerController extends ChangeNotifier {
   }
 
   /// 重试当前这一条（出错时界面上的按钮）。
-  Future<void> retry() => _open(_index);
+  /// 用户主动重试 = 给完整的一轮机会：降级/回退标记全部清零。
+  Future<void> retry() {
+    _avFallbackUsed = false;
+    _mpvDowngradeTried = false;
+    _preferTranscodeRetry = false;
+    _lastAvError = '';
+    error = '';
+    return _open(_index);
+  }
 
   // ------------------------------------------------------------ 播放设置
 
