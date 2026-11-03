@@ -64,16 +64,16 @@ class SyncPlayPlayRequest {
   final String target;
 
   Map<String, dynamic> _toJson() => {
-        'b': bangumiId,
-        'n': name,
-        'c': nameCn,
-        'i': coverUrl,
-        'p': pluginName,
-        't': title,
-        's': src,
-        // 只在定向时写这个键，普通广播的 payload 和旧版本完全一致。
-        if (target.isNotEmpty) 'o': target,
-      };
+    'b': bangumiId,
+    'n': name,
+    'c': nameCn,
+    'i': coverUrl,
+    'p': pluginName,
+    't': title,
+    's': src,
+    // 只在定向时写这个键，普通广播的 payload 和旧版本完全一致。
+    if (target.isNotEmpty) 'o': target,
+  };
 
   /// 切成若干条不超过 [maxChatLength] 的聊天消息。
   List<String> encodeChunks({String? messageId}) {
@@ -131,22 +131,22 @@ class SyncPlayPlayRequest {
   /// 播放器只用到 id / name / nameCn / images['large']，其余字段给默认值，
   /// 免得为了一个封面再去请求一次 Bangumi 详情接口。
   BangumiItem toBangumiItem() => BangumiItem(
-        id: bangumiId,
-        type: 2,
-        name: name,
-        nameCn: nameCn,
-        summary: '',
-        airDate: '',
-        airWeekday: 0,
-        rank: 0,
-        images: coverUrl.isEmpty ? const {} : {'large': coverUrl},
-        tags: const [],
-        alias: const [],
-        ratingScore: 0,
-        votes: 0,
-        votesCount: const [],
-        info: '',
-      );
+    id: bangumiId,
+    type: 2,
+    name: name,
+    nameCn: nameCn,
+    summary: '',
+    airDate: '',
+    airWeekday: 0,
+    rank: 0,
+    images: coverUrl.isEmpty ? const {} : {'large': coverUrl},
+    tags: const [],
+    alias: const [],
+    ratingScore: 0,
+    votes: 0,
+    votesCount: const [],
+    info: '',
+  );
 }
 
 /// 一个分片消息的解析结果。

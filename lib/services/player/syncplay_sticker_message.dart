@@ -34,10 +34,10 @@ class SyncPlayStickerMessage {
   bool get isBuiltin => url.isEmpty;
 
   Map<String, dynamic> _toJson() => {
-        'p': packId,
-        'i': stickerId,
-        if (url.isNotEmpty) 'u': url,
-      };
+    'p': packId,
+    'i': stickerId,
+    if (url.isNotEmpty) 'u': url,
+  };
 
   /// 切成若干条不超过 [maxChatLength] 的聊天消息。
   List<String> encodeChunks({String? messageId}) {

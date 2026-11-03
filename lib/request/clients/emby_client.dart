@@ -39,13 +39,12 @@ class EmbyAuthResult {
 /// 发生了什么。现在把服务端那句 `Value cannot be null. (Parameter 'mediaSource')`
 /// 原样带出来，至少能一眼看出是参数问题还是服务器问题。
 class EmbyStreamProbe {
-  const EmbyStreamProbe.ok()
-      : isOk = true,
-        statusCode = 200,
-        message = '';
+  const EmbyStreamProbe.ok() : isOk = true, statusCode = 200, message = '';
 
-  const EmbyStreamProbe.failed({required this.statusCode, required this.message})
-      : isOk = false;
+  const EmbyStreamProbe.failed({
+    required this.statusCode,
+    required this.message,
+  }) : isOk = false;
 
   final bool isOk;
   final int? statusCode;
@@ -67,7 +66,9 @@ class EmbyStreamProbe {
       return message.isEmpty ? '播放地址被服务器拒绝' : '播放地址被服务器拒绝：$message';
     }
     if (status != null) {
-      return message.isEmpty ? '服务器返回 HTTP $status' : '服务器返回 HTTP $status：$message';
+      return message.isEmpty
+          ? '服务器返回 HTTP $status'
+          : '服务器返回 HTTP $status：$message';
     }
     return message.isEmpty ? '连不上服务器' : message;
   }
@@ -89,12 +90,12 @@ class EmbyClient {
     this.accessToken,
     bool allowBadCertificate = false,
     String? deviceId,
-  })  : _mainUrl = serverUrl,
-        _backups = List<String>.unmodifiable(
-          backupUrls.where((url) => url.trim().isNotEmpty),
-        ),
-        _activeUrl = serverUrl,
-        _deviceId = deviceId ?? 'lu-emby-client' {
+  }) : _mainUrl = serverUrl,
+       _backups = List<String>.unmodifiable(
+         backupUrls.where((url) => url.trim().isNotEmpty),
+       ),
+       _activeUrl = serverUrl,
+       _deviceId = deviceId ?? 'lu-emby-client' {
     final base = NetworkConfig.fromSettings(
       // 8 秒太紧了。实测对一台海外机器，冷启动后第一个 TLS 握手（DNS + TCP +
       // 完整握手）能跑到 10 秒以上，8 秒会把「只是慢」直接判成「连不上」。
@@ -187,13 +188,12 @@ class EmbyClient {
   /// 超时只认 connectTimeout：receiveTimeout 是服务器接了连接但回得慢，
   /// 换个地址通常也没用，反而把用户的等待时间翻倍。
   bool _isLineDown(DioException e) => switch (e.type) {
-        DioExceptionType.connectionError ||
-        DioExceptionType.connectionTimeout ||
-        DioExceptionType.sendTimeout ||
-        DioExceptionType.unknown =>
-          true,
-        _ => false,
-      };
+    DioExceptionType.connectionError ||
+    DioExceptionType.connectionTimeout ||
+    DioExceptionType.sendTimeout ||
+    DioExceptionType.unknown => true,
+    _ => false,
+  };
 
   /// MediaBrowser 认证串，Emby / Jellyfin 通用格式。
   String _authorizationValue({String? token}) {
@@ -228,10 +228,9 @@ class EmbyClient {
   /// 把 Token 同时塞进查询串。反向代理经常把自定义头吃掉，`api_key`
   /// 是 Emby 和 Jellyfin 都认的兜底方式。
   Map<String, dynamic> _query(Map<String, dynamic> extra) => {
-        ...extra,
-        if (accessToken != null && accessToken!.isNotEmpty)
-          'api_key': accessToken,
-      };
+    ...extra,
+    if (accessToken != null && accessToken!.isNotEmpty) 'api_key': accessToken,
+  };
 
   Future<Map<String, dynamic>> _getJson(
     String path, {
@@ -378,7 +377,8 @@ class EmbyClient {
         'ParentId': parentId,
         'IncludeItemTypes': includeItemTypes,
         'Recursive': 'true',
-        'Fields': 'ProductionYear,CommunityRating,Overview,ImageTags,RunTimeTicks',
+        'Fields':
+            'ProductionYear,CommunityRating,Overview,ImageTags,RunTimeTicks',
         'SortBy': 'SortName',
         'SortOrder': 'Ascending',
         // 库大的时候不限量会一次拉几千条，先给个上限，需要再分页。
@@ -450,7 +450,8 @@ class EmbyClient {
     final body = await _getJson(
       '/Users/$userId/Items/$itemId',
       query: {
-        'Fields': '$_itemFields,Taglines,PrimaryImageAspectRatio,'
+        'Fields':
+            '$_itemFields,Taglines,PrimaryImageAspectRatio,'
             'SeriesPrimaryImageTag,ParentPrimaryImageTag,People',
       },
     );
@@ -494,14 +495,13 @@ class EmbyClient {
     String itemId, {
     String? mediaSourceId,
     int maxBitrateBps = 0,
-  }) =>
-      embyHlsStreamUrl(
-        serverUrl: serverUrl,
-        itemId: itemId,
-        accessToken: accessToken,
-        mediaSourceId: mediaSourceId,
-        maxBitrateBps: maxBitrateBps,
-      );
+  }) => embyHlsStreamUrl(
+    serverUrl: serverUrl,
+    itemId: itemId,
+    accessToken: accessToken,
+    mediaSourceId: mediaSourceId,
+    maxBitrateBps: maxBitrateBps,
+  );
 
   // ------------------------------------------------------------ 播放信息
 
@@ -527,7 +527,10 @@ class EmbyClient {
       return source.id.isEmpty ? null : source;
     } catch (e) {
       // 拿不到就退回"不带 MediaSourceId"的地址，服务端会自己挑媒体源。
-      KazumiLogger().w('Emby: playback info failed, fallback to plain url', error: e);
+      KazumiLogger().w(
+        'Emby: playback info failed, fallback to plain url',
+        error: e,
+      );
       return null;
     }
   }
@@ -574,6 +577,44 @@ class EmbyClient {
     );
     final items = body['Items'];
     if (items is! List) return const [];
+    return [
+      for (final item in items)
+        if (item is Map)
+          EmbyRemoteSubtitle.fromJson(Map<String, dynamic>.from(item)),
+    ].where((s) => s.id.isNotEmpty).toList();
+  }
+
+  /// 按关键词搜外挂字幕（新版 OpenSubtitles 插件的批量入口）。
+  ///
+  /// 旧的 `/Items/{id}/RemoteSearch/Subtitles/{lang}` 只按条目匹配；新版是
+  /// `POST /Items/RemoteSearch/Subtitles`，SearchInfo 里可以塞剧名/季/集/片名，
+  /// 服务端拿这些词去 OpenSubtitles 模糊查——「搜关键词或关联的都会出结果」
+  /// 指的就是这个接口。
+  Future<List<EmbyRemoteSubtitle>> searchRemoteSubtitlesByQuery({
+    required String language,
+    String? seriesName,
+    int? season,
+    int? episode,
+    String? name,
+  }) async {
+    final search = <String, dynamic>{
+      if (seriesName != null && seriesName.trim().isNotEmpty)
+        'SeriesName': seriesName.trim(),
+      if (season != null) 'SeasonNumber': season,
+      if (episode != null) 'EpisodeNumber': episode,
+      if (name != null && name.trim().isNotEmpty) 'Name': name.trim(),
+      if (language.isNotEmpty) 'Language': language,
+    };
+    // 这个接口直接返回数组，不走 _postJson（它只认 map）。
+    final response = await _send(
+      (baseUrl) => _dio.request<dynamic>(
+        '$baseUrl/Items/RemoteSearch/Subtitles',
+        data: {'SearchInfo': search},
+        options: Options(method: 'POST', headers: _authHeaders),
+      ),
+    );
+    final data = response.data;
+    final List items = data is List ? data : const [];
     return [
       for (final item in items)
         if (item is Map)
@@ -728,10 +769,7 @@ class EmbyClient {
   /// `/Items/Counts` 是 Emby/Jellyfin 的标准接口；个别反代可能关掉它，
   /// 调用方要 catch 住，统计条缺失不该影响整页。
   Future<EmbyItemCounts> fetchItemCounts({required String userId}) async {
-    final body = await _getJson(
-      '/Items/Counts',
-      query: {'UserId': userId},
-    );
+    final body = await _getJson('/Items/Counts', query: {'UserId': userId});
     return EmbyItemCounts.fromJson(body);
   }
 
@@ -886,7 +924,11 @@ class EmbyClient {
   }
 
   /// 标记已看 / 未看。
-  Future<void> setPlayed(String itemId, bool played, {required String userId}) async {
+  Future<void> setPlayed(
+    String itemId,
+    bool played, {
+    required String userId,
+  }) async {
     await _postJson(
       '/Users/$userId/PlayedItems/$itemId',
       method: played ? 'POST' : 'DELETE',
@@ -908,22 +950,21 @@ class EmbyClient {
   EmbyApiException _translate(DioException e) {
     final status = e.response?.statusCode;
     if (status == 401 || status == 403) {
-      return EmbyApiException('登录状态已失效，请在服务器设置里重新登录',
-          statusCode: status);
+      return EmbyApiException('登录状态已失效，请在服务器设置里重新登录', statusCode: status);
     }
     if (status == 404) {
-      return EmbyApiException('接口不存在，请确认地址填的是 Emby / Jellyfin 服务器根地址',
-          statusCode: status);
+      return EmbyApiException(
+        '接口不存在，请确认地址填的是 Emby / Jellyfin 服务器根地址',
+        statusCode: status,
+      );
     }
     switch (e.type) {
       case DioExceptionType.badCertificate:
-        return const EmbyApiException(
-            '证书校验失败。局域网自签证书的服务器，请在服务器设置里打开「允许自签证书」');
+        return const EmbyApiException('证书校验失败。局域网自签证书的服务器，请在服务器设置里打开「允许自签证书」');
       case DioExceptionType.connectionTimeout:
         // 「连不上」和「连上了但不回话」是两回事，给用户的下一步动作也不同，
         // 原来三种超时共用一句「连接超时，服务器没响应」，等于什么都没说。
-        return const EmbyApiException(
-            '连接超时：一直没连上服务器。检查地址、端口，或者换一条线路');
+        return const EmbyApiException('连接超时：一直没连上服务器。检查地址、端口，或者换一条线路');
       case DioExceptionType.receiveTimeout:
         return const EmbyApiException('服务器连上了但一直没回数据，可能正在扫库或负载过高');
       case DioExceptionType.sendTimeout:
@@ -932,7 +973,8 @@ class EmbyClient {
         final reason = e.error?.toString() ?? '';
         if (reason.contains('HandshakeException')) {
           return const EmbyApiException(
-              'TLS 握手被中断。多半是中间网络在拦，换个网络或打开「允许自签证书」再试');
+            'TLS 握手被中断。多半是中间网络在拦，换个网络或打开「允许自签证书」再试',
+          );
         }
         return const EmbyApiException('连不上服务器，请检查地址、端口和是否在同一局域网');
       default:

@@ -158,8 +158,7 @@ class SyncPlayStall {
     return clampSeconds(seconds);
   }
 
-  static int clampSeconds(int seconds) =>
-      seconds.clamp(minSeconds, maxSeconds);
+  static int clampSeconds(int seconds) => seconds.clamp(minSeconds, maxSeconds);
 }
 
 /// 投票要决定的事。
@@ -183,8 +182,7 @@ class SyncPlayVote {
     required SyncPlayVoteKind kind,
     required int value,
     required String stance,
-  }) =>
-      '$prefix$id|${_kindCode(kind)}|$value|$stance';
+  }) => '$prefix$id|${_kindCode(kind)}|$value|$stance';
 
   static bool isVote(String text) => text.startsWith(prefix);
 
@@ -234,17 +232,17 @@ class SyncPlayVote {
   }
 
   static String _kindCode(SyncPlayVoteKind kind) => switch (kind) {
-        SyncPlayVoteKind.pause => 'p',
-        SyncPlayVoteKind.resume => 'r',
-        SyncPlayVoteKind.episode => 'e',
-      };
+    SyncPlayVoteKind.pause => 'p',
+    SyncPlayVoteKind.resume => 'r',
+    SyncPlayVoteKind.episode => 'e',
+  };
 
   static SyncPlayVoteKind? _kindFromCode(String code) => switch (code) {
-        'p' => SyncPlayVoteKind.pause,
-        'r' => SyncPlayVoteKind.resume,
-        'e' => SyncPlayVoteKind.episode,
-        _ => null,
-      };
+    'p' => SyncPlayVoteKind.pause,
+    'r' => SyncPlayVoteKind.resume,
+    'e' => SyncPlayVoteKind.episode,
+    _ => null,
+  };
 }
 
 class SyncPlayVoteMessage {
@@ -281,8 +279,7 @@ class SyncPlaySourceTag {
     required String pluginName,
     required int road,
     required String roadName,
-  }) =>
-      '$prefix${_clean(pluginName)}|$road|${_clean(roadName)}';
+  }) => '$prefix${_clean(pluginName)}|$road|${_clean(roadName)}';
 
   static bool isSourceTag(String text) => text.startsWith(prefix);
 

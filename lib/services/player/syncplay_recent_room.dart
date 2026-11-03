@@ -23,11 +23,11 @@ class SyncPlayRecentRoom {
   static const int maxEntries = 5;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'r': room,
-        'e': endPoint,
-        't': title,
-        'a': at.millisecondsSinceEpoch,
-      };
+    'r': room,
+    'e': endPoint,
+    't': title,
+    'a': at.millisecondsSinceEpoch,
+  };
 
   static SyncPlayRecentRoom? tryParse(Object? json) {
     if (json is! Map) {
@@ -50,8 +50,9 @@ class SyncPlayRecentRoom {
 
   /// 读最近的房间，最新的在前。
   static List<SyncPlayRecentRoom> load() {
-    final String raw =
-        GStorage.getSetting<String>(SettingsKeys.syncPlayRecentRooms);
+    final String raw = GStorage.getSetting<String>(
+      SettingsKeys.syncPlayRecentRooms,
+    );
     if (raw.trim().isEmpty) {
       return const <SyncPlayRecentRoom>[];
     }
@@ -89,8 +90,9 @@ class SyncPlayRecentRoom {
       ),
       ...load().where((SyncPlayRecentRoom item) => item.room != room),
     ];
-    final List<SyncPlayRecentRoom> trimmed =
-        next.length > maxEntries ? next.sublist(0, maxEntries) : next;
+    final List<SyncPlayRecentRoom> trimmed = next.length > maxEntries
+        ? next.sublist(0, maxEntries)
+        : next;
     GStorage.putSetting<String>(
       SettingsKeys.syncPlayRecentRooms,
       jsonEncode(<Map<String, dynamic>>[

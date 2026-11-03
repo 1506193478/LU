@@ -15,7 +15,7 @@ import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
-import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/utils/motion.dart';
@@ -702,108 +702,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     }
   }
 
-  /// 字幕搜索：走服务端配好的字幕插件（OpenSubtitles 之类）。
-  Future<void> _openSubtitleSearch() async {
-    final language = EmbyStreamPrefs.subtitleLanguage;
-    List<EmbyRemoteSubtitle> results = const [];
-    String error = '';
-    var loading = true;
-
-    await _showMenuPage(
-      '字幕搜索',
-      (ctx) => StatefulBuilder(
-        builder: (ctx, setSheetState) {
-          if (loading) {
-            unawaited(() async {
-              try {
-                final found = await controller.searchRemoteSubtitles(
-                  language.isEmpty ? 'chi' : language,
-                );
-                if (!ctx.mounted) return;
-                setSheetState(() {
-                  results = found;
-                  loading = false;
-                });
-              } catch (e) {
-                if (!ctx.mounted) return;
-                setSheetState(() {
-                  error = '$e';
-                  loading = false;
-                });
-              }
-            }());
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 36),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (error.isNotEmpty) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: Text(
-                '搜索失败：$error\n\n'
-                '字幕搜索用的是服务器上的字幕插件。到 Emby 服务端后台装好 '
-                'OpenSubtitles 插件、配好账号之后再试。',
-                style: const TextStyle(fontSize: 13, height: 1.6),
-              ),
-            );
-          }
-          if (results.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: Text(
-                '服务器没找到可用的字幕。\n'
-                '可以换个语言再试，或者用「本地导入」挂自己的字幕文件。',
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.6,
-                  color: _hintInk(ctx),
-                ),
-              ),
-            );
-          }
-          return Column(
-            children: [
-              for (final sub in results)
-                ListTile(
-                  dense: true,
-                  title: Text(
-                    sub.name.isEmpty ? '未命名字幕' : sub.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  subtitle: Text(
-                    [
-                      if (sub.language.isNotEmpty) sub.language,
-                      if (sub.format.isNotEmpty) sub.format.toUpperCase(),
-                      if (sub.downloadCount > 0) '下载 ${sub.downloadCount}',
-                      if (sub.isHashMatch) '匹配片源',
-                    ].join(' · '),
-                    style: TextStyle(fontSize: 11.5, color: _hintInk(ctx)),
-                  ),
-                  trailing: const Icon(Icons.download_rounded, size: 18),
-                  onTap: () async {
-                    Navigator.of(ctx).pop();
-                    try {
-                      final ok = await controller.applyRemoteSubtitle(sub);
-                      _toast(ok ? '字幕已下载并启用' : '下载了但没能挂上，重开这一集试试');
-                    } catch (e) {
-                      _toast('下载失败：$e');
-                    }
-                  },
-                ),
-            ],
-          );
-        },
-      ),
-    );
+  /// 字幕搜索走整页（要打字 + 滚结果列表，菜单卡片塞不下）。
+  Future<void> _openSubtitleSearch() {
+    return showEmbySubtitleSearchPage(context, controller: controller);
   }
-
-  Color _hintInk(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.dark
-      ? const Color(0xFF9A9AA2)
-      : const Color(0xFF8A8A90);
 
   Future<void> _openSubtitleSettings() async {
     _pauseAutoHide();

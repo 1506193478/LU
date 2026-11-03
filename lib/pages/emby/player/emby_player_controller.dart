@@ -716,6 +716,24 @@ class EmbyPlayerController extends ChangeNotifier {
     );
   }
 
+  /// 关键词字幕搜索：剧名/季/集/片名随便组合，服务端模糊查。
+  /// 整页搜索页用这个，旧的按条目搜索保留给兼容路径。
+  Future<List<EmbyRemoteSubtitle>> searchRemoteSubtitlesByQuery({
+    required String language,
+    String? seriesName,
+    int? season,
+    int? episode,
+    String? name,
+  }) {
+    return _client.searchRemoteSubtitlesByQuery(
+      language: language,
+      seriesName: seriesName,
+      season: season,
+      episode: episode,
+      name: name,
+    );
+  }
+
   /// 下载选中的字幕，并把新轨道列进面板、直接挂上。
   Future<bool> applyRemoteSubtitle(EmbyRemoteSubtitle subtitle) async {
     final item = current;

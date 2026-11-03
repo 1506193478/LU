@@ -54,18 +54,20 @@ class SyncPlayVoteState {
       DateTime.now().difference(startedAt) > SyncPlayVote.lifetime;
 
   int get remainingSeconds {
-    final int left = SyncPlayVote.lifetime.inSeconds -
+    final int left =
+        SyncPlayVote.lifetime.inSeconds -
         DateTime.now().difference(startedAt).inSeconds;
     return left < 0 ? 0 : left;
   }
 
   String get title => switch (kind) {
-        SyncPlayVoteKind.pause => '暂停一下',
-        SyncPlayVoteKind.resume => '继续播放',
-        SyncPlayVoteKind.episode => '换到第 $value 话',
-      };
+    SyncPlayVoteKind.pause => '暂停一下',
+    SyncPlayVoteKind.resume => '继续播放',
+    SyncPlayVoteKind.episode => '换到第 $value 话',
+  };
 
-  bool hasVoted(String username) => yes.contains(username) || no.contains(username);
+  bool hasVoted(String username) =>
+      yes.contains(username) || no.contains(username);
 }
 
 /// 片源不一致：对方用的插件 / 线路和我这边不一样。

@@ -89,13 +89,66 @@ bool syncPlaySourcesDiffer(String? mine, String? theirs) {
 
 /// 画质 / 编码 / 字幕组这类跟「放的是不是同一集」无关的片段。
 const List<String> _noiseTokens = <String>[
-  '1080p', '720p', '2160p', '480p', '4k', '8k', 'hdr', 'hdr10', 'dolby',
-  'hevc', 'avc', 'x265', 'x264', 'h265', 'h264', '10bit', '8bit', 'hi10p',
-  'webdl', 'web-dl', 'webrip', 'web', 'bluray', 'blu-ray', 'bdrip', 'bd',
-  'dvdrip', 'hdtv', 'remux', 'aac', 'flac', 'opus', 'ac3', 'dts', 'eac3',
-  'mkv', 'mp4', 'avi', 'ass', 'srt', 'chs', 'cht', 'gb', 'big5', 'jpn',
-  '简体', '繁体', '简繁', '中字', '内嵌', '外挂', '字幕', '国语', '日语',
-  '修复版', '完整版', '合集', 'uncensored', 'repack', 'proper',
+  '1080p',
+  '720p',
+  '2160p',
+  '480p',
+  '4k',
+  '8k',
+  'hdr',
+  'hdr10',
+  'dolby',
+  'hevc',
+  'avc',
+  'x265',
+  'x264',
+  'h265',
+  'h264',
+  '10bit',
+  '8bit',
+  'hi10p',
+  'webdl',
+  'web-dl',
+  'webrip',
+  'web',
+  'bluray',
+  'blu-ray',
+  'bdrip',
+  'bd',
+  'dvdrip',
+  'hdtv',
+  'remux',
+  'aac',
+  'flac',
+  'opus',
+  'ac3',
+  'dts',
+  'eac3',
+  'mkv',
+  'mp4',
+  'avi',
+  'ass',
+  'srt',
+  'chs',
+  'cht',
+  'gb',
+  'big5',
+  'jpn',
+  '简体',
+  '繁体',
+  '简繁',
+  '中字',
+  '内嵌',
+  '外挂',
+  '字幕',
+  '国语',
+  '日语',
+  '修复版',
+  '完整版',
+  '合集',
+  'uncensored',
+  'repack',
+  'proper',
 ];
 
 int? _episodeOf(String lower) {
@@ -103,8 +156,7 @@ int? _episodeOf(String lower) {
   final Match? se = RegExp(r's(\d{1,2})[\s._-]*e(\d{1,4})').firstMatch(lower);
   if (se != null) return int.tryParse(se.group(2)!);
   // 第 2 集 / 第2话
-  final Match? cn =
-      RegExp(r'第\s*(\d{1,4})\s*[集话話期]').firstMatch(lower);
+  final Match? cn = RegExp(r'第\s*(\d{1,4})\s*[集话話期]').firstMatch(lower);
   if (cn != null) return int.tryParse(cn.group(1)!);
   // [02] / (02) / 【02】
   for (final RegExp re in <RegExp>[

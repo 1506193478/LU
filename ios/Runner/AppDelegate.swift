@@ -20,6 +20,7 @@ import app_links
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+        AvPlayerEnginePlugin.register(with: engineBridge.applicationRegistrar)
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",

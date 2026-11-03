@@ -95,13 +95,14 @@ class HistoryPlaybackService {
 
     final List<EmbyItem> items;
     try {
-      items = await service.clientFor(server).fetchEpisodes(
-            userId: server.userId,
-            seriesId: seriesItemId,
-          );
+      items = await service
+          .clientFor(server)
+          .fetchEpisodes(userId: server.userId, seriesId: seriesItemId);
     } catch (e) {
-      KazumiLogger().w('HistoryPlaybackService: failed to load emby episodes',
-          error: e);
+      KazumiLogger().w(
+        'HistoryPlaybackService: failed to load emby episodes',
+        error: e,
+      );
       return null;
     }
     if (items.isEmpty) return null;

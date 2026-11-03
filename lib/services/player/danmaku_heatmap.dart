@@ -6,10 +6,7 @@ library;
 
 /// 一个高能时刻：某段时间里弹幕最密。
 class DanmakuHotspot {
-  const DanmakuHotspot({
-    required this.position,
-    required this.count,
-  });
+  const DanmakuHotspot({required this.position, required this.count});
 
   /// 跳到哪（取窗口中心，落在这个窗口里最不容易跳过头）。
   final Duration position;
@@ -39,7 +36,10 @@ class DanmakuHeatmap {
       if (second < 0 || second >= durationSeconds) {
         continue;
       }
-      final int index = (second * buckets ~/ durationSeconds).clamp(0, buckets - 1);
+      final int index = (second * buckets ~/ durationSeconds).clamp(
+        0,
+        buckets - 1,
+      );
       final int next = counts[index] + 1;
       counts[index] = next;
       if (next > max) {
@@ -95,21 +95,29 @@ class DanmakuHeatmap {
       if (bestStart < 0 || bestSum == 0) {
         break;
       }
-      final int center =
-          (bestStart + windowSeconds ~/ 2).clamp(0, durationSeconds - 1);
-      result.add(DanmakuHotspot(
-        position: Duration(seconds: center),
-        count: bestSum,
-      ));
+      final int center = (bestStart + windowSeconds ~/ 2).clamp(
+        0,
+        durationSeconds - 1,
+      );
+      result.add(
+        DanmakuHotspot(
+          position: Duration(seconds: center),
+          count: bestSum,
+        ),
+      );
       // 把所有和这一段重叠的窗口起点都标记掉。
       //
       // 范围是 [start - window + 1, start + window - 1]：任何起点落在这个区间
       // 里的窗口都会和刚挑走的那段有交集。之前只往前留半个窗口，结果第二段
       // 贴着第一段的左边缘又挑了一次（60 秒那段挑完，第二段挑到 49 秒）。
-      final int from =
-          (bestStart - windowSeconds + 1).clamp(0, durationSeconds - 1);
-      final int to =
-          (bestStart + windowSeconds - 1).clamp(0, durationSeconds - 1);
+      final int from = (bestStart - windowSeconds + 1).clamp(
+        0,
+        durationSeconds - 1,
+      );
+      final int to = (bestStart + windowSeconds - 1).clamp(
+        0,
+        durationSeconds - 1,
+      );
       for (int s = from; s <= to; s++) {
         taken[s] = true;
       }
