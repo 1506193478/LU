@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -8,6 +9,7 @@ import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_records_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/services/emby/emby_service.dart';
+import 'package:XL/services/storage/storage.dart';
 
 /// Emby「搜索」页签。
 ///
@@ -55,6 +57,44 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
   /// 请求令牌：只认最后一次发出的请求的结果，防止慢请求把新结果覆盖回去。
   int _runToken = 0;
   Timer? _debounce;
+
+  /// 搜索历史（最近 12 条，新的在前）。
+  static const _historyKey = SettingKey<String>(
+    'embySearchHistory',
+    '[]',
+    group: SettingGroup.emby,
+  );
+  List<String> _history = const <String>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  void _loadHistory() {
+    try {
+      final raw = jsonDecode(GStorage.getSetting(_historyKey));
+      if (raw is List) {
+        _history = [for (final e in raw) e.toString()].where((e) => e.isNotEmpty).toList();
+      }
+    } catch (_) {
+      _history = const <String>[];
+    }
+  }
+
+  Future<void> _rememberKeyword(String keyword) async {
+    final text = keyword.trim();
+    if (text.isEmpty) return;
+    final next = [text, ..._history.where((e) => e != text)].take(12).toList();
+    if (mounted) setState(() => _history = next);
+    await GStorage.putSetting(_historyKey, jsonEncode(next));
+  }
+
+  Future<void> _clearHistory() async {
+    setState(() => _history = const <String>[]);
+    await GStorage.putSetting(_historyKey, '[]');
+  }
 
   @override
   void dispose() {
@@ -120,6 +160,9 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
         _loading = false;
         _error = '';
       });
+      // 只在真正搜出东西（或者确认没有）之后才记历史，避免把打字过程中的
+      // 半截词也塞进去。
+      unawaited(_rememberKeyword(text));
     } catch (e) {
       if (!mounted || token != _runToken) return;
       // 失败后清掉去重标记，按回车/重新输入同一个词还能再试。
@@ -352,6 +395,17 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
                 ),
               ),
             ),
+            if (_scope == 0 && keyword.isEmpty && _history.isNotEmpty)
+              _HistoryChips(
+                history: _history,
+                dark: dark,
+                onPick: (value) {
+                  _controller.text = value;
+                  _run(value, force: true);
+                  setState(() {});
+                },
+                onClear: _clearHistory,
+              ),
             const SizedBox(height: 8),
             Expanded(child: _buildBody(dark, keyword)),
           ],
@@ -405,48 +459,364 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
     if (_results.isEmpty) {
       return _EmptyHint(dark: dark, text: '没有找到「$keyword」相关的内容');
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 120),
+    // 按服务器分组，每组一行横向海报。
+    //
+    // 聚合搜索时，同名剧在不同服务器上都有，平铺成一列根本分不清哪条是哪台
+    // 服务器的；分组之后「okemby 1 条 / BBemby and Cloud 2 条」一目了然，
+    // 也跟设计稿一致。
+    final List<String> order = <String>[];
+    final Map<String, List<EmbyItem>> byServer = <String, List<EmbyItem>>{};
+    final Map<String, EmbyServer?> servers = <String, EmbyServer?>{};
+    for (final item in _results) {
+      final server = _origin[item.id] ?? EmbyService.instance.activeServer;
+      final String key = server?.id ?? 'unknown';
+      if (!byServer.containsKey(key)) {
+        byServer[key] = <EmbyItem>[];
+        servers[key] = server;
+        order.add(key);
+      }
+      byServer[key]!.add(item);
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(top: 2, bottom: 120),
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      itemCount: _results.length,
-      separatorBuilder: (_, _) => Divider(
-        height: 1,
-        thickness: 1,
-        indent: 118,
-        color: dark ? Colors.white12 : const Color(0xFFF0F0F3),
-      ),
-      itemBuilder: (context, i) {
-        final item = _results[i];
-        final server = _origin[item.id] ?? EmbyService.instance.activeServer;
-        return _ResultRow(
-          item: item,
-          imageUrl: server == null
-              ? ''
-              : embyImageUrl(
-                  serverUrl: server.url,
-                  itemId: item.coverItemId,
-                  accessToken: server.accessToken,
-                  maxHeight: 300,
-                  tag: item.coverTag,
+      children: [
+        for (final key in order)
+          _ServerResultGroup(
+            server: servers[key],
+            items: byServer[key]!,
+            dark: dark,
+            onOpenGroup: () async {
+              // 点组标题 = 只看这台服务器（跟右上角的分段控件是一回事）。
+              setState(() {
+                _serverId = servers[key]?.id;
+                _sent = '';
+              });
+              _run(keyword, force: true);
+            },
+            onOpenItem: (item) async {
+              final server = servers[key];
+              if (server != null &&
+                  EmbyService.instance.activeServer?.id != server.id) {
+                await EmbyService.instance.setActive(server.id);
+              }
+              if (!mounted) return;
+              if (item.isEpisode) {
+                widget.onPlay(item);
+              } else {
+                widget.onOpenDetail(item);
+              }
+            },
+          ),
+      ],
+    );
+  }
+}
+
+/// 一台服务器的一组搜索结果：标题（名称 + 条数 + 箭头）+ 横向海报。
+class _ServerResultGroup extends StatelessWidget {
+  const _ServerResultGroup({
+    required this.server,
+    required this.items,
+    required this.dark,
+    required this.onOpenGroup,
+    required this.onOpenItem,
+  });
+
+  final EmbyServer? server;
+  final List<EmbyItem> items;
+  final bool dark;
+  final VoidCallback onOpenGroup;
+  final ValueChanged<EmbyItem> onOpenItem;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onOpenGroup,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 18, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    server?.name ?? '未知服务器',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                      color: PvColors.ink(context),
+                    ),
+                  ),
                 ),
-          headers: embyAuthHeaders(server),
-          dark: dark,
-          onTap: () async {
-            // 聚合搜索可能搜到别的服务器上的东西，点进去前先切过去，
-            // 否则详情页拿的还是当前服务器的图。
-            if (server != null &&
-                EmbyService.instance.activeServer?.id != server.id) {
-              await EmbyService.instance.setActive(server.id);
-            }
-            if (!mounted) return;
-            if (item.isEpisode) {
-              widget.onPlay(item);
-            } else {
-              widget.onOpenDetail(item);
-            }
-          },
-        );
-      },
+                Text(
+                  '${items.length}',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: PvColors.ink3(context),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 17,
+                  color: PvColors.ink3(context),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 212,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: items.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 11),
+            itemBuilder: (context, i) {
+              final item = items[i];
+              return _SearchPoster(
+                item: item,
+                imageUrl: server == null
+                    ? ''
+                    : embyImageUrl(
+                        serverUrl: server!.url,
+                        itemId: item.coverItemId,
+                        accessToken: server!.accessToken,
+                        maxHeight: 360,
+                        tag: item.coverTag,
+                      ),
+                headers: embyAuthHeaders(server),
+                dark: dark,
+                onTap: () => onOpenItem(item),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 竖版海报：封面 + 集数角标 + 评分 + 名称 + 年份。
+class _SearchPoster extends StatelessWidget {
+  const _SearchPoster({
+    required this.item,
+    required this.imageUrl,
+    required this.headers,
+    required this.dark,
+    required this.onTap,
+  });
+
+  final EmbyItem item;
+  final String imageUrl;
+  final Map<String, String>? headers;
+  final bool dark;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final rating = item.communityRating;
+    final count = item.childCount;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: 108,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 108,
+                height: 156,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (imageUrl.isEmpty)
+                      Container(
+                        color: dark
+                            ? Colors.white12
+                            : const Color(0xFFECECF1),
+                        child: Icon(
+                          Icons.movie_outlined,
+                          size: 24,
+                          color: dark ? Colors.white24 : const Color(0xFFB4B4BA),
+                        ),
+                      )
+                    else
+                      EmbyImage(url: imageUrl, headers: headers),
+                    // 左上角：集数（截图里那个蓝色小方块）
+                    if (count != null && count > 0)
+                      Positioned(
+                        left: 5,
+                        top: 5,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2F7CF6),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // 右下角：评分
+                    if (rating != null && rating > 0)
+                      Positioned(
+                        right: 5,
+                        bottom: 5,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            rating.toStringAsFixed(1),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (item.watchedRatio > 0)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          height: 3,
+                          color: Colors.black45,
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: item.watchedRatio.clamp(0.0, 1.0),
+                            child: const ColoredBox(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              item.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: PvColors.ink(context),
+              ),
+            ),
+            if (item.productionYear != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Text(
+                  '${item.productionYear}',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: PvColors.ink3(context),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 搜索历史：一排胶囊 + 清空。
+class _HistoryChips extends StatelessWidget {
+  const _HistoryChips({
+    required this.history,
+    required this.dark,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final List<String> history;
+  final bool dark;
+  final ValueChanged<String> onPick;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 10, 12, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final word in history)
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onPick(word),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: dark
+                            ? Colors.white.withValues(alpha: 0.10)
+                            : const Color(0xFFF1F1F4),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        word,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: PvColors.ink(context),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onClear,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
+              child: Icon(
+                Icons.delete_outline_rounded,
+                size: 19,
+                color: PvColors.ink3(context),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -542,99 +912,3 @@ class _EmptyHint extends StatelessWidget {
     );
   }
 }
-
-/// 结果行：左边 16:9 缩略图，右边标题 + 副标题。
-class _ResultRow extends StatelessWidget {
-  const _ResultRow({
-    required this.item,
-    required this.imageUrl,
-    required this.headers,
-    required this.dark,
-    required this.onTap,
-  });
-
-  final EmbyItem item;
-  final String imageUrl;
-  final Map<String, String>? headers;
-  final bool dark;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final sub = <String>[
-      _typeName(item.type),
-      if (item.productionYear != null) '${item.productionYear}',
-      if (item.isEpisode && item.indexNumber != null) '第 ${item.indexNumber} 集',
-      if (item.isSeries && item.childCount != null) '${item.childCount} 集',
-    ].join(' · ');
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  width: 104,
-                  height: 60,
-                  child: imageUrl.isEmpty
-                      ? Container(
-                          color: dark ? Colors.white12 : const Color(0xFFECECF1),
-                          child: const Icon(Icons.movie_outlined, size: 22),
-                        )
-                      : EmbyImage(url: imageUrl, headers: headers),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (sub.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        sub,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: dark ? Colors.white.withValues(alpha: 0.45) : const Color(0xFF8A8A90),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: dark ? Colors.white24 : const Color(0xFFC7C7CC),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-String _typeName(String type) => switch (type) {
-      'Movie' => '电影',
-      'Series' => '剧集',
-      'Episode' => '单集',
-      'BoxSet' => '合集',
-      _ => '媒体',
-    };

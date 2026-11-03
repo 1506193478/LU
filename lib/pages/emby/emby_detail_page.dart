@@ -67,14 +67,38 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
     await service.load();
     final server = service.activeServer;
     if (server == null) {
-      return const _DetailData(server: null, seasons: [], similar: []);
+      return _DetailData(
+        server: null,
+        item: widget.item,
+        seasons: const [],
+        similar: const [],
+      );
     }
     final client = service.clientFor(server);
+
+    // 先补一次单条元数据。列表 / 搜索返回的条目是「瘦身版」，
+    // `Overview`、`Genres`、`OfficialRating` 经常是空的，详情页直接拿它
+    // 渲染就会出现「没有详情描述」。单条接口代价只有一次请求。
+    EmbyItem item = widget.item;
+    try {
+      final meta = await client.fetchItemMeta(
+        userId: server.userId,
+        itemId: widget.item.id,
+      );
+      if (meta != null) {
+        item = meta;
+        _favorite = meta.isFavorite;
+        _played = meta.played;
+      }
+    } catch (e) {
+      KazumiLogger().w('Emby detail: failed to load item meta', error: e);
+    }
+
     var seasons = <EmbyItem>[];
-    if (widget.item.isSeries) {
+    if (item.isSeries) {
       try {
         seasons = await client.fetchSeasons(
-          seriesId: widget.item.id,
+          seriesId: item.id,
           userId: server.userId,
         );
       } catch (e) {
@@ -87,13 +111,18 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
     var similar = <EmbyItem>[];
     try {
       similar = await client.fetchSimilar(
-        itemId: widget.item.id,
+        itemId: item.id,
         userId: server.userId,
       );
     } catch (e) {
       KazumiLogger().w('Emby detail: failed to load similar', error: e);
     }
-    return _DetailData(server: server, seasons: seasons, similar: similar);
+    return _DetailData(
+      server: server,
+      item: item,
+      seasons: seasons,
+      similar: similar,
+    );
   }
 
   Future<List<EmbyItem>> _loadEpisodes(
@@ -288,12 +317,12 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
               left: 0,
               right: 0,
               height: heroH,
-              child: _Hero(item: widget.item, server: server),
+              child: _Hero(item: data.item, server: server),
             ),
             Padding(
               padding: EdgeInsets.only(top: heroH - overlap),
               child: _InfoColumn(
-                item: widget.item,
+                item: data.item,
                 server: server,
                 seasons: data.seasons,
                 similar: data.similar,
@@ -343,11 +372,15 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
 class _DetailData {
   const _DetailData({
     required this.server,
+    required this.item,
     required this.seasons,
     required this.similar,
   });
 
   final EmbyServer? server;
+
+  /// 补全过元数据的条目（单条接口优先）。列表/搜索给的条目常常缺简介。
+  final EmbyItem item;
   final List<EmbyItem> seasons;
   final List<EmbyItem> similar;
 }
@@ -464,19 +497,25 @@ class _InfoColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return EmbyFutureView<List<EmbyItem>>(
+    // 这里刻意不再用「剧集加载失败就整页空」的写法。
+    //
+    // 原来的结构是：整个信息列（标题 / 评分 / 简介 / 按钮）都被剧集的
+    // Future 包着，服务端某一季剧集请求失败，页面就只剩一句「没有可播放
+    // 的内容」——用户看到的就是「详情页没有视图、也没有详情描述」。
+    // 现在标题、简介、按钮先渲染，只有「季 / 集号 / 集卡」这一段等数据。
+    return FutureBuilder<List<EmbyItem>>(
       future: episodesFuture,
-      onRetry: () {},
-      isEmpty: (eps) => eps.isEmpty,
-      emptyTitle: '没有可播放的内容',
-      emptyMessage: '这个季在 Emby 服务端还没有任何剧集文件。',
-      builder: (context, episodes) {
-        final order = _orderOf(episodes.length);
-        final pickedItem = episodes[picked.clamp(0, episodes.length - 1)];
+      builder: (context, snapshot) {
+        final episodes = snapshot.data ?? const <EmbyItem>[];
+        final bool loading = snapshot.connectionState != ConnectionState.done;
+        final bool failed = snapshot.hasError;
+        final int safePicked =
+            episodes.isEmpty ? 0 : picked.clamp(0, episodes.length - 1);
+        final pickedItem = episodes.isEmpty ? item : episodes[safePicked];
         final source = mediaCache[pickedItem.id];
-        final String seasonName = seasons.isEmpty
-            ? item.name
-            : _currentSeasonName(seasons);
+        final String seasonName =
+            seasons.isEmpty ? item.name : _currentSeasonName(seasons);
+        final String? overview = _overviewFor(pickedItem);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -495,7 +534,13 @@ class _InfoColumn extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                   height: 1.1,
                   letterSpacing: -1.2,
-                  shadows: [Shadow(color: Color(0x73000000), blurRadius: 18, offset: Offset(0, 3))],
+                  shadows: [
+                    Shadow(
+                      color: Color(0x73000000),
+                      blurRadius: 18,
+                      offset: Offset(0, 3),
+                    )
+                  ],
                 ),
               ),
             ),
@@ -512,13 +557,19 @@ class _InfoColumn extends StatelessWidget {
             const SizedBox(height: 16),
             Padding(
               padding: EdgeInsets.symmetric(horizontal: inset),
-              child: _PlayButton(
-                label: episodes.length > 1
-                    ? '播放 · 第 ${picked + 1} 集'
-                    : '播放',
-                starting: playStarting,
-                onTap: () => onPlayPicked(episodes, picked),
-              ),
+              child: episodes.isEmpty
+                  ? _PlayButton(
+                      label: loading ? '正在载入剧集…' : '播放',
+                      starting: true,
+                      onTap: () {},
+                    )
+                  : _PlayButton(
+                      label: episodes.length > 1
+                          ? '播放 · 第 ${safePicked + 1} 集'
+                          : '播放',
+                      starting: playStarting,
+                      onTap: () => onPlayPicked(episodes, safePicked),
+                    ),
             ),
             // —— 操作行：已看 / 收藏
             const SizedBox(height: 14),
@@ -528,29 +579,48 @@ class _InfoColumn extends StatelessWidget {
               onTogglePlayed: onTogglePlayed,
               onToggleFavorite: onToggleFavorite,
             ),
-            // —— 简介
-            if (pickedItem.overview != null &&
-                pickedItem.overview!.trim().isNotEmpty) ...[
+            // —— 简介：单集没有就退到整部剧的简介，再没有才不显示
+            if (overview != null) ...[
               const SizedBox(height: 16),
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: inset),
                 child: _Overview(
-                  prefix: '[${item.name} · $seasonName · 第 ${picked + 1} 集] ',
-                  text: pickedItem.overview!.trim(),
+                  prefix: episodes.isEmpty
+                      ? ''
+                      : '[${item.name} · $seasonName · 第 ${safePicked + 1} 集] ',
+                  text: overview,
                   expanded: overviewExpanded,
                   onToggle: onToggleOverview,
                 ),
               ),
             ],
-            // —— 季选择 + 排序 + 全集列表入口
-            if (seasons.length > 1 || episodes.length > 1) ...[
+            // —— 剧集没拉到：给一句明确的说明，而不是整页空白
+            if (episodes.isEmpty && !loading) ...[
+              const SizedBox(height: 18),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: inset),
+                child: Text(
+                  failed
+                      ? '没能取到剧集列表，可能是这台服务器响应异常。返回重进一次通常就好。'
+                      : '这个季在 Emby 服务端还没有剧集文件。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.5,
+                    color: Colors.white.withValues(alpha: 0.55),
+                  ),
+                ),
+              ),
+            ],
+            // —— 季选择 + 排序 + 集号 + 集卡
+            if (episodes.isNotEmpty) ...[
               const SizedBox(height: 20),
               _SeasonBar(
                 seasons: seasons,
                 currentSeasonId: currentSeasonId,
                 seasonName: seasonName,
                 descending: descending,
-                pickedIndex: picked,
+                pickedIndex: safePicked,
                 onOpenAll: () => _openAllEpisodes(context, episodes),
                 onSwitchSeason: onSwitchSeason,
                 onToggleOrder: onToggleOrder,
@@ -559,8 +629,8 @@ class _InfoColumn extends StatelessWidget {
               const SizedBox(height: 12),
               _EpisodeNums(
                 episodes: episodes,
-                order: order,
-                picked: picked,
+                order: _orderOf(episodes.length),
+                picked: safePicked,
                 numKeys: numKeys,
                 onPick: (i) => onPick(episodes, i),
               ),
@@ -568,8 +638,8 @@ class _InfoColumn extends StatelessWidget {
               const SizedBox(height: 14),
               _EpisodeRail(
                 episodes: episodes,
-                order: order,
-                picked: picked,
+                order: _orderOf(episodes.length),
+                picked: safePicked,
                 server: server,
                 inset: inset,
                 cardKeys: cardKeys,
@@ -610,6 +680,18 @@ class _InfoColumn extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// 单集简介优先，没有就用整部剧的简介。
+  ///
+  /// 服务端给单集填 `Overview` 的很少（大部分剧集只有剧集简介），
+  /// 所以以前详情页经常「一句描述都没有」。
+  String? _overviewFor(EmbyItem pickedItem) {
+    for (final candidate in [pickedItem.overview, item.overview]) {
+      final text = candidate?.trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return null;
   }
 
   String _currentSeasonName(List<EmbyItem> seasons) {
@@ -1125,41 +1207,45 @@ class _EpisodeRail extends StatelessWidget {
     final bool desktop = embyIsDesktop(context);
 
     return SizedBox(
-      // 演示视频里集卡是"竖版近方形缩略图 + 下面三行字"，比原来高不少。
-      height: desktop ? 340 : 300,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: inset),
-        itemExtent: desktop ? 250 : null,
-        children: [
-          for (final int i in order)
-            LayoutBuilder(builder: (context, constraints) {
-              final double cardWidth = desktop
-                  ? 250
-                  : (constraints.maxWidth * 0.28);
-              return Padding(
-                padding: EdgeInsets.only(
-                  right: i == order.last ? 0 : 12,
-                ),
-                child: SizedBox(
-                  width: cardWidth,
-                  child: _EpisodeCard(
-                    key: cardKeys[episodes[i].id],
-                    item: episodes[i],
-                    server: server,
-                    index: i,
-                    selected: i == picked,
-                    onPick: () => onPick(i),
+      // 截图里的集卡是「16:9 缩略图 + 集名 + 三行简介」，卡片宽度约占屏幕
+      // 六成，一屏能露出下一张的一角，暗示可以横滑。
+      height: desktop ? 268 : 236,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final double cardWidth = desktop
+              ? 320
+              : (constraints.maxWidth * 0.62).clamp(180.0, 300.0);
+          return ListView(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(horizontal: inset),
+            children: [
+              for (final int i in order)
+                Padding(
+                  padding: EdgeInsets.only(right: i == order.last ? 0 : 12),
+                  child: SizedBox(
+                    width: cardWidth,
+                    child: _EpisodeCard(
+                      key: cardKeys[episodes[i].id],
+                      item: episodes[i],
+                      server: server,
+                      index: i,
+                      selected: i == picked,
+                      onPick: () => onPick(i),
+                    ),
                   ),
                 ),
-              );
-            }),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
 }
 
+/// 一张集卡。
+///
+/// 对齐设计稿：16:9 缩略图，右上角集号、右下角时长，下面是「E02 · 入门」和
+/// 三行简介；整张卡有一层浅色底，和页面拉开层次。选中时描边换成强调色。
 class _EpisodeCard extends StatelessWidget {
   const _EpisodeCard({
     super.key,
@@ -1193,40 +1279,117 @@ class _EpisodeCard extends StatelessWidget {
       tag: hasOwnImage ? item.primaryImageTag : null,
     );
 
+    final int minutes = item.runTimeTicks == null
+        ? 0
+        : (item.runTimeTicks! ~/ 600000000);
+    final double? rating = item.communityRating;
+
     return GestureDetector(
       onTap: onPick,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              // 选中：白色描边（视频里是白圈），未选中留一圈很淡的内描边。
-              border: Border.all(
-                color: selected
-                    ? Colors.white
-                    : Colors.white.withValues(alpha: 0.22),
-                width: selected ? 2.5 : 1,
-              ),
-              boxShadow: selected
-                  ? const [
-                      BoxShadow(
-                          color: Color(0x38000000),
-                          blurRadius: 14,
-                          offset: Offset(0, 3)),
-                    ]
-                  : const [],
-            ),
-            child: AspectRatio(
-              // 竖版近方形：跟演示视频一致，横图会被居中裁切填满。
-              aspectRatio: 3 / 4,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? p.accent : p.hairline,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(11),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
                     EmbyImage(url: image, headers: embyAuthHeaders(server)),
+                    // 右上角：集号（截图里就是一个小方块数字）
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          '${index + 1}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 右下角：时长
+                    if (minutes > 0)
+                      Positioned(
+                        right: 6,
+                        bottom: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            '$minutes 分钟',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // 左下角：评分（只有服务端给了才画）
+                    if (rating != null && rating > 0)
+                      Positioned(
+                        left: 6,
+                        bottom: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.star_rounded,
+                                size: 10,
+                                color: Color(0xFFFFD60A),
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                rating.toStringAsFixed(1),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     if (item.watchedRatio > 0)
                       Positioned(
                         left: 0,
@@ -1246,28 +1409,35 @@ class _EpisodeCard extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'E${(index + 1).toString().padLeft(2, '0')} · ${embyEpisodeLabel(item, index + 1)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: p.inkPrimary,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (item.overview != null && item.overview!.trim().isNotEmpty) ...[
-            const SizedBox(height: 3),
+            const SizedBox(height: 8),
             Text(
-              item.overview!.trim(),
-              maxLines: 3,
+              'E${(index + 1).toString().padLeft(2, '0')} · ${embyEpisodeLabel(item, index + 1)}',
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: p.inkTertiary, fontSize: 11, height: 1.45),
+              style: TextStyle(
+                color: p.inkPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+              ),
             ),
+            if (item.overview != null && item.overview!.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Expanded(
+                child: Text(
+                  item.overview!.trim(),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: p.inkTertiary,
+                    fontSize: 11.5,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

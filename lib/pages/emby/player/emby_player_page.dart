@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +14,7 @@ import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_panels.dart';
+import 'package:XL/pages/emby/player/emby_player_popover.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
@@ -43,9 +45,35 @@ class EmbyPlayerPage extends StatefulWidget {
   State<EmbyPlayerPage> createState() => _EmbyPlayerPageState();
 }
 
-class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
+class _EmbyPlayerPageState extends State<EmbyPlayerPage>
+    with SingleTickerProviderStateMixin {
   late final EmbyPlayerController controller;
   final FocusNode _focusNode = FocusNode();
+
+  /// 控制层的统一显隐动画。
+  ///
+  /// 以前是 `if (show) …` 直接增删 widget——顶栏、中央键、底栏同一帧冒出来、
+  /// 同一帧消失，不管点得多轻都像「啪」一下拍上去。现在三个区域共用这一条
+  /// 曲线：淡入淡出 + 各自的位移/缩放，任何一次显隐都是同一节奏。
+  late final AnimationController _chromeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 240),
+    reverseDuration: const Duration(milliseconds: 200),
+    value: 1,
+  );
+
+  late final Animation<double> _chromeAnim = CurvedAnimation(
+    parent: _chromeCtrl,
+    curve: Curves.easeOutCubic,
+    reverseCurve: Curves.easeInCubic,
+  );
+
+  /// 上一次同步给动画的显示状态，避免每帧重复 forward/reverse。
+  bool _chromeShown = true;
+
+  /// 淡出到 0 之后把控件层整块摘掉：动画过程要它挂树上，隐藏以后还留着就
+  /// 等于每帧白跑一遍布局。
+  bool _chromeSettled = false;
 
   bool _isDesktop = false;
   bool _windowFullscreen = false;
@@ -58,8 +86,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
   Duration _dragPosition = Duration.zero;
 
   // 手势 HUD
+  //
+  // _hudLabel 只管「显示还是隐藏」，实际渲染内容取最后一份快照：清空 label
+  // 的瞬间如果直接用空字符串，淡出的那 200ms 里会是一个空黑框。
   String _hudLabel = '';
   IconData? _hudIcon;
+  String _hudLastLabel = '';
+  IconData? _hudLastIcon;
   Timer? _hudTimer;
 
   // ---- 手势 ----
@@ -130,6 +163,12 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       _restoreZoom(_lastItemId);
     }
     controller.addListener(_onPlaybackChanged);
+    _chromeCtrl.addStatusListener((status) {
+      if (!mounted) return;
+      final settled = status == AnimationStatus.dismissed;
+      if (settled == _chromeSettled) return;
+      setState(() => _chromeSettled = settled);
+    });
   }
 
   @override
@@ -148,12 +187,15 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       // 而且可能卡在横屏。
       final original = _originalBrightness;
       if (original != null) unawaited(_applyBrightness(original));
-      unawaited(SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]));
+      unawaited(
+        SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]),
+      );
     }
     if (_windowFullscreen) {
       windowManager.setFullScreen(false);
     }
     _focusNode.dispose();
+    _chromeCtrl.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -176,31 +218,31 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     final side = EmbyDisplayPrefs.side;
     final landscape = switch (side) {
       EmbyLandscapeSide.left => const <DeviceOrientation>[
-          DeviceOrientation.landscapeLeft
-        ],
+        DeviceOrientation.landscapeLeft,
+      ],
       EmbyLandscapeSide.right => const <DeviceOrientation>[
-          DeviceOrientation.landscapeRight
-        ],
+        DeviceOrientation.landscapeRight,
+      ],
       EmbyLandscapeSide.auto => const <DeviceOrientation>[
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ],
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
     };
     final List<DeviceOrientation>? target = switch (mode) {
       EmbyOrientationMode.keep => null,
       EmbyOrientationMode.landscape => landscape,
       EmbyOrientationMode.portrait => const <DeviceOrientation>[
-          DeviceOrientation.portraitUp
-        ],
+        DeviceOrientation.portraitUp,
+      ],
       EmbyOrientationMode.auto => () {
-          final w = controller.videoWidth;
-          final h = controller.videoHeight;
-          // 尺寸还没出来：等第一帧视频信息回来再决定（见 _onPlaybackChanged）。
-          if (w <= 0 || h <= 0) return null;
-          return w >= h ? landscape : const <DeviceOrientation>[
-            DeviceOrientation.portraitUp
-          ];
-        }(),
+        final w = controller.videoWidth;
+        final h = controller.videoHeight;
+        // 尺寸还没出来：等第一帧视频信息回来再决定（见 _onPlaybackChanged）。
+        if (w <= 0 || h <= 0) return null;
+        return w >= h
+            ? landscape
+            : const <DeviceOrientation>[DeviceOrientation.portraitUp];
+      }(),
     };
     if (target == null) return;
     try {
@@ -213,6 +255,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
   /// 换集 / 首帧就绪时决定要不要重新应用方向。
   void _onPlaybackChanged() {
     if (!mounted) return;
+    _syncChrome();
     final id = controller.current?.id ?? '';
     if (id != _lastItemId) {
       _saveZoom();
@@ -225,11 +268,67 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         controller.videoWidth > 0 &&
         controller.videoHeight > 0) {
       _orientationApplied = true;
-      unawaited(_applyOrientation(
-        _firstItem ? EmbyDisplayPrefs.enter : EmbyDisplayPrefs.onSwitch,
-      ));
+      unawaited(
+        _applyOrientation(
+          _firstItem ? EmbyDisplayPrefs.enter : EmbyDisplayPrefs.onSwitch,
+        ),
+      );
       _firstItem = false;
     }
+  }
+
+  /// 控件该不该显示，只在这里算一次，交给 [_chromeCtrl] 去过渡。
+  void _syncChrome() {
+    final bool show = controller.controlsVisible || !controller.playing;
+    if (show == _chromeShown) return;
+    _chromeShown = show;
+    if (show) {
+      _chromeSettled = false;
+      _chromeCtrl.forward();
+    } else {
+      _chromeCtrl.reverse();
+    }
+  }
+
+  /// 把某一层控件套上统一的显隐过渡。
+  ///
+  /// [slide] 是「完全透明时相对最终位置的偏移」，顶栏往下、底栏往上，
+  /// 看起来像整层从画面里浮出来而不是凭空冒出来。
+  ///
+  /// 控件层即使淡到 0 也仍然挂在树上（这样才有淡出过程），所以必须用
+  /// [IgnorePointer] 把点击让回下面的手势层，否则整块画面都不响应单击。
+  Widget _chromeLayer({
+    required Widget child,
+    double slide = 0,
+    double scaleFrom = 1,
+    bool ignoreWhenHidden = true,
+    bool fill = false,
+  }) {
+    Widget body = AnimatedBuilder(
+      animation: _chromeAnim,
+      child: child,
+      builder: (context, child) {
+        final double t = _chromeAnim.value;
+        Widget out = child!;
+        if (scaleFrom != 1) {
+          out = Transform.scale(
+            scale: scaleFrom + (1 - scaleFrom) * t,
+            child: out,
+          );
+        }
+        if (slide != 0) {
+          out = Transform.translate(
+            offset: Offset(0, slide * (1 - t)),
+            child: out,
+          );
+        }
+        return Opacity(opacity: t.clamp(0.0, 1.0), child: out);
+      },
+    );
+    if (ignoreWhenHidden) {
+      body = IgnorePointer(ignoring: !_chromeShown, child: body);
+    }
+    return fill ? Positioned.fill(child: body) : body;
   }
 
   void _restoreZoom(String itemId) {
@@ -249,13 +348,17 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
   Offset _clampZoomOffset(Offset value, double zoom, Size size) {
     final maxX = size.width * (zoom - 1) / 2;
     final maxY = size.height * (zoom - 1) / 2;
-    return Offset(
-      value.dx.clamp(-maxX, maxX),
-      value.dy.clamp(-maxY, maxY),
-    );
+    return Offset(value.dx.clamp(-maxX, maxX), value.dy.clamp(-maxY, maxY));
   }
 
   // ------------------------------------------------------------ 交互
+
+  /// 先关掉当前菜单，等它收完再开下一层。
+  ///
+  /// 不这样的话，上一张卡片还在退场、下一张已经开始进场，两张会叠在一起。
+  void _next(VoidCallback open) {
+    Future<void>.delayed(const Duration(milliseconds: 120), open);
+  }
 
   void _toggleControls() {
     if (controller.locked) return;
@@ -288,10 +391,16 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       await _seekBy(const Duration(seconds: 10), label: '快进 10 秒');
     } else if (key == LogicalKeyboardKey.arrowUp) {
       await controller.nudgeVolume(5);
-      _showHud('音量 ${controller.volume.round()}%', icon: Icons.volume_up_rounded);
+      _showHud(
+        '音量 ${controller.volume.round()}%',
+        icon: Icons.volume_up_rounded,
+      );
     } else if (key == LogicalKeyboardKey.arrowDown) {
       await controller.nudgeVolume(-5);
-      _showHud('音量 ${controller.volume.round()}%', icon: Icons.volume_down_rounded);
+      _showHud(
+        '音量 ${controller.volume.round()}%',
+        icon: Icons.volume_down_rounded,
+      );
     } else if (key == LogicalKeyboardKey.keyF) {
       await _toggleFullscreen();
     } else if (key == LogicalKeyboardKey.keyL) {
@@ -313,9 +422,12 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     await controller.seek(target);
     controller.setControlsVisible(true);
     if (label != null) {
-      _showHud(label, icon: delta.isNegative
-          ? Icons.replay_10_rounded
-          : Icons.forward_10_rounded);
+      _showHud(
+        label,
+        icon: delta.isNegative
+            ? Icons.replay_10_rounded
+            : Icons.forward_10_rounded,
+      );
     }
   }
 
@@ -324,6 +436,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     setState(() {
       _hudLabel = label;
       _hudIcon = icon;
+      _hudLastLabel = label;
+      _hudLastIcon = icon;
     });
     _hudTimer = Timer(const Duration(milliseconds: 900), () {
       if (!mounted) return;
@@ -337,7 +451,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
   // ------------------------------------------------------------ 面板
 
   void _pauseAutoHide() {
-    controller.setControlsVisible(true);
+    controller.pauseAutoHide();
+  }
+
+  void _resumeAutoHide() {
+    controller.resumeAutoHide();
   }
 
   Future<void> _openMore() async {
@@ -356,36 +474,38 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
           progressAlways: controller.progressAlwaysVisible,
           onDecode: () {
             Navigator.of(ctx).pop();
-            _openDecode();
+            _next(_openDecode);
           },
           onPlaybackMode: () {
             Navigator.of(ctx).pop();
-            _openPlaybackMode();
+            _next(_openPlaybackMode);
           },
           onIntroOutro: () {
             Navigator.of(ctx).pop();
-            _openIntroOutro();
+            _next(_openIntroOutro);
           },
           onSleep: () {
             Navigator.of(ctx).pop();
-            _openSleep();
+            _next(_openSleep);
           },
           onInfo: () {
             Navigator.of(ctx).pop();
-            _openInfo();
+            _next(_openInfo);
           },
           onBackground: () {
             controller.setBackgroundAudio(!controller.backgroundAudio);
             Navigator.of(ctx).pop();
           },
           onProgress: () {
-            controller.setProgressAlwaysVisible(!controller.progressAlwaysVisible);
+            controller.setProgressAlwaysVisible(
+              !controller.progressAlwaysVisible,
+            );
             Navigator.of(ctx).pop();
           },
         ),
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openDecode() async {
@@ -402,7 +522,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openPlaybackMode() async {
@@ -419,7 +539,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openIntroOutro() async {
@@ -439,7 +559,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         onOutroChanged: controller.setOutroSkip,
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openSleep() async {
@@ -456,7 +576,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openChapters() async {
@@ -474,7 +594,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openEpisodes() async {
@@ -494,7 +614,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openSpeed() async {
@@ -511,7 +631,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openAudio() async {
@@ -534,11 +654,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
         onEnhance: () {
           Navigator.of(ctx).pop();
-          _openGain();
+          _next(_openGain);
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openGain() async {
@@ -555,7 +675,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   void _toast(String message) {
@@ -585,7 +705,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
         onSettings: () {
           Navigator.of(ctx).pop();
-          _openSubtitleSettings();
+          _next(_openSubtitleSettings);
         },
         onDisableForever: () {
           controller.disableSubtitleForever();
@@ -594,15 +714,15 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
         onSearch: () {
           Navigator.of(ctx).pop();
-          _openSubtitleSearch();
+          _next(_openSubtitleSearch);
         },
         onImport: () {
           Navigator.of(ctx).pop();
-          _importSubtitle();
+          _next(_importSubtitle);
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   /// 本地导入：挑一个字幕文件，立刻挂到当前这一条上。
@@ -610,7 +730,15 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['srt', 'ass', 'ssa', 'vtt', 'sub', 'sup', 'ttml'],
+        allowedExtensions: const [
+          'srt',
+          'ass',
+          'ssa',
+          'vtt',
+          'sub',
+          'sup',
+          'ttml',
+        ],
         allowMultiple: false,
       );
       final path = result?.files.single.path;
@@ -638,8 +766,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
           if (loading) {
             unawaited(() async {
               try {
-                final found = await controller
-                    .searchRemoteSubtitles(language.isEmpty ? 'chi' : language);
+                final found = await controller.searchRemoteSubtitles(
+                  language.isEmpty ? 'chi' : language,
+                );
                 if (!ctx.mounted) return;
                 setSheetState(() {
                   results = found;
@@ -675,7 +804,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
               child: Text(
                 '服务器没找到可用的字幕。\n'
                 '可以换个语言再试，或者用「本地导入」挂自己的字幕文件。',
-                style: TextStyle(fontSize: 13, height: 1.6, color: _hintInk(ctx)),
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.6,
+                  color: _hintInk(ctx),
+                ),
               ),
             );
           }
@@ -715,13 +848,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         },
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Color _hintInk(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark
-          ? const Color(0xFF9A9AA2)
-          : const Color(0xFF8A8A90);
+      ? const Color(0xFF9A9AA2)
+      : const Color(0xFF8A8A90);
 
   Future<void> _openSubtitleSettings() async {
     _pauseAutoHide();
@@ -751,7 +884,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         ),
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openAspect() async {
@@ -771,7 +904,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         ),
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   Future<void> _openInfo() async {
@@ -804,7 +937,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         streamMode: controller.streamModeLabel,
       ),
     );
-    _pauseAutoHide();
+    _resumeAutoHide();
   }
 
   String _currentSubtitleLabel() {
@@ -850,14 +983,27 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
                   controller.setControlsVisible(true);
                 }
               },
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
+              child: RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
                     // 手势只铺在**画面**这一层：控件（按钮 / 进度条）在它上面，
                     // 点按钮不会顺带把控件收起来。
                     _buildGestureSurface(),
-                    if (show && !controller.loading && controller.error.isEmpty)
-                      _ChromeGradient(visible: true),
+                    if (!controller.loading &&
+                        controller.error.isEmpty &&
+                        !_chromeSettled) ...[
+                      // 遮罩和控件共用一个 240ms 的曲线。以前遮罩淡 180ms、
+                      // 控件瞬切，两套节奏打架，看着就是「硬」。
+                      _chromeLayer(
+                        child: const _ChromeGradient(),
+                        ignoreWhenHidden: false,
+                        fill: true,
+                      ),
+                      _buildTopBar(),
+                      _buildCenterControls(),
+                      _buildBottomBar(),
+                    ],
                     if (controller.loading) _buildLoading(),
                     if (controller.error.isNotEmpty) _buildError(),
                     if (!controller.loading &&
@@ -865,14 +1011,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
                         controller.error.isEmpty &&
                         !controller.completed)
                       _buildBuffering(),
-                    if (show && !controller.loading && controller.error.isEmpty) ...[
-                      _buildTopBar(),
-                      _buildCenterControls(),
-                      _buildBottomBar(),
-                    ],
-                    if (controller.locked) _buildLockedBadge(),
-                    if (_hudLabel.isNotEmpty) _buildHud(),
-                ],
+                    _buildLockedBadge(),
+                    _buildHud(),
+                  ],
+                ),
               ),
             );
           },
@@ -918,8 +1060,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
         // 关键：透明底。留这一行是为了防止以后有人又退回默认样式。
         backgroundColor: Colors.transparent,
         shadows: [
-          for (final o in ring)
-            Shadow(offset: o, blurRadius: 2.6, color: halo),
+          for (final o in ring) Shadow(offset: o, blurRadius: 2.6, color: halo),
         ],
       ),
       textAlign: TextAlign.center,
@@ -997,20 +1138,30 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
 
   Widget _buildBuffering() {
     return Center(
-      child: Container(
-        width: 54,
-        height: 54,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.42),
-          shape: BoxShape.circle,
+      // 拖动进度条时会连续进出缓冲态，硬切会「一闪一闪」。淡入一下。
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        builder: (context, t, child) => Opacity(
+          opacity: t,
+          child: Transform.scale(scale: 0.9 + 0.1 * t, child: child),
         ),
-        child: const Center(
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.2,
-              color: Colors.white,
+        child: Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.42),
+            shape: BoxShape.circle,
+          ),
+          child: const Center(
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.2,
+                color: Colors.white,
+              ),
             ),
           ),
         ),
@@ -1096,92 +1247,94 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       left: 0,
       right: 0,
       top: 0,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            _isDesktop ? 20 : 12,
-            _isDesktop ? 14 : 8,
-            _isDesktop ? 20 : 12,
-            8,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 短按先收起控件（视频里那颗按钮的手感），长按才真的退出。
-              // 不想这样的话可以在「播放手势 → 长按返回键退出播放器」关掉。
-              _CircleAction(
-                icon: Icons.arrow_back_ios_new_rounded,
-                iconSize: 17,
-                onTap: _gesture.longPressExit
-                    ? _toggleControls
-                    : () => Navigator.of(context).maybePop(),
-                onLongPress: _gesture.longPressExit
-                    ? () => Navigator.of(context).maybePop()
-                    : null,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      if (sub.isNotEmpty) ...[
-                        const SizedBox(height: 3),
+      child: _chromeLayer(
+        slide: -16,
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              _isDesktop ? 20 : 12,
+              _isDesktop ? 14 : 8,
+              _isDesktop ? 20 : 12,
+              8,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 短按先收起控件（视频里那颗按钮的手感），长按才真的退出。
+                // 不想这样的话可以在「播放手势 → 长按返回键退出播放器」关掉。
+                _CircleAction(
+                  icon: Icons.arrow_back_ios_new_rounded,
+                  iconSize: 17,
+                  onTap: _gesture.longPressExit
+                      ? _toggleControls
+                      : () => Navigator.of(context).maybePop(),
+                  onLongPress: _gesture.longPressExit
+                      ? () => Navigator.of(context).maybePop()
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         Text(
-                          sub,
+                          title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.62),
-                            fontSize: 12,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.2,
                           ),
                         ),
+                        if (sub.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            sub,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.62),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              if (widget.launch.episodes.length > 1)
+                const SizedBox(width: 10),
+                if (widget.launch.episodes.length > 1)
+                  _CircleAction(
+                    icon: Icons.menu_book_rounded,
+                    iconSize: 17,
+                    onTap: _openEpisodes,
+                  ),
+                if (widget.launch.episodes.length > 1) const SizedBox(width: 8),
                 _CircleAction(
-                  icon: Icons.menu_book_rounded,
+                  icon: Icons.info_outline_rounded,
                   iconSize: 17,
-                  onTap: _openEpisodes,
+                  onTap: _openInfo,
                 ),
-              if (widget.launch.episodes.length > 1)
                 const SizedBox(width: 8),
-              _CircleAction(
-                icon: Icons.info_outline_rounded,
-                iconSize: 17,
-                onTap: _openInfo,
-              ),
-              const SizedBox(width: 8),
-              _CircleAction(
-                icon: Icons.lock_open_rounded,
-                iconSize: 17,
-                onTap: controller.toggleLock,
-              ),
-              const SizedBox(width: 8),
-              _CircleAction(
-                icon: Icons.more_horiz_rounded,
-                iconSize: 19,
-                onTap: _openMore,
-              ),
-            ],
+                _CircleAction(
+                  icon: Icons.lock_open_rounded,
+                  iconSize: 17,
+                  onTap: controller.toggleLock,
+                ),
+                const SizedBox(width: 8),
+                _CircleAction(
+                  icon: Icons.more_horiz_rounded,
+                  iconSize: 19,
+                  onTap: _openMore,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1193,50 +1346,53 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
   Widget _buildCenterControls() {
     final bool canPrev = controller.hasPrevious;
     final bool canNext = controller.hasNext;
-    return Center(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _CenterAction(
-            icon: Icons.replay_10_rounded,
-            size: 46,
-            onTap: () => _seekBy(const Duration(seconds: -10), label: '快退 10 秒'),
-          ),
-          const SizedBox(width: 28),
-          _PlayPauseButton(
-            playing: controller.playing,
-            onTap: controller.togglePlay,
-          ),
-          const SizedBox(width: 28),
-          _CenterAction(
-            icon: Icons.forward_10_rounded,
-            size: 46,
-            onTap: () => _seekBy(const Duration(seconds: 10), label: '快进 10 秒'),
-          ),
-          if (canPrev || canNext) ...[
-            const SizedBox(width: 22),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _CircleAction(
-                  icon: Icons.skip_next_rounded,
-                  iconSize: 18,
-                  size: 38,
-                  enabled: canNext,
-                  onTap: canNext ? controller.playNext : null,
-                ),
-                const SizedBox(height: 8),
-                _CircleAction(
-                  icon: Icons.skip_previous_rounded,
-                  iconSize: 18,
-                  size: 38,
-                  enabled: canPrev,
-                  onTap: canPrev ? controller.playPrevious : null,
-                ),
-              ],
+    return _chromeLayer(
+      scaleFrom: 0.92,
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _CenterAction(
+              onTap: () =>
+                  _seekBy(const Duration(seconds: -10), label: '快退 10 秒'),
+              child: const _SeekTenIcon(backward: true, size: 42),
             ),
+            const SizedBox(width: 20),
+            _PlayPauseButton(
+              playing: controller.playing,
+              onTap: controller.togglePlay,
+            ),
+            const SizedBox(width: 20),
+            _CenterAction(
+              onTap: () =>
+                  _seekBy(const Duration(seconds: 10), label: '快进 10 秒'),
+              child: const _SeekTenIcon(backward: false, size: 42),
+            ),
+            if (canPrev || canNext) ...[
+              const SizedBox(width: 22),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _CircleAction(
+                    icon: Icons.skip_next_rounded,
+                    iconSize: 18,
+                    size: 38,
+                    enabled: canNext,
+                    onTap: canNext ? controller.playNext : null,
+                  ),
+                  const SizedBox(height: 8),
+                  _CircleAction(
+                    icon: Icons.skip_previous_rounded,
+                    iconSize: 18,
+                    size: 38,
+                    enabled: canPrev,
+                    onTap: canPrev ? controller.playPrevious : null,
+                  ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -1247,163 +1403,208 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     final Duration total = controller.duration;
     final Duration shown = _dragging ? _dragPosition : controller.position;
 
+    final List<Widget> leftTools = <Widget>[
+      _ToolChip(
+        icon: Icons.speed_rounded,
+        label: '${_speedText(controller.speed)}×',
+        onTap: _openSpeed,
+      ),
+      _ToolChip(icon: Icons.graphic_eq_rounded, label: '音轨', onTap: _openAudio),
+      _ToolChip(
+        icon: Icons.subtitles_outlined,
+        label: _currentSubtitleLabel().isEmpty ? '字幕' : _currentSubtitleLabel(),
+        selected: _currentSubtitleLabel().isNotEmpty,
+        onTap: _openSubtitle,
+      ),
+    ];
+
+    final List<Widget> rightTools = <Widget>[
+      if (widget.launch.episodes.length > 1)
+        _CircleAction(
+          icon: Icons.video_library_outlined,
+          iconSize: 16,
+          size: 34,
+          onTap: _openEpisodes,
+        ),
+      _CircleAction(
+        icon: Icons.aspect_ratio_rounded,
+        iconSize: 16,
+        size: 34,
+        onTap: _openAspect,
+      ),
+      if (controller.chapters.isNotEmpty)
+        _CircleAction(
+          icon: Icons.bookmark_outline_rounded,
+          iconSize: 16,
+          size: 34,
+          onTap: _openChapters,
+        ),
+      _CircleAction(
+        icon: Icons.more_horiz_rounded,
+        iconSize: 18,
+        size: 34,
+        onTap: _openMore,
+      ),
+    ];
+
     return Positioned(
       left: 0,
       right: 0,
       bottom: 0,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            _isDesktop ? 22 : 14,
-            0,
-            _isDesktop ? 22 : 14,
-            _isDesktop ? 18 : 10,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    _fmt(shown),
-                    style: _timeStyle(Colors.white),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '/',
-                    style: _timeStyle(Colors.white.withValues(alpha: 0.35)),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    total == Duration.zero ? '--:--' : _fmt(total),
-                    style: _timeStyle(Colors.white.withValues(alpha: 0.62)),
-                  ),
-                  const Spacer(),
-                  _StatusChip(
-                    label: controller.decodeLabel,
-                    value: controller.resolutionLabel,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              _RexSeekBar(
-                position: shown,
-                duration: total,
-                buffer: controller.buffer,
-                // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
-                enabled: total > Duration.zero && _gesture.dragProgressBar,
-                onDragStart: () {
-                  setState(() {
-                    _dragging = true;
-                    _dragPosition = controller.position;
-                  });
-                  _pauseAutoHide();
-                },
-                onDragUpdate: (value) {
-                  setState(() => _dragPosition = value);
-                  _showHud(_fmt(value), icon: Icons.fast_forward_rounded);
-                },
-                onDragEnd: (value) {
-                  controller.seek(value);
-                  setState(() => _dragging = false);
-                  if (_gesture.hapticProgress) KazumiHaptics.select();
-                  _pauseAutoHide();
-                },
-                onTapSeek: (value) {
-                  controller.seek(value);
-                  _pauseAutoHide();
-                },
-              ),
-              const SizedBox(height: 6),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
+      child: _chromeLayer(
+        slide: 20,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              _isDesktop ? 22 : 16,
+              0,
+              _isDesktop ? 22 : 16,
+              _isDesktop ? 18 : 10,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 时间分列两端、状态贴住总时长——比原来「时间 / 总时长 … 状态」
+                // 挤在左边更像播放器，也把进度条上方的空间用满了。
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    _ToolChip(
-                      icon: Icons.speed_rounded,
-                      label: '${_speedText(controller.speed)}×',
-                      onTap: _openSpeed,
+                    Text(_fmt(shown), style: _timeStyle(Colors.white, 13.5)),
+                    const Spacer(),
+                    Text(
+                      total == Duration.zero ? '--:--' : _fmt(total),
+                      style: _timeStyle(Colors.white.withValues(alpha: 0.55)),
                     ),
-                    _ToolChip(
-                      icon: Icons.graphic_eq_rounded,
-                      label: '音轨',
-                      onTap: _openAudio,
-                    ),
-                    _ToolChip(
-                      icon: Icons.subtitles_outlined,
-                      label: _currentSubtitleLabel().isEmpty
-                          ? '字幕'
-                          : _currentSubtitleLabel(),
-                      selected: _currentSubtitleLabel().isNotEmpty,
-                      onTap: _openSubtitle,
-                    ),
-                    if (widget.launch.episodes.length > 1)
-                      _ToolChip(
-                        icon: Icons.video_library_outlined,
-                        label: '选集',
-                        onTap: _openEpisodes,
-                      ),
-                    _ToolChip(
-                      icon: Icons.aspect_ratio_rounded,
-                      label: embyAspectOptions[_aspect.clamp(0, embyAspectOptions.length - 1)].label,
-                      onTap: _openAspect,
-                    ),
-                    if (controller.chapters.isNotEmpty)
-                      _ToolChip(
-                        icon: Icons.bookmark_outline_rounded,
-                        label: '章节',
-                        onTap: _openChapters,
-                      ),
-                    _ToolChip(
-                      icon: Icons.more_horiz_rounded,
-                      label: '更多',
-                      onTap: _openMore,
+                    const SizedBox(width: 10),
+                    _StatusChip(
+                      label: controller.decodeLabel,
+                      value: controller.resolutionLabel,
                     ),
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 2),
+                _RexSeekBar(
+                  position: shown,
+                  duration: total,
+                  buffer: controller.buffer,
+                  // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
+                  enabled: total > Duration.zero && _gesture.dragProgressBar,
+                  onDragStart: () {
+                    setState(() {
+                      _dragging = true;
+                      _dragPosition = controller.position;
+                    });
+                    _pauseAutoHide();
+                  },
+                  onDragUpdate: (value) {
+                    setState(() => _dragPosition = value);
+                    _showHud(_fmt(value), icon: Icons.fast_forward_rounded);
+                  },
+                  onDragEnd: (value) {
+                    controller.seek(value);
+                    setState(() => _dragging = false);
+                    if (_gesture.hapticProgress) KazumiHaptics.select();
+                    _pauseAutoHide();
+                  },
+                  onTapSeek: (value) {
+                    controller.seek(value);
+                    _pauseAutoHide();
+                  },
+                ),
+                const SizedBox(height: 8),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // 窄屏（手机竖屏）放不下就横向滚，不要挤成两行。
+                    if (constraints.maxWidth < 560) {
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ...leftTools,
+                            const SizedBox(width: 10),
+                            ...rightTools.map(
+                              (w) => Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: w,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    return Row(
+                      children: [
+                        ...leftTools,
+                        const Spacer(),
+                        ...rightTools.map(
+                          (w) => Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: w,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  static TextStyle _timeStyle(Color color) => TextStyle(
-        color: color,
-        fontSize: 12.5,
-        fontWeight: FontWeight.w600,
-        fontFeatures: const [FontFeature.tabularFigures()],
-      );
+  static TextStyle _timeStyle(Color color, [double size = 12.5]) => TextStyle(
+    color: color,
+    fontSize: size,
+    fontWeight: FontWeight.w600,
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
 
   Widget _buildLockedBadge() {
+    final bool locked = controller.locked;
     return Positioned(
       left: 0,
       right: 0,
       top: 0,
       bottom: 0,
-      child: IgnorePointer(
-        child: Center(
-          child: GestureDetector(
-            onTap: controller.toggleLock,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.lock_rounded, size: 14, color: Colors.white70),
-                  SizedBox(width: 6),
-                  Text(
-                    '已锁定，点此解锁',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+      child: Center(
+        child: AnimatedOpacity(
+          opacity: locked ? 1 : 0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          child: AnimatedScale(
+            scale: locked ? 1 : 0.94,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+            child: GestureDetector(
+              onTap: locked ? controller.toggleLock : null,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.42),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    width: 0.8,
                   ),
-                ],
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_rounded, size: 14, color: Colors.white70),
+                    SizedBox(width: 6),
+                    Text(
+                      '已锁定，点此解锁',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1413,34 +1614,58 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
   }
 
   Widget _buildHud() {
+    final bool visible = _hudLabel.isNotEmpty;
+    // 淡出时继续用上一份内容，避免中途闪成空框。
+    final String label = visible ? _hudLabel : _hudLastLabel;
+    final IconData? icon = visible ? _hudIcon : _hudLastIcon;
+    if (label.isEmpty) return const SizedBox.shrink();
     return Positioned.fill(
       child: IgnorePointer(
         child: Center(
           child: AnimatedOpacity(
-            opacity: _hudLabel.isEmpty ? 0 : 1,
-            duration: const Duration(milliseconds: 140),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.56),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_hudIcon != null)
-                    Icon(_hudIcon, size: 22, color: Colors.white),
-                  if (_hudIcon != null) const SizedBox(height: 6),
-                  Text(
-                    _hudLabel,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
+            opacity: visible ? 1 : 0,
+            duration: Duration(milliseconds: visible ? 140 : 220),
+            curve: visible ? Curves.easeOutCubic : Curves.easeIn,
+            child: AnimatedScale(
+              scale: visible ? 1 : 0.94,
+              duration: Duration(milliseconds: visible ? 160 : 220),
+              curve: visible ? Curves.easeOutCubic : Curves.easeIn,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.46),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    width: 0.8,
                   ),
-                ],
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.24),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) Icon(icon, size: 22, color: Colors.white),
+                    if (icon != null) const SizedBox(height: 6),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1518,8 +1743,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       if (next > 1.02 &&
           now.difference(_lastZoomHudAt) > const Duration(milliseconds: 120)) {
         _lastZoomHudAt = now;
-        _showHud('缩放 ${next.toStringAsFixed(1)}×',
-            icon: Icons.zoom_out_map_rounded);
+        _showHud(
+          '缩放 ${next.toStringAsFixed(1)}×',
+          icon: Icons.zoom_out_map_rounded,
+        );
       }
       return;
     }
@@ -1535,7 +1762,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
       final horizontal = delta.dx.abs() > delta.dy.abs();
       _horizontalActive =
           horizontal && _gesture.seekByDrag && !controller.locked;
-      _verticalActive = !horizontal &&
+      _verticalActive =
+          !horizontal &&
           (_gesture.brightness || _gesture.volume) &&
           !controller.locked;
       _verticalIsVolume = down.dx > size.width * 0.5;
@@ -1549,10 +1777,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     if (_horizontalActive) {
       final total = controller.duration;
       if (total <= Duration.zero) return;
-      final target = _seekStart +
+      final target =
+          _seekStart +
           Duration(
-            microseconds:
-                (delta.dx / size.width * total.inMicroseconds).round(),
+            microseconds: (delta.dx / size.width * total.inMicroseconds)
+                .round(),
           );
       final clamped = target < Duration.zero
           ? Duration.zero
@@ -1577,8 +1806,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
           icon: next <= 0.5
               ? Icons.volume_off_rounded
               : (next < 50
-                  ? Icons.volume_down_rounded
-                  : Icons.volume_up_rounded),
+                    ? Icons.volume_down_rounded
+                    : Icons.volume_up_rounded),
         );
       } else {
         final next = (_gestureStartBrightness + frac).clamp(0.0, 1.0);
@@ -1631,8 +1860,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     final now = DateTime.now();
     final lastAt = _lastTapAt;
     final lastPos = _lastTapPos;
-    final isDouble = lastAt != null &&
-        now.difference(lastAt) < const Duration(milliseconds: 320) &&
+    final isDouble =
+        lastAt != null &&
+        now.difference(lastAt) < const Duration(milliseconds: 250) &&
         lastPos != null &&
         (lastPos - pos).distance < 56;
     if (isDouble) {
@@ -1644,9 +1874,17 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
     _lastTapAt = now;
     _lastTapPos = pos;
     _singleTapTimer?.cancel();
-    // 开了双击功能就必须等一个窗口，否则单点会先闪一下控件再处理双击。
+    // 控件是收起的：这一下就是要把它唤出来，立刻响应。
+    // 以前不管什么情况都先等 250ms 判断双击，结果「点一下画面」永远慢半拍，
+    // 是整套交互里最明显的滞涩来源。双击的快进/暂停落在第二击，控件已经出来
+    // 了也不影响。
+    if (!controller.controlsVisible) {
+      if (_gesture.tapToggleControls) _toggleControls();
+      return;
+    }
+    // 已经显示着，才需要等一个窗口判断是不是双击（否则会先收起再处理双击）。
     if (_gesture.doubleTapSeek || _gesture.doubleTapPlayPause) {
-      _singleTapTimer = Timer(const Duration(milliseconds: 320), () {
+      _singleTapTimer = Timer(const Duration(milliseconds: 250), () {
         if (!mounted) return;
         if (_gesture.tapToggleControls) _toggleControls();
       });
@@ -1703,8 +1941,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
 
   Future<void> _applyBrightness(double value) async {
     try {
-      await ScreenBrightnessPlatform.instance
-          .setApplicationScreenBrightness(value);
+      await ScreenBrightnessPlatform.instance.setApplicationScreenBrightness(
+        value,
+      );
     } catch (_) {
       // 平台不支持就算了，不打断播放。
     }
@@ -1722,43 +1961,50 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage> {
 
 // ---------------------------------------------------------------- 小部件
 
-/// 上下两道渐变遮罩（Rex 的 `PlayerChromeGradientView`）。
-class _ChromeGradient extends StatelessWidget {
-  const _ChromeGradient({required this.visible});
+/// 记住刚才点的按钮在屏幕上的位置，菜单从它身上长出来。
+///
+/// 放在按钮自己的 build context 上算，误差只有一圈外间距；比每个调用点都
+/// 传一个 GlobalKey 省事得多。
+void _recordAnchor(BuildContext context) {
+  final box = context.findRenderObject();
+  if (box is RenderBox && box.hasSize) {
+    embyLastAnchor = box.localToGlobal(Offset.zero) & box.size;
+  }
+}
 
-  final bool visible;
+/// 上下两道渐变遮罩（Rex 的 `PlayerChromeGradientView`）。
+///
+/// 透明度交给外层的 [_chromeLayer] 统一控制，这里只负责画。
+class _ChromeGradient extends StatelessWidget {
+  const _ChromeGradient();
 
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
-      child: AnimatedOpacity(
-        opacity: visible ? 1 : 0,
-        duration: const Duration(milliseconds: 180),
-        child: Column(
-          children: [
-            Container(
-              height: 132,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xB3000000), Color(0x00000000)],
-                ),
+      child: Column(
+        children: [
+          Container(
+            height: 132,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xB3000000), Color(0x00000000)],
               ),
             ),
-            const Spacer(),
-            Container(
-              height: 208,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x00000000), Color(0xC7000000)],
-                ),
+          ),
+          const Spacer(),
+          Container(
+            height: 208,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x00000000), Color(0xC7000000)],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1784,20 +2030,31 @@ class _CircleAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _PressScale(
-      onTap: enabled ? onTap : null,
+      onTap: enabled && onTap != null
+          ? () {
+              _recordAnchor(context);
+              onTap!();
+            }
+          : null,
       onLongPress: enabled ? onLongPress : null,
       child: Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.14),
+          // 顶栏这几个小键只是辅助，底子压到 0.08 并与描边一起做「玻璃片」，
+          // 比原来的 0.14 实心圆轻得多，不抢画面。
+          color: Colors.white.withValues(alpha: 0.08),
           shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.14),
+            width: 0.8,
+          ),
         ),
         child: Center(
           child: Icon(
             icon,
             size: iconSize,
-            color: Colors.white.withValues(alpha: enabled ? 1 : 0.35),
+            color: Colors.white.withValues(alpha: enabled ? 0.94 : 0.32),
           ),
         ),
       ),
@@ -1805,57 +2062,236 @@ class _CircleAction extends StatelessWidget {
   }
 }
 
-class _CenterAction extends StatelessWidget {
-  const _CenterAction({
-    required this.icon,
-    required this.onTap,
-    this.size = 46,
-  });
+/// 中央两枚快退 / 快进。
+///
+/// 图标是自绘的细线圆弧（见 [_SeekTenIcon]），不用 Material 那颗实心
+/// `replay_10`——那个形态太粗，压在明亮画面上就是两块白斑。
+class _CenterAction extends StatefulWidget {
+  const _CenterAction({required this.child, required this.onTap});
 
-  final IconData icon;
+  final Widget child;
   final VoidCallback onTap;
-  final double size;
+
+  @override
+  State<_CenterAction> createState() => _CenterActionState();
+}
+
+class _CenterActionState extends State<_CenterAction> {
+  bool _down = false;
 
   @override
   Widget build(BuildContext context) {
-    return _PressScale(
-      onTap: onTap,
-      scale: 0.9,
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: Icon(icon, size: size, color: Colors.white),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _down = true),
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: SizedBox(
+          width: 66,
+          height: 66,
+          child: Center(
+            child: AnimatedScale(
+              scale: _down ? 0.86 : 1,
+              duration: Duration(milliseconds: _down ? 110 : 240),
+              curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
+              child: AnimatedOpacity(
+                opacity: _down ? 0.55 : 0.95,
+                duration: const Duration(milliseconds: 150),
+                curve: Curves.easeOut,
+                child: widget.child,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _PlayPauseButton extends StatelessWidget {
+/// 圆环 + 中间的「10」。
+///
+/// 一圈 2px 的圆弧，缺口处收一个同粗细的箭头，中间写数字。比 Material 的
+/// 填充箭头轻一档，和旁边那颗玻璃播放键放在一起才是一套。
+class _SeekTenIcon extends StatelessWidget {
+  const _SeekTenIcon({required this.backward, this.size = 42});
+
+  final bool backward;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _SeekTenPainter(backward: backward)),
+    );
+  }
+}
+
+class _SeekTenPainter extends CustomPainter {
+  _SeekTenPainter({required this.backward});
+
+  final bool backward;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double w = size.width;
+    final Offset center = size.center(Offset.zero);
+    final double radius = w * 0.375;
+    final Paint ring = Paint()
+      ..color = Colors.white.withValues(alpha: 0.96)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.075
+      ..strokeCap = StrokeCap.round;
+
+    // 缺口角度：留出一小段给箭头，不然箭头会和环叠在一起。
+    const double gap = 0.62;
+    final double startAngle = backward
+        ? -math.pi / 2 + gap
+        : -math.pi / 2 - gap;
+    final double sweep = (2 * math.pi - 2 * gap) * (backward ? -1 : 1);
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      sweep,
+      false,
+      ring,
+    );
+
+    // 箭头：落在弧的起点，指向弧前进的方向。
+    final Offset tip =
+        center + Offset(math.cos(startAngle), math.sin(startAngle)) * radius;
+    final Offset tangent =
+        Offset(-math.sin(startAngle), math.cos(startAngle)) *
+        (sweep.isNegative ? -1 : 1);
+    final Offset normal = Offset(math.cos(startAngle), math.sin(startAngle));
+    final double len = w * 0.155;
+    final Offset back = tip - tangent * len;
+    canvas.drawLine(tip, back + normal * len * 0.62, ring);
+    canvas.drawLine(tip, back - normal * len * 0.62, ring);
+
+    final TextPainter text = TextPainter(
+      text: TextSpan(
+        text: '10',
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.98),
+          fontSize: w * 0.33,
+          fontWeight: FontWeight.w600,
+          height: 1,
+          letterSpacing: -0.6,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    text.paint(canvas, center - Offset(text.width / 2, text.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(_SeekTenPainter oldDelegate) =>
+      oldDelegate.backward != backward;
+}
+
+/// 中央播放 / 暂停。
+///
+/// 原来是 68px 的纯白实心圆 + 黑色图标，压在画面上像贴了个按钮贴纸。现在改成
+/// 半透明玻璃：斜向白色渐变 + 发丝描边 + 投影，图标转白。按下时提亮一档，
+/// 松手回落，比单纯缩一下更「有手感」。
+class _PlayPauseButton extends StatefulWidget {
   const _PlayPauseButton({required this.playing, required this.onTap});
 
   final bool playing;
   final VoidCallback onTap;
 
   @override
+  State<_PlayPauseButton> createState() => _PlayPauseButtonState();
+}
+
+class _PlayPauseButtonState extends State<_PlayPauseButton> {
+  bool _down = false;
+
+  @override
   Widget build(BuildContext context) {
-    return _PressScale(
-      onTap: onTap,
-      scale: 0.92,
-      child: Container(
-        width: 68,
-        height: 68,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-        ),
-        child: Center(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 150),
-            child: Icon(
-              playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              key: ValueKey<bool>(playing),
-              size: 34,
-              color: Colors.black,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _down = true),
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: SizedBox(
+          width: 84,
+          height: 84,
+          child: Center(
+            child: AnimatedScale(
+              scale: _down ? 0.94 : 1,
+              duration: Duration(milliseconds: _down ? 110 : 240),
+              curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 190),
+                curve: Curves.easeOutCubic,
+                width: 62,
+                height: 62,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withValues(alpha: _down ? 0.26 : 0.17),
+                      Colors.white.withValues(alpha: _down ? 0.13 : 0.07),
+                    ],
+                  ),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: _down ? 0.34 : 0.20),
+                    width: 0.9,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.20),
+                      blurRadius: 20,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: ScaleTransition(
+                        scale: Tween<double>(begin: 0.72, end: 1).animate(anim),
+                        child: child,
+                      ),
+                    ),
+                    child: Transform.translate(
+                      key: ValueKey<bool>(widget.playing),
+                      // play 三角形的视觉重心偏左，右挪 2px 才「站得正」。
+                      offset: Offset(widget.playing ? 0 : 2, 0),
+                      child: Icon(
+                        widget.playing
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        size: widget.playing ? 32 : 34,
+                        color: Colors.white.withValues(alpha: 0.96),
+                        shadows: const [
+                          Shadow(
+                            color: Color(0x4D000000),
+                            blurRadius: 10,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -1916,12 +2352,19 @@ class _ToolChip extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: _PressScale(
-        onTap: onTap,
+        onTap: () {
+          _recordAnchor(context);
+          onTap();
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: selected ? 0.22 : 0.12),
+            color: Colors.white.withValues(alpha: selected ? 0.18 : 0.08),
             borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: selected ? 0.26 : 0.12),
+              width: 0.8,
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -1975,19 +2418,16 @@ class _StatusChip extends StatelessWidget {
 
 /// 按压缩放（Rex 的 `PressScale`）。
 class _PressScale extends StatefulWidget {
-  const _PressScale({
-    required this.child,
-    this.onTap,
-    this.onLongPress,
-    this.scale = 0.95,
-  });
+  const _PressScale({required this.child, this.onTap, this.onLongPress});
 
   final Widget child;
   final VoidCallback? onTap;
 
   /// 长按（用来做「长按返回键退出播放器」这种二次确认的手势）。
   final VoidCallback? onLongPress;
-  final double scale;
+
+  /// 按下时的缩放比例。
+  static const double scale = 0.95;
 
   @override
   State<_PressScale> createState() => _PressScaleState();
@@ -2009,9 +2449,11 @@ class _PressScaleState extends State<_PressScale> {
         onTap: widget.onTap,
         onLongPress: widget.onLongPress,
         child: AnimatedScale(
-          scale: _down ? widget.scale : 1,
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOut,
+          scale: _down ? _PressScale.scale : 1,
+          // 按下要跟手（短），松手带回弹（长一点，easeOutBack 过冲约 2%），
+          // 以前两头都是 100ms 线性，按下去和弹回来一样快，就显得「木」。
+          duration: Duration(milliseconds: _down ? 110 : 240),
+          curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
           child: widget.child,
         ),
       ),
@@ -2049,6 +2491,7 @@ class _RexSeekBar extends StatefulWidget {
 
 class _RexSeekBarState extends State<_RexSeekBar> {
   bool _active = false;
+  bool _hover = false;
 
   /// 拖拽过程中的最新值。父组件是通过 setState 回传的，可能比手势慢一帧，
   /// 松手时用这个值才准。
@@ -2065,22 +2508,37 @@ class _RexSeekBarState extends State<_RexSeekBar> {
   @override
   Widget build(BuildContext context) {
     final double total = widget.duration.inMicroseconds.toDouble();
-    final double progress =
-        total <= 0 ? 0 : (widget.position.inMicroseconds / total).clamp(0.0, 1.0);
-    final double buffered =
-        total <= 0 ? 0 : (widget.buffer.inMicroseconds / total).clamp(0.0, 1.0);
+    final double progress = total <= 0
+        ? 0
+        : (widget.position.inMicroseconds / total).clamp(0.0, 1.0);
+    final double buffered = total <= 0
+        ? 0
+        : (widget.buffer.inMicroseconds / total).clamp(0.0, 1.0);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final double width = constraints.maxWidth;
+        const double thumb = 13;
+        final bool lit = _active || _hover;
+        final double thumbX = (width * progress - thumb / 2).clamp(
+          -thumb / 2,
+          width - thumb / 2,
+        );
         return MouseRegion(
-          cursor: widget.enabled
-              ? SystemMouseCursors.click
-              : MouseCursor.defer,
+          cursor: widget.enabled ? SystemMouseCursors.click : MouseCursor.defer,
+          onEnter: (_) {
+            if (!widget.enabled) return;
+            setState(() => _hover = true);
+          },
+          onExit: (_) {
+            if (!_hover) return;
+            setState(() => _hover = false);
+          },
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: widget.enabled
-                ? (d) => widget.onTapSeek(_positionFor(d.localPosition.dx, width))
+                ? (d) =>
+                      widget.onTapSeek(_positionFor(d.localPosition.dx, width))
                 : null,
             onHorizontalDragStart: widget.enabled
                 ? (_) {
@@ -2105,39 +2563,78 @@ class _RexSeekBarState extends State<_RexSeekBar> {
             onHorizontalDragCancel: () => setState(() => _active = false),
             child: SizedBox(
               height: 26,
-              child: Center(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 130),
-                  height: _active ? 6 : 3.5,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ColoredBox(
-                            color: Colors.white.withValues(alpha: 0.22),
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: buffered,
-                            child: ColoredBox(
-                              color: Colors.white.withValues(alpha: 0.38),
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOutCubic,
+                      height: _active ? 6 : 3.5,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: ColoredBox(
+                                color: Colors.white.withValues(alpha: 0.22),
+                              ),
                             ),
-                          ),
+                            Positioned.fill(
+                              child: FractionallySizedBox(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: buffered,
+                                child: ColoredBox(
+                                  color: Colors.white.withValues(alpha: 0.34),
+                                ),
+                              ),
+                            ),
+                            Positioned.fill(
+                              child: FractionallySizedBox(
+                                alignment: Alignment.centerLeft,
+                                widthFactor: progress,
+                                child: ColoredBox(
+                                  color: Colors.white.withValues(alpha: 0.96),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        Positioned.fill(
-                          child: FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: progress,
-                            child: const ColoredBox(color: Colors.white),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
+                  // 手柄：拖动或桌面悬停时才浮出来，静止时只是一个纯色条。
+                  Positioned(
+                    left: thumbX,
+                    child: AnimatedScale(
+                      scale: lit ? 1 : 0.4,
+                      duration: const Duration(milliseconds: 170),
+                      curve: Curves.easeOutCubic,
+                      child: AnimatedOpacity(
+                        opacity: lit ? 1 : 0,
+                        duration: const Duration(milliseconds: 160),
+                        child: Container(
+                          width: thumb,
+                          height: thumb,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

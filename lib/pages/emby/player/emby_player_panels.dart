@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
-import 'package:XL/theme/rex_design.dart';
+import 'package:XL/pages/emby/player/emby_player_popover.dart';
 
 /// 播放器内的面板。
 ///
@@ -16,28 +17,19 @@ import 'package:XL/theme/rex_design.dart';
 /// 播放器是全黑环境，面板不用主题色板，固定深色，避免浅色主题下
 /// 突然弹出一个白板子把人晃到。
 
-/// 面板配色可以切换：
-///   * 竖屏（底部抽屉）保持深色，跟播放器一体；
-///   * 横屏（画面右侧浮层）按演示视频做成**白色卡片**，深墨字。
-/// 面板是模态的，同一时刻只有一个，所以用一个静态开关就够了。
-bool _panelLight = false;
-
-Color get _sheetBg =>
-    _panelLight ? const Color(0xFFFFFFFF) : const Color(0xFF16161A);
-Color get _sheetBgRaised =>
-    _panelLight ? const Color(0xFFFFFFFF) : const Color(0xFF1F1F24);
-Color get _ink =>
-    _panelLight ? const Color(0xFF0B0B0F) : const Color(0xFFF4F4F7);
-Color get _inkSecondary =>
-    _panelLight ? const Color(0xFF6B6B70) : const Color(0xFFA2A2AC);
-Color get _inkTertiary =>
-    _panelLight ? const Color(0xFF9A9AA0) : const Color(0xFF6E6E78);
-Color get _accent =>
-    _panelLight ? const Color(0xFF0B0B0F) : const Color(0xFFFFFFFF);
-Color get _accentInk =>
-    _panelLight ? const Color(0xFFFFFFFF) : const Color(0xFF101013);
+/// 面板配色。
+///
+/// 播放器是深色环境，但菜单刻意做成浅色——这是 iOS 系统菜单（UIMenu）在
+/// 视频播放器里的样子：浅色材质浮在画面上，一眼就能和「画面」分开。深色卡片
+/// 压在暗场画面里会糊成一片，反而看不清。
+const Color _ink = Color(0xFF101013);
+const Color _inkSecondary = Color(0xFF6B6B70);
+const Color _inkTertiary = Color(0xFF9A9AA0);
 
 /// 打开一个播放器面板。
+///
+/// 统一走 [showEmbyPopover]：从触发按钮的位置长出来一张 iOS 菜单，不再从底部
+/// 升起大抽屉。参数保持不变，页面侧不用改。
 Future<T?> showEmbyPlayerSheet<T>(
   BuildContext context, {
   required String title,
@@ -47,205 +39,39 @@ Future<T?> showEmbyPlayerSheet<T>(
   bool hideHeaderWhenWide = false,
 }) {
   final Size size = MediaQuery.sizeOf(context);
-  final bool desktop = isDesktop || size.width >= 900;
-
-  // 演示视频里播放器是横屏，所有面板都是「画面右侧的白色圆角浮层」，
-  // 不是从底部升起来的。竖屏手机还是用底部抽屉，不然浮层会挤得没法看。
-  final bool landscape = size.width > size.height;
-  _panelLight = landscape;
-
-  Widget shell(BuildContext ctx) {
-    final bool wide = desktop || landscape;
-    final Widget body = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (!wide)
-          Padding(
-            padding: const EdgeInsets.only(top: 10, bottom: 2),
-            child: Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: _inkTertiary.withValues(alpha: 0.5),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
-        // 字幕面板在横屏浮层里不画标题栏——演示视频里那张卡片是直接从
-        // 「主字幕」开始的，多一行「字幕」+关闭键就不像了。
-        if (!(wide && hideHeaderWhenWide))
-          Padding(
-            padding: EdgeInsets.fromLTRB(20, wide ? 18 : 12, 12, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.1,
-                    ),
-                  ),
-                ),
-                _SheetCloseButton(onTap: () => Navigator.of(ctx).maybePop()),
-              ],
-            ),
-          ),
-        Flexible(
-          child: scrollable
-              ? SingleChildScrollView(
-                  padding: EdgeInsets.only(
-                    bottom: wide ? 20 : 12,
-                    top: 4,
-                  ),
-                  child: builder(ctx),
-                )
-              : builder(ctx),
-        ),
-      ],
-    );
-
-    if (wide) {
-      return Material(
-        color: _sheetBgRaised,
-        borderRadius: BorderRadius.circular(20),
-        clipBehavior: Clip.antiAlias,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 560),
-          child: body,
-        ),
-      );
-    }
-    return Material(
-      color: _sheetBg,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * 0.78,
-          ),
-          child: body,
-        ),
-      ),
-    );
-  }
-
-  // 横屏：贴在画面右侧的浮层，右上角有关闭按钮，点空白处收起。
-  if (landscape) {
-    final double maxHeight =
-        (size.height - 54 - 92).clamp(240.0, size.height);
-    return showDialog<T>(
-      context: context,
-      barrierColor: const Color(0x55000000),
-      builder: (ctx) => Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(ctx).maybePop(),
-            ),
-          ),
-          // 高度按内容走，不再从 top 拉到 bottom——字幕设置只有四行，
-          // 拉满会剩一大片空白（截图里那块红框）。
-          Positioned(
-            right: 14,
-            top: 54,
-            width: 300,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: maxHeight),
-              child: Material(
-                color: _sheetBgRaised,
-                borderRadius: BorderRadius.circular(14),
-                clipBehavior: Clip.antiAlias,
-                child: shell(ctx),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  if (desktop) {
-    return showDialog<T>(
-      context: context,
-      barrierColor: const Color(0xAA000000),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 440),
-          child: shell(ctx),
-        ),
-      ),
-    );
-  }
-  return showModalBottomSheet<T>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: const Color(0x88000000),
-    builder: shell,
+  // 没有锚点（极少数从代码直接打开的路径）就贴着右下角，别飞到屏幕正中。
+  final Rect anchor =
+      embyLastAnchor ??
+      Rect.fromLTWH(size.width - 64, size.height - 120, 48, 48);
+  return showEmbyPopover<T>(
+    context,
+    anchor: anchor,
+    header: hideHeaderWhenWide ? null : title,
+    // 竖屏手机窄，菜单跟着收窄一点，不然左右都没边距。
+    width: size.width < 420 ? (size.width - 48).clamp(220.0, 300.0) : 288,
+    children: [builder(context)],
   );
 }
 
-class _SheetCloseButton extends StatelessWidget {
-  const _SheetCloseButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return RexPressable(
-      onTap: onTap,
-      scale: 0.9,
-      child: SizedBox(
-        width: 34,
-        height: 34,
-        child: Center(
-          child: Icon(Icons.close_rounded, size: 19, color: _inkSecondary),
-        ),
-      ),
-    );
-  }
-}
-
-/// 分组小标题。
+/// 分组标题：灰底居中，iOS 菜单的分组头就长这样。
 class _GroupTitle extends StatelessWidget {
   const _GroupTitle(this.label);
 
   final String label;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: _inkTertiary,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.6,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => EmbyMenuHeader(label);
 }
 
-/// 一行可选项。
+/// 一行可选项 / 动作。
 class _PanelRow extends StatelessWidget {
   const _PanelRow({
     required this.title,
     this.subtitle,
     this.icon,
     this.selected = false,
+    this.chevron = false,
+    this.destructive = false,
     this.onTap,
   });
 
@@ -253,74 +79,27 @@ class _PanelRow extends StatelessWidget {
   final String? subtitle;
   final IconData? icon;
   final bool selected;
+  final bool destructive;
+
+  /// 右侧 `>`：点了会再弹一层菜单。普通动作项不要挂，iOS 菜单里不是每行都带箭头。
+  final bool chevron;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final Color fg = selected ? _accent : _ink;
-    return RexPressable(
+    return EmbyMenuRow(
+      label: title,
+      detail: subtitle,
+      icon: icon,
+      checked: selected,
+      chevron: chevron,
+      destructive: destructive,
       onTap: onTap,
-      scale: 0.99,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-        decoration: BoxDecoration(
-          color: selected ? _ink.withValues(alpha: 0.08) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 18, color: fg),
-              const SizedBox(width: 12),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: fg,
-                      fontSize: 14.5,
-                      fontWeight:
-                          selected ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                  ),
-                  if (subtitle != null && subtitle!.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: _inkTertiary,
-                        fontSize: 11.5,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (selected) ...[
-              const SizedBox(width: 8),
-              Icon(Icons.check_rounded, size: 18, color: _accent),
-            ] else if (onTap != null) ...[
-              const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded,
-                  size: 18, color: _inkTertiary),
-            ],
-          ],
-        ),
-      ),
     );
   }
 }
 
-/// 一组横向选项（倍速、画面比例这种）。
+/// 一组横向选项（画面比例这种）：菜单里改成竖排，选中打勾。
 class _SegmentedRow extends StatelessWidget {
   const _SegmentedRow({
     required this.options,
@@ -334,46 +113,21 @@ class _SegmentedRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (int i = 0; i < options.length; i++)
-            RexPressable(
-              onTap: () => onSelect(i),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 130),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: i == selectedIndex
-                      ? _accent
-                      : _ink.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  options[i],
-                  style: TextStyle(
-                    color: i == selectedIndex ? _accentInk : _ink,
-                    fontSize: 13,
-                    fontWeight: i == selectedIndex
-                        ? FontWeight.w600
-                        : FontWeight.w400,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (int i = 0; i < options.length; i++)
+          EmbyMenuRow(
+            label: options[i],
+            checked: i == selectedIndex,
+            onTap: () => onSelect(i),
+          ),
+      ],
     );
   }
 }
 
-/// 带 −/＋ 步进器的设置面板。
+/// 带 −/＋ 的调节行。菜单里不做弹窗，就地调，调完还留在菜单里继续看画面。
 class _StepperRow extends StatelessWidget {
   const _StepperRow({
     required this.label,
@@ -390,65 +144,62 @@ class _StepperRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: _ink.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
+      constraints: const BoxConstraints(minHeight: 48),
+      padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style: TextStyle(color: _ink, fontSize: 14),
+              style: const TextStyle(color: _ink, fontSize: 15),
             ),
           ),
-          RexPressable(
-            onTap: onMinus,
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: _ink.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Icon(Icons.remove_rounded, size: 18, color: _ink),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: SizedBox(
-              width: 64,
-              child: Text(
-                value,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _ink,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
+          _StepButton(icon: Icons.remove_rounded, onTap: onMinus),
+          SizedBox(
+            width: 62,
+            child: Text(
+              value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
           ),
-          RexPressable(
-            onTap: onPlus,
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: _ink.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Icon(Icons.add_rounded, size: 18, color: _ink),
-              ),
-            ),
-          ),
+          _StepButton(icon: Icons.add_rounded, onTap: onPlus),
         ],
+      ),
+    );
+  }
+}
+
+class _StepButton extends StatelessWidget {
+  const _StepButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: const Color(0x11000000),
+          borderRadius: BorderRadius.circular(9),
+        ),
+        child: Icon(icon, size: 17, color: _ink),
       ),
     );
   }
@@ -495,44 +246,35 @@ Widget buildEmbyMorePanel(BuildContext context, EmbyMorePanelActions a) {
     children: [
       const _GroupTitle('播放设置'),
       _PanelRow(
-        icon: Icons.hardware_rounded,
         title: '解码',
         subtitle: a.decodeLabel,
+        chevron: true,
         onTap: a.onDecode,
       ),
       _PanelRow(
-        icon: Icons.playlist_play_rounded,
         title: '顺序播放',
         subtitle: a.playbackModeLabel,
+        chevron: true,
         onTap: a.onPlaybackMode,
       ),
+      _PanelRow(title: '片头片尾', chevron: true, onTap: a.onIntroOutro),
       _PanelRow(
-        icon: Icons.skip_next_rounded,
-        title: '片头片尾',
-        onTap: a.onIntroOutro,
-      ),
-      const _GroupTitle('工具'),
-      _PanelRow(
-        icon: Icons.timer_rounded,
         title: '定时关闭',
         subtitle: a.sleepLabel,
+        chevron: true,
         onTap: a.onSleep,
       ),
+      _PanelRow(title: '媒体信息', chevron: true, onTap: a.onInfo),
+      const _GroupTitle('工具'),
       _PanelRow(
-        icon: Icons.info_outline_rounded,
-        title: '媒体信息',
-        onTap: a.onInfo,
-      ),
-      _PanelRow(
-        icon: Icons.headphones_rounded,
         title: '后台音频',
-        subtitle: a.background ? '已开启' : '关闭',
+        subtitle: a.background ? '继续播放声音' : '随画面一起暂停',
+        selected: a.background,
         onTap: a.onBackground,
       ),
       _PanelRow(
-        icon: Icons.linear_scale_rounded,
         title: '进度条常显',
-        subtitle: a.progressAlways ? '已开启' : '关闭',
+        selected: a.progressAlways,
         onTap: a.onProgress,
       ),
       const SizedBox(height: 8),
@@ -578,32 +320,37 @@ class _EpisodeRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double ratio = item.watchedRatio;
-    return RexPressable(
-      onTap: onTap,
-      scale: 0.99,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        constraints: const BoxConstraints(minHeight: 52),
+        padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
         decoration: BoxDecoration(
-          color: selected ? _ink.withValues(alpha: 0.08) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? embyMenuChecked : Colors.transparent,
+          border: const Border(
+            bottom: BorderSide(color: embyMenuLine, width: 0.5),
+          ),
         ),
         child: Row(
           children: [
             SizedBox(
-              width: 28,
-              child: Text(
-                '${index + 1}',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: selected ? _accent : _inkTertiary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
+              width: 22,
+              child: selected
+                  ? const Icon(Icons.check_rounded, size: 17, color: _ink)
+                  : Text(
+                      '${index + 1}',
+                      style: const TextStyle(
+                        color: _inkTertiary,
+                        fontSize: 12.5,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -614,10 +361,10 @@ class _EpisodeRow extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: selected ? _accent : _ink,
-                      fontSize: 14,
-                      fontWeight:
-                          selected ? FontWeight.w600 : FontWeight.w400,
+                      color: _ink,
+                      fontSize: 15,
+                      height: 1.25,
+                      fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
                     ),
                   ),
                   if (ratio > 0.01) ...[
@@ -627,21 +374,14 @@ class _EpisodeRow extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: ratio.clamp(0, 1),
                         minHeight: 2.5,
-                        backgroundColor: _ink.withValues(alpha: 0.12),
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          selected ? _accent : _inkSecondary,
-                        ),
+                        backgroundColor: const Color(0x1A000000),
+                        valueColor: const AlwaysStoppedAnimation<Color>(_ink),
                       ),
                     ),
                   ],
                 ],
               ),
             ),
-            if (selected)
-              Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Icon(Icons.graphic_eq_rounded, size: 16, color: _accent),
-              ),
           ],
         ),
       ),
@@ -651,7 +391,17 @@ class _EpisodeRow extends StatelessWidget {
 
 /// 倍速面板。Rex 是「自定义」滚动列表，0.5× 到 8.0×。
 const List<double> _speeds = <double>[
-  0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 8.0,
+  0.5,
+  0.75,
+  1.0,
+  1.25,
+  1.5,
+  1.75,
+  2.0,
+  2.5,
+  3.0,
+  4.0,
+  8.0,
 ];
 
 String embySpeedLabel(double value) {
@@ -693,11 +443,7 @@ Widget buildEmbyAudioPanel({
   return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _PanelRow(
-        title: '关闭音频',
-        selected: audioOff,
-        onTap: onDisableAudio,
-      ),
+      _PanelRow(title: '关闭音频', selected: audioOff, onTap: onDisableAudio),
       if (tracks.isEmpty)
         Padding(
           padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
@@ -714,9 +460,9 @@ Widget buildEmbyAudioPanel({
           onTap: () => onSelect(track),
         ),
       _PanelRow(
-        icon: Icons.graphic_eq_rounded,
         title: '音频增强',
         subtitle: gain <= 1.001 ? '关闭' : '${embyGainLabel(gain)}×',
+        chevron: true,
         onTap: onEnhance,
       ),
       const SizedBox(height: 8),
@@ -773,7 +519,9 @@ Widget buildEmbyGainPanel({
       for (int i = 0; i < _gains.length; i++)
         _PanelRow(
           title: _gains[i] == 1.0 ? '关闭' : '${embyGainLabel(_gains[i])}×',
-          subtitle: _gains[i] == 1.0 ? '原声' : '放大 ${embyGainLabel(_gains[i])} 倍',
+          subtitle: _gains[i] == 1.0
+              ? '原声'
+              : '放大 ${embyGainLabel(_gains[i])} 倍',
           selected: i == index,
           onTap: () => onSelect(_gains[i]),
         ),
@@ -797,10 +545,11 @@ Widget buildEmbySubtitlePanel({
   required VoidCallback onSearch,
   required VoidCallback onImport,
 }) {
+  // 展开状态必须放在 StatefulBuilder 外面：放在里面每次 setState 重建都会
+  // 重新初始化成「主字幕」，点「副字幕」会像没反应一样弹回去。
+  var expanded = _SubtitleSection.primary;
   return StatefulBuilder(
     builder: (context, setState) {
-      var expanded = _SubtitleSection.primary;
-
       Widget section(
         String title, {
         required _SubtitleSection which,
@@ -870,20 +619,13 @@ Widget buildEmbySubtitlePanel({
             margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
             color: _ink.withValues(alpha: 0.08),
           ),
-          _PanelRow(
-            title: '字幕搜索',
-            onTap: onSearch,
-          ),
-          _PanelRow(
-            title: '本地导入',
-            onTap: onImport,
-          ),
-          _PanelRow(
-            title: '字幕设置',
-            onTap: onSettings,
-          ),
+          _PanelRow(title: '字幕搜索', chevron: true, onTap: onSearch),
+          _PanelRow(title: '本地导入', chevron: true, onTap: onImport),
+          _PanelRow(title: '字幕设置', chevron: true, onTap: onSettings),
           _PanelRow(
             title: '永久禁用',
+            chevron: true,
+            destructive: true,
             onTap: onDisableForever,
           ),
           const SizedBox(height: 8),
@@ -909,34 +651,42 @@ class _SubExpandRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 11, 14, 11),
-          child: Row(
-            children: [
-              Icon(
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 22,
+              child: Icon(
                 open
                     ? Icons.keyboard_arrow_down_rounded
                     : Icons.keyboard_arrow_right_rounded,
                 size: 18,
                 color: _inkSecondary,
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
+            ),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: _ink,
+                  fontSize: 15.5,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: -0.1,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -960,38 +710,42 @@ class _SubOptionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: checked ? const Color(0x14385480) : Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          height: 44,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(26, 0, 14, 0),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  child: checked
-                      ? Icon(Icons.check_rounded, size: 16, color: _ink)
-                      : null,
-                ),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 14.5,
-                      fontWeight:
-                          checked ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.fromLTRB(38, 8, 14, 8),
+        decoration: BoxDecoration(
+          color: checked ? embyMenuChecked : Colors.transparent,
+          border: const Border(
+            bottom: BorderSide(color: embyMenuLine, width: 0.5),
           ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              child: checked
+                  ? const Icon(Icons.check_rounded, size: 16, color: _ink)
+                  : null,
+            ),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: _ink,
+                  fontSize: 15,
+                  fontWeight: checked ? FontWeight.w500 : FontWeight.w400,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1019,35 +773,48 @@ Widget buildEmbySubtitleSettingsPanel({
         ),
       _StepperRow(
         label: '延迟显示',
-        value: '${settings.delay >= 0 ? '+' : ''}${settings.delay.toStringAsFixed(1)}s',
-        onMinus: () => onChanged(settings.copyWith(
-            delay: (settings.delay - 0.5).clamp(-10, 10))),
+        value:
+            '${settings.delay >= 0 ? '+' : ''}${settings.delay.toStringAsFixed(1)}s',
+        onMinus: () => onChanged(
+          settings.copyWith(delay: (settings.delay - 0.5).clamp(-10, 10)),
+        ),
         onPlus: () => onChanged(
-            settings.copyWith(delay: (settings.delay + 0.5).clamp(-10, 10))),
+          settings.copyWith(delay: (settings.delay + 0.5).clamp(-10, 10)),
+        ),
       ),
       _StepperRow(
         label: '垂直偏移',
         value: '${settings.verticalOffset.round()}',
-        onMinus: () => onChanged(settings.copyWith(
-            verticalOffset: (settings.verticalOffset - 5).clamp(0, 100))),
-        onPlus: () => onChanged(settings.copyWith(
-            verticalOffset: (settings.verticalOffset + 5).clamp(0, 100))),
+        onMinus: () => onChanged(
+          settings.copyWith(
+            verticalOffset: (settings.verticalOffset - 5).clamp(0, 100),
+          ),
+        ),
+        onPlus: () => onChanged(
+          settings.copyWith(
+            verticalOffset: (settings.verticalOffset + 5).clamp(0, 100),
+          ),
+        ),
       ),
       _StepperRow(
         label: '大小缩放',
         value: '${settings.scale.toStringAsFixed(2)}×',
         onMinus: () => onChanged(
-            settings.copyWith(scale: (settings.scale - 0.1).clamp(0.5, 2))),
+          settings.copyWith(scale: (settings.scale - 0.1).clamp(0.5, 2)),
+        ),
         onPlus: () => onChanged(
-            settings.copyWith(scale: (settings.scale + 0.1).clamp(0.5, 2))),
+          settings.copyWith(scale: (settings.scale + 0.1).clamp(0.5, 2)),
+        ),
       ),
       _StepperRow(
         label: '不透明度',
         value: '${(settings.opacity * 100).round()}%',
-        onMinus: () => onChanged(settings.copyWith(
-            opacity: (settings.opacity - 0.1).clamp(0.1, 1))),
+        onMinus: () => onChanged(
+          settings.copyWith(opacity: (settings.opacity - 0.1).clamp(0.1, 1)),
+        ),
         onPlus: () => onChanged(
-            settings.copyWith(opacity: (settings.opacity + 0.1).clamp(0.1, 1))),
+          settings.copyWith(opacity: (settings.opacity + 0.1).clamp(0.1, 1)),
+        ),
       ),
       if (onReset != null) ...[
         Container(
@@ -1055,7 +822,7 @@ Widget buildEmbySubtitleSettingsPanel({
           margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
           color: _ink.withValues(alpha: 0.08),
         ),
-        _PanelRow(title: '重置为默认', onTap: onReset),
+        _PanelRow(title: '重置为默认', destructive: true, onTap: onReset),
       ],
       const SizedBox(height: 8),
     ],
@@ -1204,7 +971,9 @@ Widget buildEmbySleepPanel({
   required int current,
   required ValueChanged<int> onSelect,
 }) {
-  final index = _sleepOptions.indexOf(current).clamp(0, _sleepOptions.length - 1);
+  final index = _sleepOptions
+      .indexOf(current)
+      .clamp(0, _sleepOptions.length - 1);
   return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
@@ -1241,7 +1010,8 @@ Widget buildEmbyChapterPanel({
         _PanelRow(
           title: c.name,
           subtitle: _fmtDuration(c.start),
-          selected: current >= c.start &&
+          selected:
+              current >= c.start &&
               (chapters.last == c || current < _nextChapterStart(chapters, c)),
           onTap: () => onSelect(c.start),
         ),
@@ -1305,11 +1075,7 @@ Widget buildEmbyInfoPanel({
               Expanded(
                 child: SelectableText(
                   value,
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 12.5,
-                    height: 1.4,
-                  ),
+                  style: TextStyle(color: _ink, fontSize: 12.5, height: 1.4),
                 ),
               ),
             ],

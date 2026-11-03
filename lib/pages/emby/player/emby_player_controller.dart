@@ -60,13 +60,12 @@ class EmbySubtitleSettings {
     double? verticalOffset,
     double? scale,
     double? opacity,
-  }) =>
-      EmbySubtitleSettings(
-        delay: delay ?? this.delay,
-        verticalOffset: verticalOffset ?? this.verticalOffset,
-        scale: scale ?? this.scale,
-        opacity: opacity ?? this.opacity,
-      );
+  }) => EmbySubtitleSettings(
+    delay: delay ?? this.delay,
+    verticalOffset: verticalOffset ?? this.verticalOffset,
+    scale: scale ?? this.scale,
+    opacity: opacity ?? this.opacity,
+  );
 }
 
 /// Emby 专用播放器。
@@ -201,7 +200,8 @@ class EmbyPlayerController extends ChangeNotifier {
     final s = item.parentIndexNumber;
     final e = item.indexNumber;
     if (s == null || e == null) return '';
-    return 'S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';  }
+    return 'S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';
+  }
 
   List<AudioTrack> audioTracks = const [];
 
@@ -230,10 +230,10 @@ class EmbyPlayerController extends ChangeNotifier {
 
   /// 面板上要展示的全部字幕轨：Emby 的在前（更全），用户导入的和容器内的在后。
   List<SubtitleTrack> get allSubtitleTracks => [
-        ...embySubtitleTracks,
-        ...importedSubtitleTracks,
-        ...subtitleTracks,
-      ];
+    ...embySubtitleTracks,
+    ...importedSubtitleTracks,
+    ...subtitleTracks,
+  ];
   AudioTrack? currentAudio;
   SubtitleTrack? currentSubtitle;
 
@@ -328,9 +328,7 @@ class EmbyPlayerController extends ChangeNotifier {
           userId: launch.server.userId,
         );
         if (fallback != null && fallback.subtitleStreams.isNotEmpty) {
-          source = source == null
-              ? fallback
-              : source.withStreamsFrom(fallback);
+          source = source == null ? fallback : source.withStreamsFrom(fallback);
           _mediaSourceId ??= fallback.id;
         }
       }
@@ -345,8 +343,7 @@ class EmbyPlayerController extends ChangeNotifier {
 
       // 外挂 / 内封字幕全部做成 URI 轨，选谁就把谁挂到引擎上。
       embySubtitleStreams = [
-        for (final s in source?.subtitleStreams ?? const <EmbyMediaStream>[])
-          s,
+        for (final s in source?.subtitleStreams ?? const <EmbyMediaStream>[]) s,
       ];
       embySubtitleTracks = _buildSubtitleTracks(item.id, embySubtitleStreams);
       importedSubtitleTracks = const [];
@@ -364,8 +361,7 @@ class EmbyPlayerController extends ChangeNotifier {
       false,
       canInstall: () => !_disposed,
       offset: startAt,
-      videoSourceFormat:
-          isHls ? VideoSourceFormat.hls : VideoSourceFormat.auto,
+      videoSourceFormat: isHls ? VideoSourceFormat.hls : VideoSourceFormat.auto,
     );
     if (_disposed) return;
 
@@ -493,7 +489,8 @@ class EmbyPlayerController extends ChangeNotifier {
       case EmbyPlaybackMode.playlistLoop:
         if (hasNext) return _index + 1;
         // 顺序播到末尾：列表循环回头，其余停下。
-        return playbackMode == EmbyPlaybackMode.playlistLoop && launch.episodes.length > 1
+        return playbackMode == EmbyPlaybackMode.playlistLoop &&
+                launch.episodes.length > 1
             ? 0
             : null;
       case EmbyPlaybackMode.shuffle:
@@ -513,7 +510,13 @@ class EmbyPlayerController extends ChangeNotifier {
   Future<void> togglePlay() async {
     final player = playback.mediaPlayer;
     if (player == null) return;
-    if (player.state.playing) {
+    final bool wasPlaying = player.state.playing;
+    // 先翻转再等引擎：mpv / ExoPlayer 的状态回流要一两帧，不乐观更新的话
+    // 手指按下去图标不动，等回来才跳，就是那种「点了没反应」的滞涩感。
+    // 真值由 player.stream.playing 随后覆盖，播放失败也会被纠正回来。
+    playing = !wasPlaying;
+    _notify();
+    if (wasPlaying) {
       await player.pause();
     } else {
       // 播完了再点播放，从这一条的开头重来。
@@ -642,7 +645,9 @@ class EmbyPlayerController extends ChangeNotifier {
   }
 
   /// 字幕搜索：问服务端有哪些字幕可下（服务器上要配好 OpenSubtitles 之类的插件）。
-  Future<List<EmbyRemoteSubtitle>> searchRemoteSubtitles(String language) async {
+  Future<List<EmbyRemoteSubtitle>> searchRemoteSubtitles(
+    String language,
+  ) async {
     final item = current;
     if (item == null) return const [];
     return _client.searchRemoteSubtitles(
@@ -676,22 +681,21 @@ class EmbyPlayerController extends ChangeNotifier {
   List<SubtitleTrack> _buildSubtitleTracks(
     String itemId,
     List<EmbyMediaStream> streams,
-  ) =>
-      [
-        for (final s in streams)
-          SubtitleTrack.uri(
-            embySubtitleUrl(
-              serverUrl: launch.server.url,
-              itemId: itemId,
-              index: s.index,
-              mediaSourceId: _mediaSourceId,
-              codec: s.codec,
-              accessToken: launch.server.accessToken,
-            ),
-            title: s.label,
-            language: s.language.isEmpty ? null : s.language,
-          ),
-      ];
+  ) => [
+    for (final s in streams)
+      SubtitleTrack.uri(
+        embySubtitleUrl(
+          serverUrl: launch.server.url,
+          itemId: itemId,
+          index: s.index,
+          mediaSourceId: _mediaSourceId,
+          codec: s.codec,
+          accessToken: launch.server.accessToken,
+        ),
+        title: s.label,
+        language: s.language.isEmpty ? null : s.language,
+      ),
+  ];
 
   /// 副字幕：media_kit 一次只能渲染一路内封字幕，所以副轨只记下来，
   /// 供「双字幕」开关将来做叠加渲染时用，不直接塞给引擎。
@@ -762,7 +766,10 @@ class EmbyPlayerController extends ChangeNotifier {
     final platform = playback.mediaPlayer?.platform;
     if (platform is! NativePlayer) return;
     unawaited(
-      platform.setProperty('sub-delay', subtitleSettings.delay.toStringAsFixed(2)),
+      platform.setProperty(
+        'sub-delay',
+        subtitleSettings.delay.toStringAsFixed(2),
+      ),
     );
   }
 
@@ -850,6 +857,23 @@ class EmbyPlayerController extends ChangeNotifier {
   }
 
   void toggleControls() => setControlsVisible(!controlsVisible);
+
+  /// 面板（弹出菜单）打开期间：保持控件可见，并且停掉 4 秒自动收起。
+  ///
+  /// 少了这一步，菜单还开着、底下的按钮已经淡出消失，看着像坏了。
+  void pauseAutoHide() {
+    _hideTimer?.cancel();
+    if (!controlsVisible) {
+      controlsVisible = true;
+      _notify();
+    }
+  }
+
+  /// 菜单关掉后重新开始计时。
+  void resumeAutoHide() {
+    if (locked || progressAlwaysVisible || !controlsVisible) return;
+    _scheduleHideControls();
+  }
 
   void _scheduleHideControls() {
     _hideTimer?.cancel();

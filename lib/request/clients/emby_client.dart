@@ -425,11 +425,37 @@ class EmbyClient {
       '/Shows/$seriesId/Episodes',
       query: {
         'UserId': userId,
-        'Fields': 'Overview,ImageTags,RunTimeTicks,ProductionYear',
+        // 这里必须用统一字段表。原来只取 4 个字段，导致：
+        //   * 没有 UserData → 集卡上看不到「看到哪了」；
+        //   * 没有 IndexNumber → 集号只能靠下标猜，乱序时对不上；
+        //   * 没有 CommunityRating → 截图里那张卡片右下的评分永远空着；
+        //   * 没有 Genres / OfficialRating → 详情页 meta 行缺内容。
+        'Fields': _itemFields,
         if (seasonId != null && seasonId.isNotEmpty) 'SeasonId': seasonId,
       },
     );
     return _itemsOf(body);
+  }
+
+  /// 单个条目的完整元数据。
+  ///
+  /// 列表/搜索接口返回的条目经常是「瘦身版」：`Overview`、`Genres`、
+  /// `OfficialRating` 都可能没有。详情页直接拿它渲染，就会出现「没有简介」。
+  /// 进详情页时再问一次单条接口，把这些字段补齐。
+  Future<EmbyItem?> fetchItemMeta({
+    required String userId,
+    required String itemId,
+  }) async {
+    if (itemId.isEmpty) return null;
+    final body = await _getJson(
+      '/Users/$userId/Items/$itemId',
+      query: {
+        'Fields': '$_itemFields,Taglines,PrimaryImageAspectRatio,'
+            'SeriesPrimaryImageTag,ParentPrimaryImageTag,People',
+      },
+    );
+    if (body['Id'] == null) return null;
+    return EmbyItem.fromJson(body);
   }
 
   List<EmbyItem> _itemsOf(Map<String, dynamic> body) {
