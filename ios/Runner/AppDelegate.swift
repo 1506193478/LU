@@ -20,7 +20,7 @@ import app_links
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-        AvPlayerEnginePlugin.register(with: engineBridge.applicationRegistrar.registrar(forPlugin: "AvPlayerEnginePlugin"))
+        AvPlayerEnginePlugin.register(with: self.registrar(forPlugin: "AvPlayerEnginePlugin"))
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",
@@ -197,8 +197,10 @@ import app_links
         guard let output = output, let player = player else { return nil }
         let time = player.currentTime()
         guard time.isNumeric else { return nil }
-        let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
-        if buffer.width == 0 { return nil }
+        guard let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) else {
+            return nil
+        }
+        if CVPixelBufferGetWidth(buffer) == 0 { return nil }
         return Unmanaged<CVPixelBuffer>.passRetained(buffer)
     }
 
@@ -226,7 +228,7 @@ import app_links
             player?.currentItem?.audioTimePitchAlgorithm = .timeDomain
             result(nil)
         case "selectAudioTrack":
-            selectTrack(trackId: call.arguments as? String ?? "", characteristic: .audio, result: result)
+            selectTrack(trackId: call.arguments as? String ?? "", characteristic: .audible, result: result)
         case "selectSubtitleTrack":
             selectTrack(trackId: call.arguments as? String ?? "", characteristic: .legible, result: result)
         case "getTracks":
@@ -300,11 +302,11 @@ import app_links
             result(nil); return
         }
         if trackId == "no" {
-            item.selectMediaOption(nil, inMediaSelectionGroup: group)
+            item.select(nil, in: group)
             result(nil); return
         }
         if let index = Int(trackId), index < group.options.count {
-            item.selectMediaOption(group.options[index], inMediaSelectionGroup: group)
+            item.select(group.options[index], in: group)
         }
         result(nil)
     }
@@ -312,7 +314,7 @@ import app_links
     private func trackInfo() -> [[String: Any]] {
         guard let item = player?.currentItem else { return [] }
         let groups: [(AVMediaCharacteristic, String)] = [
-            (AVMediaCharacteristic.audio, "audio"),
+            (AVMediaCharacteristic.audible, "audio"),
             (AVMediaCharacteristic.legible, "subtitle"),
         ]
         var out: [[String: Any]] = []
@@ -348,7 +350,9 @@ import app_links
         guard isListening, let player = player, let item = player.currentItem else { return }
         let positionMs = Int64(time.seconds.isNaN ? 0 : time.seconds * 1000)
         let durationMs = Int64(item.duration.seconds.isNaN ? 0 : item.duration.seconds * 1000)
-        let bufferedMs = Int64((item.currentTime() + (item.bufferedTimeRanges.last?.timeRangeValue.duration ?? .zero)).seconds * 1000)
+        let lastRange = item.loadedTimeRanges.map { $0.timeRangeValue }.last
+        let bufferedEnd = (lastRange?.start.seconds ?? 0) + (lastRange?.duration.seconds ?? 0)
+        let bufferedMs = Int64(bufferedEnd.isNaN ? 0 : bufferedEnd * 1000)
         cachedDurationMs = durationMs
         cachedBufferedMs = bufferedMs
         let playing = player.timeControlStatus != .paused
