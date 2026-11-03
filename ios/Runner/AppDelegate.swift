@@ -20,7 +20,7 @@ import app_links
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-        AvPlayerEnginePlugin.register(with: self.registrar(forPlugin: "AvPlayerEnginePlugin"))
+        AvPlayerEnginePlugin.register(with: self.registrar(forPlugin: "AvPlayerEnginePlugin")!)
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",
@@ -148,7 +148,7 @@ import app_links
 ///   * `registerExternalTexture` —— AVPlayerItemVideoOutput 的 pixel buffer
 ///     通过 CADisplayLink 拷给 Flutter Texture（videoTextureId 交给 Dart 侧
 ///     的 Texture widget 渲染）。
-@objc public class AvPlayerEnginePlugin: NSObject, FlutterPlugin, FlutterTexture {
+@objcMembers public class AvPlayerEnginePlugin: NSObject, FlutterPlugin, FlutterTexture, FlutterStreamHandler {
     private static let channelName = "xl/avplayer"
     private static let eventChannelName = "xl/avplayer/events"
 
