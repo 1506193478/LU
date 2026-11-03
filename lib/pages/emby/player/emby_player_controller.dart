@@ -21,6 +21,7 @@ import 'package:XL/services/emby/emby_subtitle_picker.dart';
 import 'package:XL/services/emby/emby_watch_log.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/player/avplayer_engine.dart';
+import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/services/player/emby_srt.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/services/storage/storage.dart';
@@ -658,6 +659,8 @@ class EmbyPlayerController extends ChangeNotifier {
     unawaited(_applyDefaultSubtitle());
     unawaited(_reportStart());
     unawaited(_logWatch());
+    // open 重建了 PiP controller，把「自动开启画中画」的设置同步过去。
+    unawaited(EmbyPipPrefs.syncToEngine());
     _startProgressTimer();
     _scheduleHideControls();
   }

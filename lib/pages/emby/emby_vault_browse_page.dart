@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/lu_media_vault.dart';
+import 'package:XL/services/emby/lu_video_thumb.dart';
 
 /// 资源库里"本地文件 / 本地私密 / 相册视频 / 网络链接 / WebDAV"的浏览页。
 ///
@@ -144,41 +147,26 @@ class _EmbyVaultBrowsePageState extends State<EmbyVaultBrowsePage> {
     if (entries.isEmpty) {
       return _Empty(dark: dark, text: '还没有导入${widget.title}，回资源库点卡片导入');
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 40),
-      itemCount: entries.length,
-      separatorBuilder: (_, _) => Divider(
-        height: 1,
-        color: dark ? Colors.white10 : const Color(0xFFF0F0F3),
+    // Emby 首页同款封面墙：竖版海报卡 + 标题，首帧缩略图做封面。
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 40),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 132,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 11,
+        childAspectRatio: 0.54,
       ),
+      itemCount: entries.length,
       itemBuilder: (context, i) {
         final e = entries[i];
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          leading: const Icon(Icons.play_circle_outline_rounded),
-          title: Text(
-            e.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500),
-          ),
-          subtitle: Text(
-            e.source,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              color: dark ? Colors.white38 : const Color(0xFF8A8A90),
-            ),
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.close_rounded, size: 18),
-            onPressed: () async {
-              await LuMediaVault.instance.removeEntry(e);
-              if (mounted) setState(() {});
-            },
-          ),
-          onTap: () => luPlay(context, title: e.name, url: e.source),
+        return _VaultCard(
+          entry: e,
+          dark: dark,
+          onPlay: () => luPlay(context, title: e.name, url: e.source),
+          onRemove: () async {
+            await LuMediaVault.instance.removeEntry(e);
+            if (mounted) setState(() {});
+          },
         );
       },
     );
@@ -272,6 +260,131 @@ class _Empty extends StatelessWidget {
             color: dark ? Colors.white38 : const Color(0xFF8A8A90),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 封面墙的一张卡：竖版海报 + 标题，右上角一枚小 × 负责删除。
+///
+/// 封面来自视频首帧（[LuVideoThumb]，临时目录缓存）；拿不到（非本地文件、
+/// 桌面端、生成失败）就用渐变底 + 播放图标占位，不阻塞列表渲染。
+class _VaultCard extends StatefulWidget {
+  const _VaultCard({
+    required this.entry,
+    required this.dark,
+    required this.onPlay,
+    required this.onRemove,
+  });
+
+  final LuMediaEntry entry;
+  final bool dark;
+  final VoidCallback onPlay;
+  final VoidCallback onRemove;
+
+  @override
+  State<_VaultCard> createState() => _VaultCardState();
+}
+
+class _VaultCardState extends State<_VaultCard> {
+  bool _confirmRemove = false;
+
+  String get _title {
+    final n = widget.entry.name;
+    final dot = n.lastIndexOf('.');
+    if (dot > 0 && n.length - dot <= 5) return n.substring(0, dot);
+    return n;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = widget.dark;
+    return GestureDetector(
+      onTap: widget.onPlay,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // 封面。
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    color: dark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFE9E7EA),
+                    child: FutureBuilder<String?>(
+                      future: LuVideoThumb.pathFor(widget.entry.source),
+                      builder: (context, snap) {
+                        final path = snap.data;
+                        if (path == null) {
+                          return Center(
+                            child: Icon(
+                              Icons.play_circle_outline_rounded,
+                              size: 34,
+                              color: dark ? Colors.white24 : const Color(0xFFB9B6BD),
+                            ),
+                          );
+                        }
+                        return Image.file(
+                          File(path),
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                // 删除 ×：点一下进入确认态，再点一下才真删，防误触。
+                Positioned(
+                  right: 5,
+                  top: 5,
+                  child: GestureDetector(
+                    onTap: () {
+                      if (_confirmRemove) {
+                        widget.onRemove();
+                      } else {
+                        setState(() => _confirmRemove = true);
+                        // 几秒不动就退出确认态。
+                        Future.delayed(const Duration(seconds: 3), () {
+                          if (mounted) setState(() => _confirmRemove = false);
+                        });
+                      }
+                    },
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: _confirmRemove
+                            ? PvColors.red
+                            : Colors.black.withValues(alpha: 0.42),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _confirmRemove ? Icons.check_rounded : Icons.close_rounded,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w500,
+              letterSpacing: -0.2,
+              color: dark ? const Color(0xFFEDEDEF) : const Color(0xFF17171B),
+            ),
+          ),
+        ],
       ),
     );
   }

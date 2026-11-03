@@ -171,11 +171,18 @@ import app_links
 
     // 画中画：AVPictureInPictureController 必须吃一个「挂在视图层级里、
     // 有有效尺寸」的 AVPlayerLayer。我们渲染走的是 AVPlayerItemVideoOutput
-    // （Flutter 纹理），没有 layer，所以专门造一个屏幕外的宿主 view 给它。
+    // （Flutter 纹理），没有 layer，所以专门造一个宿主 view 给它。
     // PiP 窗口显示的是这一层，和 Flutter 纹理互不干扰。
+    //
+    // 宿主必须**全屏且在屏幕内**：之前放在屏幕外的 160x90 小 view 上，
+    // 手动 startPictureInPicture 能用，但「退后台自动 PiP」会被系统判定
+    // 为「没有正在全屏播放的 inline 视频」而不拉起。
     private var pipController: AVPictureInPictureController?
     private var pipLayer: AVPlayerLayer?
     private var pipHost: UIView?
+
+    /// 「自动开启画中画」开关（设置页下发），只影响自动触发，手动按钮不受限。
+    static var autoPipEnabled = true
 
     // 供 Dart 查询的缓存值（periodic observer 每 0.5s 刷一次）。
     private var cachedDurationMs: Int64 = 0
@@ -254,6 +261,13 @@ import app_links
             result(cachedDurationMs)
         case "isPipAvailable":
             result(pipController != nil && AVPictureInPictureController.isPictureInPictureSupported())
+        case "setAutoPip":
+            AvPlayerEnginePlugin.autoPipEnabled = call.arguments as? Bool ?? true
+            if let pip = pipController {
+                pip.canStartPictureInPictureAutomaticallyFromInline =
+                    AvPlayerEnginePlugin.autoPipEnabled
+            }
+            result(nil)
         case "startPip":
             guard let pip = pipController, pip.isPictureInPicturePossible else {
                 result(FlutterError(code: "avplayer", message: "画中画暂时不可用", details: nil))
@@ -358,14 +372,15 @@ import app_links
     private func setupPip(player newPlayer: AVPlayer) {
         teardownPip()
         guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-        // 宿主 view 放屏幕外（系统仍认它在视图层级里），160x90 给 layer
-        // 一个有效尺寸；0 尺寸 / 不挂 window 时 startPictureInPicture 静默无效。
-        let host = UIView(frame: CGRect(x: -220, y: -220, width: 160, height: 90))
-        host.alpha = 0.01
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = windowScene.windows.first else {
             return
         }
+        // 全屏宿主，alpha 0.01：iOS hit-test 会直接跳过 alpha <= 0.01 的
+        // view，不会挡 Flutter 的手势，但系统认它在屏幕上正常播放。
+        let host = UIView(frame: window.bounds)
+        host.alpha = 0.01
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(host)
         let layer = AVPlayerLayer(player: newPlayer)
         layer.frame = host.bounds
@@ -375,7 +390,8 @@ import app_links
         pipLayer = layer
         let controller = AVPictureInPictureController(playerLayer: layer)
         // 用户按 Home / 切后台时自动进小窗——这是 iOS 播放器的标准体验。
-        controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        controller?.canStartPictureInPictureAutomaticallyFromInline =
+            AvPlayerEnginePlugin.autoPipEnabled
         controller?.delegate = self
         pipController = controller
     }

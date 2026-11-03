@@ -1325,6 +1325,18 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                   onTap: controller.toggleLock,
                 ),
                 const SizedBox(width: 8),
+                // 画中画：只有 iOS + AVPlayer 内核 + 设备支持时才有意义
+                // （libmpv 那条路没有 AVPlayerLayer，做不了 PiP）。
+                if (Platform.isIOS &&
+                    controller.isAvBackend &&
+                    controller.pipAvailable) ...[
+                  _CircleAction(
+                    icon: Icons.picture_in_picture_alt_rounded,
+                    iconSize: 18,
+                    onTap: () => unawaited(controller.startPip()),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 _CircleAction(
                   icon: Icons.more_horiz_rounded,
                   iconSize: 19,
@@ -1435,17 +1447,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           iconSize: 16,
           size: 34,
           onTap: _openChapters,
-        ),
-      // 画中画：只有 iOS + AVPlayer 内核 + 设备支持时才有意义（libmpv
-      // 那条路没有 AVPlayerLayer，做不了 PiP）。
-      if (Platform.isIOS &&
-          controller.isAvBackend &&
-          controller.pipAvailable)
-        _CircleAction(
-          icon: Icons.picture_in_picture_alt_outlined,
-          iconSize: 16,
-          size: 34,
-          onTap: () => unawaited(controller.startPip()),
         ),
       // AirPlay：弹系统路由选择器（原生通道），AV / mpv 内核都能用。
       if (Platform.isIOS)
@@ -1581,45 +1582,38 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   Widget _buildLockedBadge() {
     final bool locked = controller.locked;
+    // 只留一枚小锁钉在左下角：原来居中的大胶囊「已锁定，点此解锁」
+    // 正好糊在画面中间，太挡视频了。位置在 SafeArea 之内。
     return Positioned(
-      left: 0,
-      right: 0,
-      top: 0,
-      bottom: 0,
-      child: Center(
-        child: AnimatedOpacity(
-          opacity: locked ? 1 : 0,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          child: AnimatedScale(
-            scale: locked ? 1 : 0.94,
-            duration: const Duration(milliseconds: 240),
+      left: 18,
+      bottom: 74,
+      child: IgnorePointer(
+        ignoring: !locked,
+        child: GestureDetector(
+          onTap: locked ? controller.toggleLock : null,
+          child: AnimatedOpacity(
+            opacity: locked ? 1 : 0,
+            duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
-            child: GestureDetector(
-              onTap: locked ? controller.toggleLock : null,
+            child: AnimatedScale(
+              scale: locked ? 1 : 0.86,
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.42),
-                  borderRadius: BorderRadius.circular(999),
+                  color: Colors.black.withValues(alpha: 0.34),
+                  shape: BoxShape.circle,
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.14),
+                    color: Colors.white.withValues(alpha: 0.12),
                     width: 0.8,
                   ),
                 ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_rounded, size: 14, color: Colors.white70),
-                    SizedBox(width: 6),
-                    Text(
-                      '已锁定，点此解锁',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ],
+                child: const Icon(
+                  Icons.lock_rounded,
+                  size: 18,
+                  color: Colors.white70,
                 ),
               ),
             ),

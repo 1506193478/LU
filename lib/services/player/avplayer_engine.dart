@@ -104,6 +104,15 @@ class AvPlayerEngine extends ChangeNotifier {
     }
   }
 
+  /// 退后台自动进小窗的开关（设置页下发；open 后也会由 controller 同步）。
+  static Future<void> setAutoPipEnabled(bool enabled) async {
+    try {
+      await _channel.invokeMethod<void>('setAutoPip', enabled);
+    } catch (_) {
+      // 引擎还没建好/已销毁时无所谓，open 后会再同步。
+    }
+  }
+
   /// 进画中画。失败（PiP 暂不可用等）返回 false，由上层决定提示文案。
   Future<bool> startPip() async {
     try {
