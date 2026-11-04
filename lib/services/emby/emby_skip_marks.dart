@@ -42,17 +42,37 @@ class EmbySkipMarks {
   }
 
   /// 当前条目对应的两个键（单集 + 整剧）。
-  static List<String> keysFor({String? seriesId, required String itemId}) {
+  ///
+  /// 有些服务端 / 列表接口不回 `SeriesId`，那就退到剧名当键——否则标记只
+  /// 落在单集上，换集自然不生效。
+  static List<String> keysFor({
+    String? seriesId,
+    String? seriesName,
+    required String itemId,
+  }) {
+    final String? seriesKey = (seriesId != null && seriesId.isNotEmpty)
+        ? '$seriesPrefix$seriesId'
+        : ((seriesName != null && seriesName.trim().isNotEmpty)
+              ? '${seriesPrefix}name:${seriesName.trim()}'
+              : null);
     return <String>[
       if (itemId.isNotEmpty) '$itemPrefix$itemId',
-      if (seriesId != null && seriesId.isNotEmpty) '$seriesPrefix$seriesId',
+      if (seriesKey != null) seriesKey,
     ];
   }
 
   /// 读一条标记；没有就返回 null。
-  static EmbySkipMark? read({String? seriesId, required String itemId}) {
+  static EmbySkipMark? read({
+    String? seriesId,
+    String? seriesName,
+    required String itemId,
+  }) {
     final data = _load();
-    for (final k in keysFor(seriesId: seriesId, itemId: itemId)) {
+    for (final k in keysFor(
+      seriesId: seriesId,
+      seriesName: seriesName,
+      itemId: itemId,
+    )) {
       final v = data[k];
       if (v is Map) {
         return EmbySkipMark(
@@ -69,6 +89,7 @@ class EmbySkipMarks {
   /// 片头，默认意图是「这部剧的片头就在这儿」。
   static void write({
     String? seriesId,
+    String? seriesName,
     required String itemId,
     int? introStart,
     int? introEnd,
@@ -81,7 +102,11 @@ class EmbySkipMarks {
       if (outroStart != null) 'outroStart': outroStart,
     };
     if (entry.isEmpty) return;
-    for (final k in keysFor(seriesId: seriesId, itemId: itemId)) {
+    for (final k in keysFor(
+      seriesId: seriesId,
+      seriesName: seriesName,
+      itemId: itemId,
+    )) {
       final old = data[k];
       final merged = <String, dynamic>{
         if (old is Map) ...old.cast<String, dynamic>(),
@@ -94,7 +119,9 @@ class EmbySkipMarks {
 
   static Duration? _seconds(Object? value) {
     final n = value is int ? value : int.tryParse('$value');
-    if (n == null || n <= 0) return null;
+    // 0 是合法位置：片头就标在 0:00 的人不少，之前 `n <= 0` 直接把它当成
+    // 「没有记录」，下一集自然不跳。
+    if (n == null || n < 0) return null;
     return Duration(seconds: n);
   }
 }

@@ -18,12 +18,15 @@ import app_links
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 
-    // 离开前台的边缘（上滑回主屏 / 下拉通知中心 / 来电）兜底自动进小窗。
-    // canStartPictureInPictureAutomaticallyFromInline 依赖系统对 inline
-    // layer 的判定，不一定每次都触发；这里在真正退后台前主动拉起。
-    override func applicationWillResignActive(_ application: UIApplication) {
-        super.applicationWillResignActive(application)
-        AvPlayerEnginePlugin.pipTryAutoStart()
+    // 回到前台：把 AVPlayer 的取帧循环拉起来。
+    //
+    // 3.9.45 曾在这里（resignActive）主动拉起小窗，但那个时机太早、又依赖
+    // 临时放大图层，结果退后台再回来会掉帧甚至闪退。现在自动小窗完全交给
+    // 系统的 canStartPictureInPictureAutomaticallyFromInline，这里只负责
+    // 恢复渲染，不碰播放状态。
+    override func applicationDidBecomeActive(_ application: UIApplication) {
+        super.applicationDidBecomeActive(application)
+        AvPlayerEnginePlugin.appBecameActive()
     }
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -197,15 +200,25 @@ import app_links
     /// 「自动开启画中画」开关（设置页下发），只影响自动触发，手动按钮不受限。
     static var autoPipEnabled = true
 
-    /// register 时存一份引用，applicationWillResignActive 里好找到它。
+    /// register 时存一份引用，App 回到前台时好找到它。
     private static var shared: AvPlayerEnginePlugin?
 
-    /// 退前台边缘（inactive：上滑回主屏 / 下拉通知中心 / 来电）兜底自动
-    /// 进小窗。canStartPictureInPictureAutomaticallyFromInline 依赖系统对
-    /// inline layer 的判定，不一定每次都触发；这里在离开前台前主动拉起。
-    static func pipTryAutoStart() {
-        guard autoPipEnabled, let instance = shared else { return }
-        instance.tryAutoStartPip()
+    /// 回到前台：确保取帧循环还在跑，并强制刷新一帧纹理。
+    ///
+    /// 之前「退出去再进来」会卡顿/黑屏：进小窗时把 displayLink 停了，但
+    /// 小窗被系统直接收掉时不一定回调 didStop，循环就一直停着——纹理停在
+    /// 最后一帧，看着就是严重掉帧，随后播放器状态错乱还会崩。
+    static func appBecameActive() {
+        shared?.resumeRenderingIfNeeded()
+    }
+
+    func resumeRenderingIfNeeded() {
+        guard player != nil else { return }
+        guard pipController?.isPictureInPictureActive != true else { return }
+        if displayLink == nil { startDisplayLink() }
+        if textureId >= 0, let registrar = registrar {
+            registrar.textures().textureFrameAvailable(textureId)
+        }
     }
 
     func tryAutoStartPip() {
@@ -219,31 +232,22 @@ import app_links
         startPipIfPossible()
     }
 
-    /// 启动小窗；系统还没认这个 layer「可用于 PiP」时，临时把 1x1 宿主放大
-    /// 到全屏（真正可见）等一帧再启动，随后缩回去。只放大一小会儿，用户
-    /// 看不到画面变化，但系统的 isPictureInPicturePossible 会变成 true。
+    /// 启动小窗。
+    ///
+    /// 这里**不再**把宿主临时放大到全屏去「骗」系统判定：那一招会让
+    /// AVPlayer 同时渲染全屏图层 + Flutter 纹理，4K 片直接掉帧，退后台
+    /// 再回来还可能因为图层/纹理状态错乱崩掉。系统说不可用就是不可用，
+    /// 由调用方提示用户，不折腾渲染管线。
     private func startPipIfPossible() {
         guard let pip = pipController, !pip.isPictureInPictureActive else { return }
-        if pip.isPictureInPicturePossible {
-            pip.startPictureInPicture()
+        guard pip.isPictureInPicturePossible else {
+            eventSink?([
+                "type": "pip", "active": false,
+                "message": "系统还没准备好画中画，请稍后再试",
+            ] as [String: Any])
             return
         }
-        guard let host = pipHost, let window = host.superview else { return }
-        let original = host.frame
-        host.frame = window.bounds
-        host.alpha = 0.02
-        pipLayer?.frame = host.bounds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self = self, let pip = self.pipController else { return }
-            if pip.isPictureInPicturePossible || pip.isPictureInPictureActive {
-                pip.startPictureInPicture()
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                host.frame = original
-                host.alpha = 1
-                self.pipLayer?.frame = host.bounds
-            }
-        }
+        pip.startPictureInPicture()
     }
 
     // 供 Dart 查询的缓存值（periodic observer 每 0.5s 刷一次）。
@@ -305,9 +309,16 @@ import app_links
         case "open":
             open(arguments: call.arguments, result: result)
         case "play":
-            player?.play(); result(nil)
+            player?.play()
+            // 暂停时把取帧循环停了省电，恢复播放要记得拉起来，否则画面
+            // 停在最后一帧（看上去就是「播放了但不动」）。
+            if displayLink == nil, player != nil { startDisplayLink() }
+            result(nil)
         case "pause":
-            player?.pause(); result(nil)
+            player?.pause()
+            // 暂停后没有新帧，60/120Hz 的空转纯属浪费；后台时更是如此。
+            stopDisplayLink()
+            result(nil)
         case "seek":
             seek(ms: (call.arguments as? NSNumber)?.int64Value ?? 0, result: result)
         case "setVolume":
@@ -679,9 +690,7 @@ extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
     public func pictureInPictureControllerDidStopPictureInPicture(
         _ pictureInPictureController: AVPictureInPictureController
     ) {
-        if player != nil {
-            startDisplayLink()
-        }
+        resumeRenderingIfNeeded()
         eventSink?(["type": "pip", "active": false] as [String: Any])
     }
 
@@ -697,6 +706,9 @@ extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
     ) {
+        // willStart 里把取帧循环停掉了；启动失败一定要拉回来，否则画面上
+        // 只剩最后一帧（用户看到的就是「卡死」）。
+        resumeRenderingIfNeeded()
         // 注意不能发 "error" 类型——那会触发 Dart 侧的回退 mpv 逻辑。
         eventSink?([
             "type": "pip", "active": false,

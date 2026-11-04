@@ -46,7 +46,7 @@ class EmbyPlayerPage extends StatefulWidget {
 }
 
 class _EmbyPlayerPageState extends State<EmbyPlayerPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final EmbyPlayerController controller;
   final FocusNode _focusNode = FocusNode();
 
@@ -171,6 +171,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       unawaited(_applyOrientation(EmbyDisplayPrefs.enter));
       _restoreZoom(_lastItemId);
     }
+    WidgetsBinding.instance.addObserver(this);
     controller.addListener(_onPlaybackChanged);
     _chromeCtrl.addStatusListener((status) {
       if (!mounted) return;
@@ -185,6 +186,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     _hudTimer?.cancel();
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_onPlaybackChanged);
     if (_longPressActive) {
       unawaited(controller.setSpeed(_speedBeforeLongPress));
@@ -216,6 +218,33 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   /// AVPlayer 还起不来。现在只有 AVPlayer 内核的「自动画中画」走原生
   /// （applicationWillResignActive，不打断播放）；mpv 内核必须由用户
   /// 主动点小窗按钮、确认后才切。
+
+  /// 退后台就主动暂停，回前台再接着播。
+  ///
+  /// iOS / Android 在后台都会把视频渲染上下文挂起甚至回收，mpv 的 Metal
+  /// surface、AVPlayer 的纹理都可能失效——回到前台继续播就是掉帧、卡顿，
+  /// 严重时直接崩。暂停一下让解码器干净地停住，回来再起，比硬扛着稳。
+  /// 开着「后台音频」或正在画中画时不介入（这两种本来就要继续播）。
+  bool _pausedByBackground = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDesktop) return;
+    if (state == AppLifecycleState.paused) {
+      if (_pausedByBackground) return;
+      if (controller.backgroundAudio || controller.pipActive) return;
+      if (!controller.playing) return;
+      _pausedByBackground = true;
+      unawaited(controller.togglePlay());
+      return;
+    }
+    if (state == AppLifecycleState.resumed && _pausedByBackground) {
+      _pausedByBackground = false;
+      if (!controller.playing && controller.error.isEmpty) {
+        unawaited(controller.togglePlay());
+      }
+    }
+  }
 
   Future<void> _readInitialBrightness() async {
     try {

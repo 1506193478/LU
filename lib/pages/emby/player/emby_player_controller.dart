@@ -317,6 +317,12 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 用户手动标记的「片尾开始」（在「片头片尾」面板点「标记当前进度为片尾」）。
   Duration? _outroUserStart;
 
+  /// 本次播放会话里用户标过的片头片尾。
+  ///
+  /// 落盘是异步的（Hive put 不保证立刻可读），而用户经常「标完马上点下一集」。
+  /// 这份内存副本保证同一会话内换集一定生效；冷启动后由 [EmbySkipMarks] 兜底。
+  final Map<String, EmbySkipMark> _sessionMarks = <String, EmbySkipMark>{};
+
   /// 上一次「自动跳过」自己发 seek 的时间。
   ///
   /// 跳过窗口里位置每变一次就 seek 一次的话，播放器会被拖成幻灯片——seek
@@ -411,7 +417,26 @@ class EmbyPlayerController extends ChangeNotifier {
     await _open(target);
   }
 
+  /// 打开第 [target] 条。外面包一层兜底：解析 / 网络异常以前会变成
+  /// 未捕获的异步错误，播放器停在转圈上，用户只能退出去重进。
   Future<void> _open(int target) async {
+    try {
+      await _openUnsafe(target);
+    } catch (e, st) {
+      KazumiLogger().e(
+        'Emby player: open ${launch.episodes[target].id} failed',
+        error: e,
+        stackTrace: st,
+      );
+      if (_disposed) return;
+      loading = false;
+      buffering = false;
+      error = _shortError(e);
+      _notify();
+    }
+  }
+
+  Future<void> _openUnsafe(int target) async {
     if (_disposed) return;
     final item = launch.episodes[target];
     _index = target;
@@ -504,15 +529,17 @@ class EmbyPlayerController extends ChangeNotifier {
 
       // 用户自己标过的片头片尾优先：服务端一般不给这两项，而「在第一集
       // 标好、第二集就失效」正是没读这份本地记录造成的。
-      final mark = EmbySkipMarks.read(
-        seriesId: item.seriesId,
-        itemId: item.id,
-      );
+      final mark = _marksFor(item);
       if (mark != null && !mark.isEmpty) {
         _introStart = mark.introStart ?? _introStart;
         _introEnd = mark.introEnd ?? _introEnd;
         _outroStart = mark.outroStart ?? _outroStart;
         _outroUserStart = mark.outroStart;
+        KazumiLogger().i(
+          'Emby skip marks applied: intro=${_introStart?.inSeconds}'
+          '-${_introEnd?.inSeconds} outro=${_outroStart?.inSeconds} '
+          'item=${item.id} series=${item.seriesId}',
+        );
       }
 
       // 外挂 / 内封字幕全部做成 URI 轨，选谁就把谁挂到引擎上。
@@ -1476,12 +1503,7 @@ class EmbyPlayerController extends ChangeNotifier {
   void markIntroAt(Duration position) {
     _introStart = position;
     _introEnd = position + const Duration(seconds: 90);
-    EmbySkipMarks.write(
-      seriesId: current?.seriesId,
-      itemId: current?.id ?? '',
-      introStart: position.inSeconds,
-      introEnd: _introEnd!.inSeconds,
-    );
+    _storeMarks();
     setIntroSkip(true);
   }
 
@@ -1489,12 +1511,57 @@ class EmbyPlayerController extends ChangeNotifier {
   void markOutroAt(Duration position) {
     _outroStart = position;
     _outroUserStart = position;
-    EmbySkipMarks.write(
-      seriesId: current?.seriesId,
-      itemId: current?.id ?? '',
-      outroStart: position.inSeconds,
-    );
+    _storeMarks();
     setOutroSkip(true);
+  }
+
+  /// 读某个条目的标记：本次会话的内存副本优先，其次本地存储。
+  EmbySkipMark? _marksFor(EmbyItem item) {
+    final keys = EmbySkipMarks.keysFor(
+      seriesId: item.seriesId,
+      seriesName: item.seriesName,
+      itemId: item.id,
+    );
+    for (final key in keys) {
+      final session = _sessionMarks[key];
+      if (session != null && !session.isEmpty) return session;
+    }
+    return EmbySkipMarks.read(
+      seriesId: item.seriesId,
+      seriesName: item.seriesName,
+      itemId: item.id,
+    );
+  }
+
+  /// 把当前条目的片头片尾同时写进内存和本地存储（按单集 + 整剧两个键）。
+  void _storeMarks() {
+    final item = current;
+    if (item == null) return;
+    final mark = EmbySkipMark(
+      introStart: _introStart,
+      introEnd: _introEnd,
+      outroStart: _outroUserStart ?? _outroStart,
+    );
+    for (final key in EmbySkipMarks.keysFor(
+      seriesId: item.seriesId,
+      seriesName: item.seriesName,
+      itemId: item.id,
+    )) {
+      _sessionMarks[key] = mark;
+    }
+    EmbySkipMarks.write(
+      seriesId: item.seriesId,
+      seriesName: item.seriesName,
+      itemId: item.id,
+      introStart: _introStart?.inSeconds,
+      introEnd: _introEnd?.inSeconds,
+      outroStart: (_outroUserStart ?? _outroStart)?.inSeconds,
+    );
+    KazumiLogger().i(
+      'Emby skip marks saved: intro=${_introStart?.inSeconds}'
+      '-${_introEnd?.inSeconds} outro=${(_outroUserStart ?? _outroStart)?.inSeconds} '
+      'item=${item.id} series=${item.seriesId}',
+    );
   }
 
   void _maybeSkipIntroOutro(Duration value) {
