@@ -34,6 +34,11 @@ class AvPlayerEngine extends ChangeNotifier {
   bool pipAvailable = false;
   bool pipActive = false;
 
+  /// 最近一次进画中画失败的原因（原生 delegate 回传），控制器消费后清空。
+  String pipError = '';
+
+  void resetPipError() => pipError = '';
+
   Duration position = Duration.zero;
   Duration duration = Duration.zero;
   Duration buffer = Duration.zero;
@@ -244,6 +249,8 @@ class AvPlayerEngine extends ChangeNotifier {
         error = event['message']?.toString() ?? '播放失败';
       case 'pip':
         pipActive = event['active'] == true;
+        final message = event['message']?.toString() ?? '';
+        if (message.isNotEmpty) pipError = message;
       default:
         return;
     }

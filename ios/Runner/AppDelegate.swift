@@ -207,12 +207,38 @@ import app_links
         guard let pip = pipController,
               AvPlayerEnginePlugin.autoPipEnabled,
               !pip.isPictureInPictureActive,
-              pip.isPictureInPicturePossible,
               let player = player,
               player.timeControlStatus != .paused else {
             return
         }
-        pip.startPictureInPicture()
+        startPipIfPossible()
+    }
+
+    /// 启动小窗；系统还没认这个 layer「可用于 PiP」时，临时把 1x1 宿主放大
+    /// 到全屏（真正可见）等一帧再启动，随后缩回去。只放大一小会儿，用户
+    /// 看不到画面变化，但系统的 isPictureInPicturePossible 会变成 true。
+    private func startPipIfPossible() {
+        guard let pip = pipController, !pip.isPictureInPictureActive else { return }
+        if pip.isPictureInPicturePossible {
+            pip.startPictureInPicture()
+            return
+        }
+        guard let host = pipHost, let window = host.superview else { return }
+        let original = host.frame
+        host.frame = window.bounds
+        host.alpha = 0.02
+        pipLayer?.frame = host.bounds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self = self, let pip = self.pipController else { return }
+            if pip.isPictureInPicturePossible || pip.isPictureInPictureActive {
+                pip.startPictureInPicture()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                host.frame = original
+                host.alpha = 1
+                self.pipLayer?.frame = host.bounds
+            }
+        }
     }
 
     // 供 Dart 查询的缓存值（periodic observer 每 0.5s 刷一次）。
@@ -301,11 +327,11 @@ import app_links
             }
             result(nil)
         case "startPip":
-            guard let pip = pipController, pip.isPictureInPicturePossible else {
+            guard pipController != nil else {
                 result(FlutterError(code: "avplayer", message: "画中画暂时不可用", details: nil))
                 return
             }
-            pip.startPictureInPicture()
+            startPipIfPossible()
             result(nil)
         case "stopPip":
             if pipController?.isPictureInPictureActive == true {

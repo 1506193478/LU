@@ -177,9 +177,7 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 字幕调节。
   EmbySubtitleSettings subtitleSettings = const EmbySubtitleSettings();
 
-  /// 自动跳过片头 / 片尾。
-  bool introSkip = false;
-  bool outroSkip = false;
+  /// 自动跳过片头 / 片尾（字段声明在「片头片尾」小节，从设置盒读初值）。
 
   /// 最近一次「用户主动」seek 的时间。自动跳过片头片尾在它之后 1.5 秒内
   /// 不能再插手，否则会把人刚跳过去的位置又拽回来——表现出来就是
@@ -225,30 +223,33 @@ class EmbyPlayerController extends ChangeNotifier {
   /// [_shouldUseAv] 消费后清零。
   bool _forceAvOnce = false;
 
-  /// 进画中画的统一入口：
+  /// 进画中画的统一入口（页面层负责「mpv 需要切换内核」的确认弹窗）：
   ///   * AVPlayer 内核 → 直接进小窗；
-  ///   * mpv 内核（多半是直连原盘，AVPlayer 吃不了）→ 强制让服务端转码、
-  ///     以 AVPlayer 重开当前进度，起播后自动进小窗。转码出来的
-  ///     H264/AAC 是 AVPlayer 的舒适区，必然能播。
-  Future<void> requestPip() async {
-    if (_disposed || loading) return;
+  ///   * mpv 内核 / 本地文件 → 返回 false，由页面决定提示或走
+  ///     [switchToPipByTranscode]。
+  Future<bool> requestPip() async {
+    if (_disposed || loading) return false;
     final engine = _av;
-    if (engine != null) {
-      final ok = await engine.startPip();
-      if (!ok && !_disposed) {
-        KazumiDialog.showToast(message: '画中画暂时不可用，请稍后再试');
-      }
-      return;
+    if (engine == null) return false;
+    final ok = await engine.startPip();
+    if (!ok && !_disposed) {
+      KazumiDialog.showToast(message: '画中画暂时不可用，请稍后再试');
     }
-    if (_pipIntent || _isLocalDirect) {
-      if (_isLocalDirect) KazumiDialog.showToast(message: '本地文件暂不支持画中画');
-      return;
-    }
+    return ok;
+  }
+
+  /// 当前这条流能不能切转码进画中画（本地文件不行）。
+  bool get canSwitchToPip => !_isLocalDirect && _av == null && !loading;
+
+  /// mpv（直连原盘）切转码 → AVPlayer 重开当前进度 → 自动进小窗。
+  /// 会中断当前播放几秒，调用前页面必须让用户确认。
+  Future<void> switchToPipByTranscode() async {
+    if (_disposed || !canSwitchToPip) return;
     _pipIntent = true;
     _forceAvOnce = true;
     _preferTranscodeRetry = true;
     KazumiDialog.showToast(message: '正在切换到画中画播放…');
-    unawaited(_open(_index));
+    await _open(_index);
   }
 
   /// 退画中画，回到 app 内播放。
@@ -779,6 +780,9 @@ class EmbyPlayerController extends ChangeNotifier {
     final engine = _av;
     if (engine == null || _disposed) return;
     position = engine.position;
+    // 片头片尾自动跳过在 AV 路径同样要跑（之前只挂在 mpv 的 position 流上，
+    // AV 内核下开了开关也永远不会跳）。
+    _maybeSkipIntroOutro(position);
     // 总时长优先用 Emby 元数据：转码中的 HLS，AVPlayer 报的 item.duration
     // 是「已生成片段的总和」，会随转码推进变长，进度条比例全程不对。
     // 元数据的 RunTimeTicks 才是影片真实时长。
@@ -820,6 +824,12 @@ class EmbyPlayerController extends ChangeNotifier {
       final message = engine.error;
       engine.resetError();
       unawaited(_avConnectFailed(message));
+    }
+    // 画中画失败：原生会带原因，直接告诉用户，别让按钮「点了没反应」。
+    if (engine.pipError.isNotEmpty) {
+      final message = engine.pipError;
+      engine.resetPipError();
+      KazumiDialog.showToast(message: '画中画启动失败：$message');
     }
     // 内嵌字幕（HLS 里的 mov_text 等）AVPlayerItemVideoOutput 的像素缓冲里
     // 不带渲染结果，列出来也看不了，干脆不进面板；外挂字幕走 _loadAvSubtitle。
@@ -1404,21 +1414,47 @@ class EmbyPlayerController extends ChangeNotifier {
 
   // ------------------------------------------------------------ 片头片尾
 
+  /// 和「我的 → 播放器 → 片头片尾跳过」共用同一个设置键，两处开关同源。
+  static const _introSkipKey = SettingKey<bool>(
+    'pv.introOutroSkip',
+    true,
+    group: SettingGroup.emby,
+  );
+  static const _outroSkipKey = SettingKey<bool>(
+    'pv.outroSkip',
+    true,
+    group: SettingGroup.emby,
+  );
+
+  bool introSkip = GStorage.getSetting(_introSkipKey);
+  bool outroSkip = GStorage.getSetting(_outroSkipKey);
+
   void setIntroSkip(bool value) {
     introSkip = value;
     _notify();
+    unawaited(GStorage.putSetting(_introSkipKey, value));
   }
 
   void setOutroSkip(bool value) {
     outroSkip = value;
     _notify();
+    unawaited(GStorage.putSetting(_outroSkipKey, value));
+  }
+
+  /// 把「当前进度」标记为片头开始。没有片尾信息时给 90 秒的默认片头窗口，
+  /// 否则只有起点、跳过永远不会触发。开启后即时生效并落盘。
+  void markIntroAt(Duration position) {
+    _introStart = position;
+    if (_introEnd == null || _introEnd! <= position) {
+      _introEnd = position + const Duration(seconds: 90);
+    }
+    setIntroSkip(true);
   }
 
   /// 把「当前进度」标记为片尾开始，之后开启「自动跳过片尾」会从此处起跳。
   void markOutroAt(Duration position) {
     _outroUserStart = position;
-    outroSkip = true;
-    _notify();
+    setOutroSkip(true);
   }
 
   void _maybeSkipIntroOutro(Duration value) {

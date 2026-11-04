@@ -319,12 +319,115 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
       body: EmbyFutureView<_DetailData>(
         future: _future!,
         onRetry: _reload,
+        // 加载态直接用这部剧的封面铺一张骨架：转场动画滑进来时看到的就是
+        // 海报和标题，不再是黑底转圈（用户反馈的「进详情页黑一下」）。
+        loadingBuilder: _buildSkeleton,
         emptyTitle: '没有可播放的内容',
         emptyMessage: '这部剧在 Emby 服务端还没有任何剧集文件。',
         builder: (context, data) => ColoredBox(
           color: RexPalette.of(context).canvas,
           child: _body(context, data),
         ),
+      ),
+    );
+  }
+
+  /// 加载中的骨架：封面大图 + 标题 + 播放胶囊占位。
+  ///
+  /// 详情数据还没回来时先用列表页传进来的条目信息渲染，转场期间画面是
+  /// 连续的（列表 → 大图渐变），不会出现一整页黑。
+  Widget _buildSkeleton(BuildContext context) {
+    final p = RexPalette.of(context);
+    final item = widget.item;
+    final server = EmbyService.instance.activeServer;
+    final bool hasCover = server != null && item.primaryImageTag != null;
+    final String cover = hasCover
+        ? embyImageUrl(
+            serverUrl: server.url,
+            itemId: item.id,
+            accessToken: server.accessToken,
+            maxHeight: 900,
+            tag: item.primaryImageTag,
+          )
+        : '';
+    return ColoredBox(
+      color: p.canvas,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (hasCover)
+            EmbyImage(url: cover, headers: embyAuthHeaders(server)),
+          // 底部渐隐到页面底色，和真实详情页的视觉衔接。
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              height: 300,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    p.canvas.withValues(alpha: 0),
+                    p.canvas,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 28,
+            right: 28,
+            bottom: 96,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  item.name,
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    height: 1.15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.8,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black54,
+                        blurRadius: 18,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                // 播放胶囊占位（真实按钮要等数据回来才知道能不能点）。
+                Container(
+                  width: 172,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      width: 0.8,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -316,9 +318,11 @@ Future<T?> showEmbyPopover<T>(
   final double spaceBelow = screen.height - anchor.bottom - 18;
   final double spaceAbove = anchor.top - 18;
   final bool opensUpward = spaceBelow < 300 && spaceAbove > spaceBelow;
+  // 上限不能超过屏幕本身（横屏时 460 会顶出屏幕），内容超了由内部
+  // 滚动兜住——选集十几集、更多菜单这类长列表全靠这一条。
   final double maxHeight = (opensUpward ? spaceAbove : spaceBelow).clamp(
-    140.0,
-    460.0,
+    160.0,
+    math.min(520.0, screen.height - 96),
   );
 
   final double? top = opensUpward ? null : anchor.bottom + 8;
@@ -478,28 +482,34 @@ class _MenuCard extends StatelessWidget {
                       EmbyMenuHeader(page.title),
                     // 换页：内容轻淡入 + 高度平滑过渡。iOS 的 UIMenu 子页没有
                     // 明显横滑，重点是「高度变的时候卡片不跳」。
+                    //
+                    // 外面必须包一层可滚动容器：选集 / 更多这类长菜单高度
+                    // 超过 maxHeight 时，之前是被直接裁掉（第 6 集之后点不到）。
                     Flexible(
-                      child: AnimatedSize(
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOutCubic,
-                        alignment: Alignment.topCenter,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 170),
-                          switchInCurve: Curves.easeOut,
-                          switchOutCurve: Curves.easeIn,
-                          transitionBuilder: (child, anim) => FadeTransition(
-                            opacity: anim,
-                            child: SlideTransition(
-                              position: Tween<Offset>(
-                                begin: const Offset(0, 0.02),
-                                end: Offset.zero,
-                              ).animate(anim),
-                              child: child,
+                      child: SingleChildScrollView(
+                        physics: const ClampingScrollPhysics(),
+                        child: AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 170),
+                            switchInCurve: Curves.easeOut,
+                            switchOutCurve: Curves.easeIn,
+                            transitionBuilder: (child, anim) => FadeTransition(
+                              opacity: anim,
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.02),
+                                  end: Offset.zero,
+                                ).animate(anim),
+                                child: child,
+                              ),
                             ),
-                          ),
-                          child: KeyedSubtree(
-                            key: ValueKey<int>(controller.depth),
-                            child: Builder(builder: page.builder),
+                            child: KeyedSubtree(
+                              key: ValueKey<int>(controller.depth),
+                              child: Builder(builder: page.builder),
+                            ),
                           ),
                         ),
                       ),

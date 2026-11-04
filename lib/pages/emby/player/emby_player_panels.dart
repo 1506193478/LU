@@ -925,6 +925,7 @@ Widget buildEmbyPlaybackModePanel({
 Widget buildEmbyIntroOutroPanel({
   required bool introSkip,
   required bool outroSkip,
+  required VoidCallback onMarkIntro,
   required VoidCallback onMarkOutro,
   required ValueChanged<bool> onIntroChanged,
   required ValueChanged<bool> onOutroChanged,
@@ -933,20 +934,28 @@ Widget buildEmbyIntroOutroPanel({
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       _PanelRow(
+        icon: Icons.bookmark_add_outlined,
+        title: '标记当前进度为片头',
+        onTap: onMarkIntro,
+      ),
+      _PanelRow(
         icon: Icons.bookmark_outline_rounded,
         title: '标记当前进度为片尾',
         onTap: onMarkOutro,
       ),
+      // 开关项用菜单勾位表示状态：行首出现对号即为开启，点一下切换。
       _PanelRow(
         icon: Icons.skip_next_rounded,
         title: '自动跳过片头',
         subtitle: introSkip ? '已开启' : '关闭',
+        selected: introSkip,
         onTap: () => onIntroChanged(!introSkip),
       ),
       _PanelRow(
         icon: Icons.skip_next_rounded,
         title: '自动跳过片尾',
         subtitle: outroSkip ? '已开启' : '关闭',
+        selected: outroSkip,
         onTap: () => onOutroChanged(!outroSkip),
       ),
       const SizedBox(height: 8),

@@ -17,7 +17,6 @@ import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
-import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -47,7 +46,7 @@ class EmbyPlayerPage extends StatefulWidget {
 }
 
 class _EmbyPlayerPageState extends State<EmbyPlayerPage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with SingleTickerProviderStateMixin {
   late final EmbyPlayerController controller;
   final FocusNode _focusNode = FocusNode();
 
@@ -149,7 +148,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
     controller = EmbyPlayerController(
       launch: widget.launch,
@@ -175,7 +173,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _hudTimer?.cancel();
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
@@ -203,24 +200,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     super.dispose();
   }
 
-  /// 离开前台的边缘（上滑回主屏 / 下拉通知中心 / 来电）自动进画中画。
+  /// 离开前台时不再自动切内核。
   ///
-  /// 原生侧（applicationWillResignActive）也有一层兜底，这里负责的是
-  /// 「mpv 内核 → 切转码走 AVPlayer 再进小窗」的调度，原生不知道内核。
-  /// 需要用户在设置里开着「自动开启画中画」。
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.inactive) return;
-    if (!Platform.isIOS) return;
-    if (!EmbyPipPrefs.autoEnter) return;
-    if (!controller.playing ||
-        controller.loading ||
-        controller.error.isNotEmpty ||
-        controller.pipActive) {
-      return;
-    }
-    unawaited(controller.requestPip());
-  }
+  /// 之前这里一进 inactive 就 requestPip，而 mpv（直连）片要切内核才能
+  /// 画中画——结果用户下拉个通知中心、看一眼消息，播放就被打断、切到
+  /// AVPlayer 还起不来。现在只有 AVPlayer 内核的「自动画中画」走原生
+  /// （applicationWillResignActive，不打断播放）；mpv 内核必须由用户
+  /// 主动点小窗按钮、确认后才切。
 
   Future<void> _readInitialBrightness() async {
     try {
@@ -493,6 +479,41 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     controller.resumeAutoHide();
   }
 
+  /// 小窗按钮：AVPlayer 内核直接进；mpv（直连）要切转码，先问一句。
+  Future<void> _requestPip() async {
+    if (controller.isAvBackend) {
+      await controller.requestPip();
+      return;
+    }
+    if (!controller.canSwitchToPip) {
+      KazumiDialog.showToast(message: '本地文件暂不支持画中画');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('用画中画播放？'),
+        content: const Text(
+          '当前是直连播放。画中画需要切换为服务器转码，画面会重新加载几秒，'
+          '之后自动进入小窗。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('切换'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await controller.switchToPipByTranscode();
+    }
+  }
+
   /// AirPlay：弹系统的输出路由选择器（原生通道里挂一个隐藏的
   /// AVRoutePickerView 触发）。AV / mpv 内核都吃系统路由，都能用。
   static const MethodChannel _castChannel = MethodChannel(
@@ -573,15 +594,24 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     _pauseAutoHide();
     await _showMenuPage(
       '片头片尾',
-      (ctx) => buildEmbyIntroOutroPanel(
-        introSkip: controller.introSkip,
-        outroSkip: controller.outroSkip,
-        onMarkOutro: () {
-          controller.markOutroAt(controller.position);
-          Navigator.of(ctx).pop();
-        },
-        onIntroChanged: controller.setIntroSkip,
-        onOutroChanged: controller.setOutroSkip,
+      (ctx) => AnimatedBuilder(
+        // 菜单是 Overlay，页面 controller 的 notify 传不进来；包一层才能
+        // 点完开关立刻看到对号和「已开启」。
+        animation: controller,
+        builder: (context, _) => buildEmbyIntroOutroPanel(
+          introSkip: controller.introSkip,
+          outroSkip: controller.outroSkip,
+          onMarkIntro: () {
+            controller.markIntroAt(controller.position);
+            KazumiDialog.showToast(message: '已把当前进度标记为片头');
+          },
+          onMarkOutro: () {
+            controller.markOutroAt(controller.position);
+            KazumiDialog.showToast(message: '已把当前进度标记为片尾');
+          },
+          onIntroChanged: controller.setIntroSkip,
+          onOutroChanged: controller.setOutroSkip,
+        ),
       ),
     );
   }
@@ -1353,7 +1383,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                   _CircleAction(
                     icon: Icons.picture_in_picture_alt_rounded,
                     iconSize: 18,
-                    onTap: () => unawaited(controller.requestPip()),
+                    onTap: () => unawaited(_requestPip()),
                   ),
                   const SizedBox(width: 8),
                 ],

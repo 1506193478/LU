@@ -26,6 +26,7 @@ class EmbyFutureView<T> extends StatelessWidget {
     required this.onRetry,
     this.onSwitchServer,
     this.isEmpty,
+    this.loadingBuilder,
     this.emptyTitle = '这里是空的',
     this.emptyMessage = '换个媒体库看看，或者先在 Emby 服务端添加内容。',
   });
@@ -38,6 +39,10 @@ class EmbyFutureView<T> extends StatelessWidget {
   /// 必须能直接换一台服务器。
   final VoidCallback? onSwitchServer;
   final bool Function(T data)? isEmpty;
+
+  /// 加载态自定义占位。详情页用它画「封面大图骨架」——转场动画期间
+  /// 直接就是这部剧的封面，而不是一整页黑底 + 居中转圈。
+  final WidgetBuilder? loadingBuilder;
   final String emptyTitle;
   final String emptyMessage;
 
@@ -47,7 +52,8 @@ class EmbyFutureView<T> extends StatelessWidget {
       future: future,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
+          return loadingBuilder?.call(context) ??
+              const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
           return SingleChildScrollView(
