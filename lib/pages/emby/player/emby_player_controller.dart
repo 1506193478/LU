@@ -213,16 +213,42 @@ class EmbyPlayerController extends ChangeNotifier {
   /// AV 路径的当前字幕文本（Dart 层渲染，跟着 position 走）。
   String avSubtitleText = '';
 
-  /// 画中画（仅 iOS AVPlayer 内核）：设备支持 + 当前流走 AV 才可用。
+  /// 进画中画（仅 iOS AVPlayer 内核）：设备支持 + 当前流走 AV 才可用。
   bool get pipAvailable => _av?.pipAvailable ?? false;
   bool get pipActive => _av?.pipActive ?? false;
 
-  /// 进画中画。失败（PiP 暂不可用）给个可感知的提示。
-  Future<void> startPip() async {
-    final ok = await _av?.startPip() ?? false;
-    if (!ok && !_disposed) {
-      KazumiDialog.showToast(message: '画中画暂时不可用，请稍后再试');
+  /// 画中画意图：用户点了小窗 / 退后台自动触发。mpv 内核时切转码走
+  /// AVPlayer，起播后自动进小窗。
+  bool _pipIntent = false;
+
+  /// 一次性「强制走 AVPlayer」标记（[requestPip] 的转码切换用），
+  /// [_shouldUseAv] 消费后清零。
+  bool _forceAvOnce = false;
+
+  /// 进画中画的统一入口：
+  ///   * AVPlayer 内核 → 直接进小窗；
+  ///   * mpv 内核（多半是直连原盘，AVPlayer 吃不了）→ 强制让服务端转码、
+  ///     以 AVPlayer 重开当前进度，起播后自动进小窗。转码出来的
+  ///     H264/AAC 是 AVPlayer 的舒适区，必然能播。
+  Future<void> requestPip() async {
+    if (_disposed || loading) return;
+    final engine = _av;
+    if (engine != null) {
+      final ok = await engine.startPip();
+      if (!ok && !_disposed) {
+        KazumiDialog.showToast(message: '画中画暂时不可用，请稍后再试');
+      }
+      return;
     }
+    if (_pipIntent || _isLocalDirect) {
+      if (_isLocalDirect) KazumiDialog.showToast(message: '本地文件暂不支持画中画');
+      return;
+    }
+    _pipIntent = true;
+    _forceAvOnce = true;
+    _preferTranscodeRetry = true;
+    KazumiDialog.showToast(message: '正在切换到画中画播放…');
+    unawaited(_open(_index));
   }
 
   /// 退画中画，回到 app 内播放。
@@ -240,6 +266,11 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 转出来的 HLS（H264/AAC/TS）则 100% 兼容。
   bool _shouldUseAv() {
     if (!Platform.isIOS) return false;
+    // 画中画意图触发的一次性强制：转码流 AVPlayer 必然能播。
+    if (_forceAvOnce) {
+      _forceAvOnce = false;
+      return true;
+    }
     // 这一集已经回退过 mpv 就不再尝试 AV：重试会把刚被服务端回收的
     // 转码会话又耗一遍，用户只会等更久。
     if (_avFallbackUsed) return false;
@@ -360,6 +391,7 @@ class EmbyPlayerController extends ChangeNotifier {
     if (target != _index) {
       _preferTranscodeRetry = false;
       _lastAvError = '';
+      _pipIntent = false;
     }
     // 已经在放这一条：重复点同一集不该重启引擎。失败状态下允许重来。
     if (target == _index &&
@@ -661,6 +693,11 @@ class EmbyPlayerController extends ChangeNotifier {
     unawaited(_logWatch());
     // open 重建了 PiP controller，把「自动开启画中画」的设置同步过去。
     unawaited(EmbyPipPrefs.syncToEngine());
+    // 画中画意图（mpv 切转码进来）：起播了就进小窗。
+    if (_pipIntent && !_disposed) {
+      _pipIntent = false;
+      unawaited(engine.startPip());
+    }
     _startProgressTimer();
     _scheduleHideControls();
   }
@@ -730,6 +767,7 @@ class EmbyPlayerController extends ChangeNotifier {
     await engine.dispose();
     if (_disposed) return;
     _avFallbackUsed = true;
+    _pipIntent = false;
     await _teardownPlayer();
     KazumiDialog.showToast(message: 'AVPlayer 播不了这部，已自动切换 libmpv');
     await _open(_index);
@@ -741,8 +779,15 @@ class EmbyPlayerController extends ChangeNotifier {
     final engine = _av;
     if (engine == null || _disposed) return;
     position = engine.position;
-    duration = engine.duration;
-    buffer = engine.buffer;
+    // 总时长优先用 Emby 元数据：转码中的 HLS，AVPlayer 报的 item.duration
+    // 是「已生成片段的总和」，会随转码推进变长，进度条比例全程不对。
+    // 元数据的 RunTimeTicks 才是影片真实时长。
+    final metaDuration = current?.runTime;
+    duration = (metaDuration != null && metaDuration > Duration.zero)
+        ? metaDuration
+        : engine.duration;
+    // 预加载进度封顶到总时长（引擎偶尔会把 buffered 报出界）。
+    buffer = engine.buffer > duration ? duration : engine.buffer;
     if (playing != engine.playing && engine.playing) {
       _scheduleHideControls();
     }

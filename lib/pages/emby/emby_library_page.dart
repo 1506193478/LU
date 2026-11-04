@@ -6,6 +6,7 @@ import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/theme/rex_design.dart';
+import 'package:XL/pages/emby/emby_detail_page.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/logging/logger.dart';
@@ -262,7 +263,10 @@ class _EmbyLibraryPageState extends State<EmbyLibraryPage> {
               tag: item.coverTag,
             ),
             headers: embyAuthHeaders(server),
-            onTap: () => context.pushNamed('/emby/detail', arguments: item),
+            onTap: () {
+              EmbyDetailPage.prefetch(item);
+              context.pushNamed('/emby/detail', arguments: item);
+            },
           );
         },
       ),

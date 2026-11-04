@@ -18,6 +18,14 @@ import app_links
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 
+    // 离开前台的边缘（上滑回主屏 / 下拉通知中心 / 来电）兜底自动进小窗。
+    // canStartPictureInPictureAutomaticallyFromInline 依赖系统对 inline
+    // layer 的判定，不一定每次都触发；这里在真正退后台前主动拉起。
+    override func applicationWillResignActive(_ application: UIApplication) {
+        super.applicationWillResignActive(application)
+        AvPlayerEnginePlugin.pipTryAutoStart()
+    }
+
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
         // AVPlayer 插件的 registrar 要从 engineBridge.pluginRegistry 取——这是
@@ -170,13 +178,13 @@ import app_links
     private var lastReportedPositionMs: Int64 = -1
 
     // 画中画：AVPictureInPictureController 必须吃一个「挂在视图层级里、
-    // 有有效尺寸」的 AVPlayerLayer。我们渲染走的是 AVPlayerItemVideoOutput
+    // 在屏幕上」的 AVPlayerLayer。我们渲染走的是 AVPlayerItemVideoOutput
     // （Flutter 纹理），没有 layer，所以专门造一个宿主 view 给它。
-    // PiP 窗口显示的是这一层，和 Flutter 纹理互不干扰。
     //
-    // 宿主必须**全屏且在屏幕内**：之前放在屏幕外的 160x90 小 view 上，
-    // 手动 startPictureInPicture 能用，但「退后台自动 PiP」会被系统判定
-    // 为「没有正在全屏播放的 inline 视频」而不拉起。
+    // 宿主必须是**屏幕内、可见（alpha 1）**的：屏幕外/透明宿主手动
+    // startPictureInPicture 静默失败、退后台也不会自动触发。1x1 pt 贴在
+    // 窗口右下角落——肉眼不可见但系统认它在上屏播放，这也是 Flutter
+    // 社区视频插件通用的做法。
     private var pipController: AVPictureInPictureController?
     private var pipLayer: AVPlayerLayer?
     private var pipHost: UIView?
@@ -184,12 +192,36 @@ import app_links
     /// 「自动开启画中画」开关（设置页下发），只影响自动触发，手动按钮不受限。
     static var autoPipEnabled = true
 
+    /// register 时存一份引用，applicationWillResignActive 里好找到它。
+    private static var shared: AvPlayerEnginePlugin?
+
+    /// 退前台边缘（inactive：上滑回主屏 / 下拉通知中心 / 来电）兜底自动
+    /// 进小窗。canStartPictureInPictureAutomaticallyFromInline 依赖系统对
+    /// inline layer 的判定，不一定每次都触发；这里在离开前台前主动拉起。
+    static func pipTryAutoStart() {
+        guard autoPipEnabled, let instance = shared else { return }
+        instance.tryAutoStartPip()
+    }
+
+    func tryAutoStartPip() {
+        guard let pip = pipController,
+              AvPlayerEnginePlugin.autoPipEnabled,
+              !pip.isPictureInPictureActive,
+              pip.isPictureInPicturePossible,
+              let player = player,
+              player.timeControlStatus != .paused else {
+            return
+        }
+        pip.startPictureInPicture()
+    }
+
     // 供 Dart 查询的缓存值（periodic observer 每 0.5s 刷一次）。
     private var cachedDurationMs: Int64 = 0
     private var cachedBufferedMs: Int64 = 0
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = AvPlayerEnginePlugin()
+        shared = instance
         instance.registrar = registrar
         registrar.addMethodCallDelegate(instance, channel: FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger()))
         FlutterEventChannel(name: eventChannelName, binaryMessenger: registrar.messenger()).setStreamHandler(instance)
@@ -376,11 +408,16 @@ import app_links
               let window = windowScene.windows.first else {
             return
         }
-        // 全屏宿主，alpha 0.01：iOS hit-test 会直接跳过 alpha <= 0.01 的
-        // view，不会挡 Flutter 的手势，但系统认它在屏幕上正常播放。
-        let host = UIView(frame: window.bounds)
-        host.alpha = 0.01
-        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // 1x1 pt 贴右下角落：可见、在屏幕内、不挡任何手势。
+        let host = UIView(
+            frame: CGRect(
+                x: window.bounds.width - 1.5,
+                y: window.bounds.height - 1.5,
+                width: 1,
+                height: 1
+            )
+        )
+        host.isUserInteractionEnabled = false
         window.addSubview(host)
         let layer = AVPlayerLayer(player: newPlayer)
         layer.frame = host.bounds
@@ -473,7 +510,13 @@ import app_links
         guard isListening, let player = player, let item = player.currentItem else { return }
         let positionMs = Int64(time.seconds.isNaN ? 0 : time.seconds * 1000)
         let durationMs = Int64(item.duration.seconds.isNaN ? 0 : item.duration.seconds * 1000)
-        let lastRange = item.loadedTimeRanges.map { $0.timeRangeValue }.last
+        // 预加载进度用 seekable range（真正能跳过去的范围）。HLS 转码流上
+        // loadedTimeRanges 会把服务端预先转好的分段全算进来，缓冲条可能
+        // 一大截，跟实际「能看多久」对不上。
+        let ranges = item.seekableTimeRanges.isEmpty
+            ? item.loadedTimeRanges
+            : item.seekableTimeRanges
+        let lastRange = ranges.last?.timeRangeValue
         let bufferedEnd = (lastRange?.start.seconds ?? 0) + (lastRange?.duration.seconds ?? 0)
         let bufferedMs = Int64(bufferedEnd.isNaN ? 0 : bufferedEnd * 1000)
         cachedDurationMs = durationMs

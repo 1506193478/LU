@@ -127,6 +127,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _openEmbyItem(EmbyItem item) async {
+    EmbyDetailPage.prefetch(item);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => EmbyDetailPage(item: item)),
     );

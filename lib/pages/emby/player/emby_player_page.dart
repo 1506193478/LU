@@ -17,6 +17,7 @@ import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
+import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -46,7 +47,7 @@ class EmbyPlayerPage extends StatefulWidget {
 }
 
 class _EmbyPlayerPageState extends State<EmbyPlayerPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final EmbyPlayerController controller;
   final FocusNode _focusNode = FocusNode();
 
@@ -148,6 +149,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
     controller = EmbyPlayerController(
       launch: widget.launch,
@@ -173,6 +175,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _hudTimer?.cancel();
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
@@ -198,6 +201,25 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     _chromeCtrl.dispose();
     controller.dispose();
     super.dispose();
+  }
+
+  /// 离开前台的边缘（上滑回主屏 / 下拉通知中心 / 来电）自动进画中画。
+  ///
+  /// 原生侧（applicationWillResignActive）也有一层兜底，这里负责的是
+  /// 「mpv 内核 → 切转码走 AVPlayer 再进小窗」的调度，原生不知道内核。
+  /// 需要用户在设置里开着「自动开启画中画」。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.inactive) return;
+    if (!Platform.isIOS) return;
+    if (!EmbyPipPrefs.autoEnter) return;
+    if (!controller.playing ||
+        controller.loading ||
+        controller.error.isNotEmpty ||
+        controller.pipActive) {
+      return;
+    }
+    unawaited(controller.requestPip());
   }
 
   Future<void> _readInitialBrightness() async {
@@ -1325,15 +1347,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                   onTap: controller.toggleLock,
                 ),
                 const SizedBox(width: 8),
-                // 画中画：只有 iOS + AVPlayer 内核 + 设备支持时才有意义
-                // （libmpv 那条路没有 AVPlayerLayer，做不了 PiP）。
-                if (Platform.isIOS &&
-                    controller.isAvBackend &&
-                    controller.pipAvailable) ...[
+                // 画中画（iOS）：AVPlayer 内核直接进小窗；mpv 内核（直连
+                // 原盘）点了会自动切转码、以 AVPlayer 重开再进小窗。
+                if (Platform.isIOS) ...[
                   _CircleAction(
                     icon: Icons.picture_in_picture_alt_rounded,
                     iconSize: 18,
-                    onTap: () => unawaited(controller.startPip()),
+                    onTap: () => unawaited(controller.requestPip()),
                   ),
                   const SizedBox(width: 8),
                 ],
@@ -1770,17 +1790,25 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       _moved = true;
       _longPressTimer?.cancel();
       final horizontal = delta.dx.abs() > delta.dy.abs();
+      // 长按倍速中不抢手势：长按已经在拖动倍速，再来一套音量/亮度 /
+      // seek 会互相打架，观感就是「手指一歪画面乱跳」。
+      final bool busy = _longPressActive;
       _horizontalActive =
-          horizontal && _gesture.seekByDrag && !controller.locked;
+          horizontal &&
+          _gesture.seekByDrag &&
+          !controller.locked &&
+          !busy;
       _verticalActive =
           !horizontal &&
           (_gesture.brightness || _gesture.volume) &&
-          !controller.locked;
+          !controller.locked &&
+          !busy;
       _verticalIsVolume = down.dx > size.width * 0.5;
       _gestureStartVolume = controller.baseVolume;
       _gestureStartBrightness = _lastBrightness;
       _seekStart = controller.position;
-      if (_horizontalActive) _pauseAutoHide();
+      // 只有控制层本来就在显示时才暂停自动隐藏——不能主动把它唤出来。
+      if (controller.controlsVisible && _horizontalActive) _pauseAutoHide();
     }
     if (!_moved) return;
 
@@ -1861,7 +1889,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       _horizontalActive = false;
       _verticalActive = false;
       if (_dragging) setState(() => _dragging = false);
-      _pauseAutoHide();
+      // 手势（seek / 音量 / 亮度）不该把控制层带出来：控制层本来就显示着
+      // 才暂停自动隐藏。之前无条件 pauseAutoHide，调个音量松手整个
+      // 播放器页面全展开了。
+      if (controller.controlsVisible) _pauseAutoHide();
       return;
     }
 

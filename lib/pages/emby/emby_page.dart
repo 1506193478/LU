@@ -10,6 +10,7 @@ import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_res_pane.dart';
 import 'package:XL/pages/emby/emby_search_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
+import 'package:XL/pages/emby/emby_detail_page.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/services/emby/emby_service.dart';
@@ -167,6 +168,8 @@ class _EmbyPageState extends State<EmbyPage> {
   }
 
   void _openDetail(EmbyItem item) {
+    // 点卡片的瞬间就开始拉详情数据，转场期间网络并行跑。
+    EmbyDetailPage.prefetch(item);
     context.pushNamed('/emby/detail', arguments: item);
   }
 

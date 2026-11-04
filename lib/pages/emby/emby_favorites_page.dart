@@ -3,6 +3,7 @@ import 'package:flutter_modular/flutter_modular.dart';
 
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
+import 'package:XL/pages/emby/emby_detail_page.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/services/emby/emby_service.dart';
@@ -105,6 +106,7 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
   }
 
   Future<void> _open(EmbyItem item) async {
+    EmbyDetailPage.prefetch(item);
     await context.pushNamed('/emby/detail', arguments: item);
     // 详情页里可能把心点掉了，回来重新拉一次，别让已经取消的还留在这儿。
     if (mounted) await _load();

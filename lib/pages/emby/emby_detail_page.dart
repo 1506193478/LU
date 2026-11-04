@@ -26,6 +26,89 @@ class EmbyDetailPage extends StatefulWidget {
 
   final EmbyItem item;
 
+  /// 入口预取缓存：列表页点卡片的瞬间就把详情请求发出去，与页面转场
+  /// 并行。键 = itemId，详情页 initState 时取走（remove）。
+  static final Map<String, Future<_DetailData>> _prefetch = {};
+
+  /// 列表 / 首页 / 搜索入口在 push 之前调用，提前热身详情数据。
+  static void prefetch(EmbyItem item) {
+    if (_prefetch.containsKey(item.id)) return;
+    // 只留最近几条，别让地图无限涨。
+    while (_prefetch.length >= 8) {
+      _prefetch.remove(_prefetch.keys.first);
+    }
+    _prefetch[item.id] = _fetchDetail(item);
+  }
+
+  /// 详情数据请求：条目元数据、季列表、类似作品**并行**拉（原来三个
+  /// await 串行，页面要黑三次请求的时间总和）。
+  static Future<_DetailData> _fetchDetail(EmbyItem raw) async {
+    final service = EmbyService.instance;
+    await service.load();
+    final server = service.activeServer;
+    if (server == null) {
+      return _DetailData(
+        server: null,
+        item: raw,
+        seasons: const [],
+        similar: const [],
+      );
+    }
+    final client = service.clientFor(server);
+
+    Future<EmbyItem?> fetchMeta() async {
+      try {
+        return await client.fetchItemMeta(
+          userId: server.userId,
+          itemId: raw.id,
+        );
+      } catch (e) {
+        KazumiLogger().w('Emby detail: failed to load item meta', error: e);
+        return null;
+      }
+    }
+
+    Future<List<EmbyItem>> fetchSeasons() async {
+      if (!raw.isSeries) return const [];
+      try {
+        return await client.fetchSeasons(
+          seriesId: raw.id,
+          userId: server.userId,
+        );
+      } catch (e) {
+        KazumiLogger().w('Emby detail: failed to load seasons', error: e);
+        return const [];
+      }
+    }
+
+    Future<List<EmbyItem>> fetchSimilar() async {
+      try {
+        return await client.fetchSimilar(
+          itemId: raw.id,
+          userId: server.userId,
+        );
+      } catch (e) {
+        KazumiLogger().w('Emby detail: failed to load similar', error: e);
+        return const [];
+      }
+    }
+
+    final results = await Future.wait([
+      fetchMeta(),
+      fetchSeasons(),
+      fetchSimilar(),
+    ]);
+    final item = results[0] as EmbyItem? ?? raw;
+    final seasons = results[1] as List<EmbyItem>;
+    final similar = results[2] as List<EmbyItem>;
+    return _DetailData(
+      server: server,
+      item: item,
+      seasons: seasons,
+      similar: similar,
+    );
+  }
+
   @override
   State<EmbyDetailPage> createState() => _EmbyDetailPageState();
 }
@@ -55,74 +138,27 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
     super.initState();
     _favorite = widget.item.isFavorite;
     _played = widget.item.played;
-    _future = _load();
+    // 入口预取（[prefetch]）命中的话，转场动画还没走完数据就已经在了，
+    // 不会出现「先黑一下再出内容」。
+    _future = _startLoad(EmbyDetailPage._prefetch.remove(widget.item.id) ?? EmbyDetailPage._fetchDetail(widget.item));
+  }
+
+  /// 装载详情数据并把请求结果落到实例字段（收藏 / 已看 / 当前季 / 集列表）。
+  Future<_DetailData> _startLoad(Future<_DetailData> future) {
+    return future.then((data) {
+      _favorite = data.item.isFavorite;
+      _played = data.item.played;
+      _seasonId = data.seasons.isNotEmpty ? data.seasons.first.id : null;
+      final server = data.server;
+      _episodesFuture = server == null
+          ? Future.value(const <EmbyItem>[])
+          : _loadEpisodes(server, _seasonId);
+      return data;
+    });
   }
 
   void _reload() {
-    setState(() => _future = _load());
-  }
-
-  Future<_DetailData> _load() async {
-    final service = EmbyService.instance;
-    await service.load();
-    final server = service.activeServer;
-    if (server == null) {
-      return _DetailData(
-        server: null,
-        item: widget.item,
-        seasons: const [],
-        similar: const [],
-      );
-    }
-    final client = service.clientFor(server);
-
-    // 先补一次单条元数据。列表 / 搜索返回的条目是「瘦身版」，
-    // `Overview`、`Genres`、`OfficialRating` 经常是空的，详情页直接拿它
-    // 渲染就会出现「没有详情描述」。单条接口代价只有一次请求。
-    EmbyItem item = widget.item;
-    try {
-      final meta = await client.fetchItemMeta(
-        userId: server.userId,
-        itemId: widget.item.id,
-      );
-      if (meta != null) {
-        item = meta;
-        _favorite = meta.isFavorite;
-        _played = meta.played;
-      }
-    } catch (e) {
-      KazumiLogger().w('Emby detail: failed to load item meta', error: e);
-    }
-
-    var seasons = <EmbyItem>[];
-    if (item.isSeries) {
-      try {
-        seasons = await client.fetchSeasons(
-          seriesId: item.id,
-          userId: server.userId,
-        );
-      } catch (e) {
-        KazumiLogger().w('Emby detail: failed to load seasons', error: e);
-      }
-    }
-    _seasonId = seasons.isNotEmpty ? seasons.first.id : null;
-    _episodesFuture = _loadEpisodes(server, _seasonId);
-
-    var similar = <EmbyItem>[];
-    try {
-      similar = await client.fetchSimilar(
-        itemId: item.id,
-        userId: server.userId,
-      );
-    } catch (e) {
-      KazumiLogger().w('Emby detail: failed to load similar', error: e);
-    }
-    return _DetailData(
-      server: server,
-      item: item,
-      seasons: seasons,
-      similar: similar,
-    );
+    setState(() => _future = _startLoad(EmbyDetailPage._fetchDetail(widget.item)));
   }
 
   Future<List<EmbyItem>> _loadEpisodes(
