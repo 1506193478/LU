@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:XL/app_module.dart';
 import 'package:XL/app_widget.dart';
@@ -8,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:XL/services/deep_links/app_deep_links.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/services/download/download_directory_service.dart';
+import 'package:XL/services/logging/logger.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:XL/services/network/metered_network_service.dart';
 import 'package:XL/services/network/ech_http_licenses.dart';
@@ -27,6 +30,23 @@ import 'package:XL/navigation.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 兜底错误处理：以前 Dart 层的异常只打到控制台，用户那边看到的就是
+  // 「闪退 / 卡死但没提示」。现在统一写进日志文件，方便事后查。
+  // 注意只兜 Dart 异常；原生崩溃（SIGSEGV 之类）还得靠平台侧修。
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    KazumiLogger().e(
+      'FlutterError: ${details.exceptionAsString()}',
+      error: details.exception,
+      stackTrace: details.stack,
+    );
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    KazumiLogger().e('Uncaught error', error: error, stackTrace: stack);
+    return true;
+  };
+
   AppDeepLinks().start();
   registerEchHttpLicenses();
   MediaKit.ensureInitialized();

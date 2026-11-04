@@ -214,7 +214,6 @@ class EmbyMorePanelActions {
     required this.onPlaybackMode,
     required this.onIntroOutro,
     required this.onSleep,
-    required this.onInfo,
     required this.onBackground,
     required this.onProgress,
     this.episodeCount = 0,
@@ -229,7 +228,6 @@ class EmbyMorePanelActions {
   final VoidCallback onPlaybackMode;
   final VoidCallback onIntroOutro;
   final VoidCallback onSleep;
-  final VoidCallback onInfo;
   final VoidCallback onBackground;
   final VoidCallback onProgress;
   final int episodeCount;

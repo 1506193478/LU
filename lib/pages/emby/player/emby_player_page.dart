@@ -555,7 +555,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           onPlaybackMode: _openPlaybackMode,
           onIntroOutro: _openIntroOutro,
           onSleep: _openSleep,
-          onInfo: _openInfo,
           onBackground: () {
             controller.setBackgroundAudio(!controller.backgroundAudio);
             Navigator.of(ctx).pop();
@@ -1938,7 +1937,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     if (_longPressActive) {
       _longPressActive = false;
       unawaited(controller.setSpeed(_speedBeforeLongPress));
-      _pauseAutoHide();
+      // 只看不改：松手不代表用户想把控制层叫出来。控制层本来就是收起的，
+      // 长按倍速结束后也必须保持收起（之前无条件 pauseAutoHide，它会顺手
+      // 把 controlsVisible 置 true，一松手整页控件全弹出来）。
+      if (controller.controlsVisible) _pauseAutoHide();
       return;
     }
 

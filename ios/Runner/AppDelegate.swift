@@ -170,6 +170,11 @@ import app_links
     private var registrar: FlutterPluginRegistrar?
     private var player: AVPlayer?
     private var output: AVPlayerItemVideoOutput?
+
+    /// `copyPixelBuffer` 跑在 Flutter 的 raster 线程，而 open/teardown 跑在
+    /// 主线程。两边同时读写 player / output 就是数据竞争——偶尔的闪退
+    /// （EXC_BAD_ACCESS）基本都出在这儿。所有跨线程访问都从这里过。
+    private let bufferLock = NSLock()
     private var displayLink: CADisplayLink?
     private var textureId: Int64 = -1
     private var timeObserver: Any?
@@ -274,6 +279,13 @@ import app_links
     // ---- Texture ----
 
     public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
+        // 只把「取引用」放在锁里：拿到强引用后即使主线程正在 teardown，
+        // 局部变量也能保证对象活到这次拷贝结束。
+        bufferLock.lock()
+        let output = self.output
+        let player = self.player
+        bufferLock.unlock()
+
         guard let output = output, let player = player else { return nil }
         let time = player.currentTime()
         guard time.isNumeric else { return nil }
@@ -387,14 +399,18 @@ import app_links
         }
         let item = AVPlayerItem(asset: asset)
         let newPlayer = AVPlayer(playerItem: item)
+        bufferLock.lock()
         player = newPlayer
+        bufferLock.unlock()
 
         // 尽量少做格式转换：转码流出来就是能硬解的 H264/HEVC。
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA]
         ])
         item.add(output)
+        bufferLock.lock()
         self.output = output
+        bufferLock.unlock()
 
         // 完成事件。
         NotificationCenter.default.addObserver(
@@ -621,8 +637,16 @@ import app_links
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: nil)
         player?.pause()
+        // 先把引用换掉（加锁），再让 ARC 去释放：copyPixelBuffer 那头拿到
+        // 的是强引用，不会再踩到已释放的 output。
+        bufferLock.lock()
+        let oldPlayer = player
+        let oldOutput = output
         player = nil
         output = nil
+        bufferLock.unlock()
+        _ = oldPlayer
+        _ = oldOutput
     }
 
     private func teardown() {

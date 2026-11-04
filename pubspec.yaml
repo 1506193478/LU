@@ -1,7 +1,7 @@
 name: XL
 description: "A new Flutter project."
 publish_to: "none"
-version: 3.9.47+30947
+version: 3.9.48+30948
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
@@ -144,8 +144,8 @@ flutter_native_splash:
   web: false
   color_ios: "#ffffff"
   color_dark_ios: "#212121"
-  image_ios: assets/images/logo/logo_ios.png
-  image_dark_ios: assets/images/logo/logo_ios.png
+  # 不再放图标：启动屏只留底色，Flutter 第一帧直接接上首页，比先弹一个
+  # 旧 logo 再消失干净得多。
 
 msix_config:
   display_name: LU

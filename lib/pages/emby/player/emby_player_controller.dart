@@ -15,6 +15,7 @@ import 'package:XL/pages/player/controller/player_debug_controller.dart';
 import 'package:XL/pages/player/controller/player_playback_controller.dart';
 import 'package:XL/request/clients/emby_client.dart';
 import 'package:XL/services/emby/emby_service.dart';
+import 'package:XL/services/emby/emby_skip_marks.dart';
 import 'package:XL/services/emby/emby_stream_resolver.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/emby/emby_subtitle_picker.dart';
@@ -500,6 +501,19 @@ class EmbyPlayerController extends ChangeNotifier {
       _lastAutoSkip = null;
       _outroUserStart = null;
       chapters = source?.chapters ?? const [];
+
+      // 用户自己标过的片头片尾优先：服务端一般不给这两项，而「在第一集
+      // 标好、第二集就失效」正是没读这份本地记录造成的。
+      final mark = EmbySkipMarks.read(
+        seriesId: item.seriesId,
+        itemId: item.id,
+      );
+      if (mark != null && !mark.isEmpty) {
+        _introStart = mark.introStart ?? _introStart;
+        _introEnd = mark.introEnd ?? _introEnd;
+        _outroStart = mark.outroStart ?? _outroStart;
+        _outroUserStart = mark.outroStart;
+      }
 
       // 外挂 / 内封字幕全部做成 URI 轨，选谁就把谁挂到引擎上。
       embySubtitleStreams = [
@@ -1455,19 +1469,31 @@ class EmbyPlayerController extends ChangeNotifier {
     unawaited(GStorage.putSetting(_outroSkipKey, value));
   }
 
-  /// 把「当前进度」标记为片头开始。没有片尾信息时给 90 秒的默认片头窗口，
-  /// 否则只有起点、跳过永远不会触发。开启后即时生效并落盘。
+  /// 把「当前进度」标记为片头开始，同时写进本剧的持久化标记。
+  ///
+  /// 片头窗口固定按 90 秒算：每次都重算 end——从上一集继承来的 end 可能
+  /// 落在新 start 前面，窗口直接作废，表现就是「标了但不跳」。
   void markIntroAt(Duration position) {
     _introStart = position;
-    if (_introEnd == null || _introEnd! <= position) {
-      _introEnd = position + const Duration(seconds: 90);
-    }
+    _introEnd = position + const Duration(seconds: 90);
+    EmbySkipMarks.write(
+      seriesId: current?.seriesId,
+      itemId: current?.id ?? '',
+      introStart: position.inSeconds,
+      introEnd: _introEnd!.inSeconds,
+    );
     setIntroSkip(true);
   }
 
   /// 把「当前进度」标记为片尾开始，之后开启「自动跳过片尾」会从此处起跳。
   void markOutroAt(Duration position) {
+    _outroStart = position;
     _outroUserStart = position;
+    EmbySkipMarks.write(
+      seriesId: current?.seriesId,
+      itemId: current?.id ?? '',
+      outroStart: position.inSeconds,
+    );
     setOutroSkip(true);
   }
 

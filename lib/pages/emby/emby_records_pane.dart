@@ -9,12 +9,17 @@ import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_watch_log.dart';
+import 'package:XL/services/logging/logger.dart';
 
 /// 按服务器打开一条播放记录。
 ///
-/// 本地直链（相册 / 文件 / 网盘直链）直接重开；Emby 条目则回到播放器，
-/// 服务端会从上次的 position 续播。
-void openEmbyWatchRecord(BuildContext context, EmbyWatchRecord record) {
+/// 本地直链（相册 / 文件 / 网盘直链）直接重开；Emby 条目则先补一次元数据，
+/// 再按「单集 → 整季」把剧集列表拉回来——播放记录里只存了 itemId，以前
+/// 直接拿它拼一条假条目去播，结果播放器里连选集入口都没有。
+Future<void> openEmbyWatchRecord(
+  BuildContext context,
+  EmbyWatchRecord record,
+) async {
   if (record.source.isNotEmpty) {
     luPlay(context, title: record.title, url: record.source);
     return;
@@ -35,24 +40,73 @@ void openEmbyWatchRecord(BuildContext context, EmbyWatchRecord record) {
     );
     return;
   }
-  context.pushNamed(
-    '/emby/player',
-    arguments: EmbyPlaybackLaunch(
-      server: server,
-      title: record.title,
-      // 记录里存着上次的进度；这里必须显式带过去，否则拼出来的条目没有
-      // userData，播放器会当成新片从头放（「点记录却重新开始」的根因）。
-      // 已经看完了就从头放，续到最后一秒没有意义。
-      startAt: record.finished || record.positionMs <= 0
-          ? null
-          : Duration(milliseconds: record.positionMs),
-      episodes: [
+
+  final client = EmbyService.instance.clientFor(server);
+  EmbyItem? meta;
+  try {
+    meta = await client.fetchItemMeta(
+      userId: server.userId,
+      itemId: record.itemId,
+    );
+  } catch (e) {
+    KazumiLogger().w(
+      'Emby records: failed to load item meta',
+      error: e,
+    );
+  }
+
+  // 续播位置：服务端 userData 最准；拿不到再退回本地记录里的进度。
+  // 已经看完的不续播（从最后一秒开始没有意义）。
+  Duration? resume;
+  if (meta != null) {
+    if (meta.isInProgress) resume = meta.resumePosition;
+  } else if (!record.finished && record.positionMs > 0) {
+    resume = Duration(milliseconds: record.positionMs);
+  }
+
+  var episodes = <EmbyItem>[
+    meta ??
         EmbyItem(
           id: record.itemId,
           name: record.subtitle.isEmpty ? record.title : record.subtitle,
           type: 'Movie',
         ),
-      ],
+  ];
+  var index = 0;
+
+  // 单集：把整季拉回来，播放器里才有「选集 / 下一集」。
+  final seriesId = meta?.seriesId;
+  if (meta != null &&
+      meta.isEpisode &&
+      seriesId != null &&
+      seriesId.isNotEmpty) {
+    try {
+      final all = await client.fetchEpisodes(
+        userId: server.userId,
+        seriesId: seriesId,
+      );
+      if (all.isNotEmpty) {
+        episodes = all;
+        final found = all.indexWhere((e) => e.id == meta!.id);
+        index = found < 0 ? 0 : found;
+      }
+    } catch (e) {
+      KazumiLogger().w(
+        'Emby records: failed to load episodes',
+        error: e,
+      );
+    }
+  }
+
+  if (!context.mounted) return;
+  await context.pushNamed(
+    '/emby/player',
+    arguments: EmbyPlaybackLaunch(
+      server: server,
+      title: record.title,
+      startAt: resume,
+      episodes: episodes,
+      initialIndex: index,
     ),
   );
 }

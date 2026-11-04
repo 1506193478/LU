@@ -164,11 +164,6 @@ class _EmbyPageState extends State<EmbyPage> {
     await context.pushNamed('/emby/servers');
   }
 
-  /// 搜索现在是 Emby 的第三个页签（见二级导航），不再另外开页面。
-  Future<void> _openSearch() async {
-    if (mounted) setState(() => _pane = 2);
-  }
-
   /// 首页右上角的搜索：只搜这台服务器上的影片。
   ///
   /// 和「搜索」页签（聚合所有服务器 + 播放记录）刻意分开：那一个是找
@@ -286,7 +281,6 @@ class _EmbyPageState extends State<EmbyPage> {
                 onPlay: _play,
                 onOpenDetail: _openDetail,
                 onOpenLibrary: _openLibrary,
-                onOpenSearch: _openSearch,
                 onSearchServer: _openServerSearch,
               ),
               EmbyResourcePane(
@@ -501,7 +495,6 @@ class _LibraryPane extends StatelessWidget {
     required this.onPlay,
     required this.onOpenDetail,
     required this.onOpenLibrary,
-    required this.onOpenSearch,
     required this.onSearchServer,
   });
 
@@ -512,7 +505,6 @@ class _LibraryPane extends StatelessWidget {
   final ValueChanged<EmbyItem> onPlay;
   final ValueChanged<EmbyItem> onOpenDetail;
   final ValueChanged<EmbyLibrary> onOpenLibrary;
-  final VoidCallback onOpenSearch;
   final ValueChanged<EmbyServer> onSearchServer;
 
   @override
@@ -534,7 +526,6 @@ class _LibraryPane extends StatelessWidget {
             onOpenLibrary: onOpenLibrary,
             onRetry: onRetry,
             onOpenServers: onSwitchServer,
-            onOpenSearch: onOpenSearch,
             onSearchServer: onSearchServer,
           );
         },
@@ -551,7 +542,6 @@ class _HomeBody extends StatefulWidget {
     required this.onOpenLibrary,
     required this.onRetry,
     required this.onOpenServers,
-    required this.onOpenSearch,
     required this.onSearchServer,
   });
 
@@ -561,7 +551,6 @@ class _HomeBody extends StatefulWidget {
   final ValueChanged<EmbyLibrary> onOpenLibrary;
   final VoidCallback onRetry;
   final VoidCallback onOpenServers;
-  final VoidCallback onOpenSearch;
 
   /// 右上角搜索：只搜这台服务器（另一个搜索页签是聚合所有服务器）。
   final ValueChanged<EmbyServer> onSearchServer;
