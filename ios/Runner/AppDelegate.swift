@@ -238,16 +238,24 @@ import app_links
     /// AVPlayer 同时渲染全屏图层 + Flutter 纹理，4K 片直接掉帧，退后台
     /// 再回来还可能因为图层/纹理状态错乱崩掉。系统说不可用就是不可用，
     /// 由调用方提示用户，不折腾渲染管线。
-    private func startPipIfPossible() {
+    private func startPipIfPossible(attempt: Int = 0) {
         guard let pip = pipController, !pip.isPictureInPictureActive else { return }
-        guard pip.isPictureInPicturePossible else {
-            eventSink?([
-                "type": "pip", "active": false,
-                "message": "系统还没准备好画中画，请稍后再试",
-            ] as [String: Any])
+        if pip.isPictureInPicturePossible {
+            pip.startPictureInPicture()
             return
         }
-        pip.startPictureInPicture()
+        // 刚起播时系统还没把这一层算进「可画中画」，等几帧通常就好了。
+        // 这里只轮询，不动图层尺寸（放大会让 AVPlayer 多渲染一路，反而掉帧）。
+        if attempt < 8 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.startPipIfPossible(attempt: attempt + 1)
+            }
+            return
+        }
+        eventSink?([
+            "type": "pip", "active": false,
+            "message": "系统还没准备好画中画，请稍后再试",
+        ] as [String: Any])
     }
 
     // 供 Dart 查询的缓存值（periodic observer 每 0.5s 刷一次）。
