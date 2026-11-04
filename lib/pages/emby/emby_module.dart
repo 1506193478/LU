@@ -39,7 +39,15 @@ final embyModule = createModule(
           return EmbyDetailPage(item: args);
         },
       )
-      ..route('/search', child: (context, state) => const EmbySearchPage())
+      ..route(
+        '/search',
+        child: (context, state) {
+          // 参数是服务器 id 时只搜那一台（首页右上角的搜索按钮）；
+          // 不带参数就是全服务器搜索。
+          final args = state.arguments;
+          return EmbySearchPage(serverId: args is String ? args : null);
+        },
+      )
       ..route(
         '/player',
         child: (context, state) {

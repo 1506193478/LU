@@ -17,7 +17,12 @@ import 'package:XL/services/logging/logger.dart';
 /// 只搜电影 / 剧集 / 单集，不搜演职员——Emby 的 `SearchTerm` 对人物命中很差，
 /// 搜出来一堆无关条目反而干扰。
 class EmbySearchPage extends StatefulWidget {
-  const EmbySearchPage({super.key});
+  const EmbySearchPage({super.key, this.serverId});
+
+  /// 限定只搜这台服务器。空 = 当前激活的服务器。
+  ///
+  /// 首页右上角的搜索按钮会带上它，和「搜索」页签（聚合所有服务器）区分开。
+  final String? serverId;
 
   @override
   State<EmbySearchPage> createState() => _EmbySearchPageState();
@@ -69,8 +74,19 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
     });
   }
 
+  /// 当前页面作用的服务器：带 serverId 就锁死那一台。
+  EmbyServer? get _server {
+    final service = EmbyService.instance;
+    final id = widget.serverId;
+    if (id == null) return service.activeServer;
+    for (final s in service.servers) {
+      if (s.id == id) return s;
+    }
+    return service.activeServer;
+  }
+
   Future<void> _search(String keyword) async {
-    final server = EmbyService.instance.activeServer;
+    final server = _server;
     if (server == null) return;
     final int seq = ++_requestSeq;
     setState(() {
@@ -99,11 +115,11 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    final server = EmbyService.instance.activeServer;
+    final server = _server;
     final RexPalette p = RexPalette.of(context);
     final double pad = embyPagePadding(context);
     return EmbyPageShell(
-      title: '搜索',
+      title: server == null ? '搜索' : '搜索 · ${server.name}',
       body: Column(
         children: [
           Padding(
@@ -124,7 +140,9 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
                 textInputAction: TextInputAction.search,
                 style: RexText.body.copyWith(color: p.inkPrimary),
                 decoration: InputDecoration(
-                  hintText: '搜索电影、剧集',
+                  hintText: widget.serverId == null
+                      ? '搜索电影、剧集'
+                      : '在这台服务器里搜索电影、剧集',
                   hintStyle: RexText.body.copyWith(color: p.inkTertiary),
                   prefixIcon: Icon(
                     Icons.search_rounded,

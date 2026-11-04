@@ -264,7 +264,8 @@ Widget buildEmbyMorePanel(BuildContext context, EmbyMorePanelActions a) {
         chevron: true,
         onTap: a.onSleep,
       ),
-      _PanelRow(title: '媒体信息', chevron: true, onTap: a.onInfo),
+      // 「媒体信息」不再放这里：顶栏已经有一枚 info 按钮，重复入口只会
+      // 让人以为点开的是两份不同的数据。
       const _GroupTitle('工具'),
       _PanelRow(
         title: '后台音频',

@@ -81,6 +81,15 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   /// 画面比例，索引对应 [buildEmbyAspectPanel] 里的四项。
   int _aspect = 0;
 
+  /// 画面层缓存。
+  ///
+  /// 控制器在播放时每个进度 tick 都会 notify，整页跟着 rebuild。画面这棵
+  /// 子树（Video / Texture + 字幕）其实只在换片、缩放、改字幕样式时才变，
+  /// 复用同一个 widget 实例能让 Flutter 直接跳过它——之前每帧重建纹理层，
+  /// 就是掉帧、倍速下更明显的原因之一。
+  Widget? _surfaceCache;
+  String _surfaceKey = '';
+
   // 进度条拖拽
   bool _dragging = false;
   Duration _dragPosition = Duration.zero;
@@ -899,7 +908,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                   children: [
                     // 手势只铺在**画面**这一层：控件（按钮 / 进度条）在它上面，
                     // 点按钮不会顺带把控件收起来。
-                    _buildGestureSurface(),
+                    _buildCachedSurface(),
                     if (!controller.loading &&
                         controller.error.isEmpty &&
                         !_chromeSettled) ...[
@@ -981,6 +990,33 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   /// 画面这一层：桌面端保留原来的「单击显隐 / 双击全屏」，移动端走自己的
   /// 指针手势（见 `_onPointerDown` 一带）。
+  /// 画面层：只有「真的会影响画面」的状态变了才重建。
+  ///
+  /// 进度 tick 走的是控制器 notify → 整页 rebuild，但画面（纹理 / 字幕样本）
+  /// 只在换片、缩放、改字幕样式时变。返回同一个 widget 实例，Flutter 的
+  /// updateChild 会直接复用，不再每帧重铺纹理层。
+  Widget _buildCachedSurface() {
+    final s = controller.subtitleSettings;
+    final key = [
+      controller.pipActive,
+      controller.avTextureId,
+      controller.videoWidth,
+      controller.videoHeight,
+      _zoom,
+      _zoomOffset.dx,
+      _zoomOffset.dy,
+      _aspect,
+      s.opacity,
+      s.scale,
+      s.verticalOffset,
+      controller.avSubtitleText,
+      identityHashCode(controller.videoController),
+    ].join('|');
+    if (key == _surfaceKey && _surfaceCache != null) return _surfaceCache!;
+    _surfaceKey = key;
+    return _surfaceCache = _buildGestureSurface();
+  }
+
   Widget _buildGestureSurface() {
     // 画中画激活时画面在系统小窗里，这层只是个「还在小窗播」的提示牌，
     // 点一下退小窗回到 app 内播放。其余手势都不用响应。
@@ -1477,14 +1513,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       ),
     ];
 
+    // 选集只留顶栏那一个入口：底栏以前还挂了一个，两个按钮干同一件事，
+    // 用户一眼看到两个「选集」只会以为是不同功能。
     final List<Widget> rightTools = <Widget>[
-      if (widget.launch.episodes.length > 1)
-        _CircleAction(
-          icon: Icons.video_library_outlined,
-          iconSize: 16,
-          size: 34,
-          onTap: _openEpisodes,
-        ),
       _CircleAction(
         icon: Icons.aspect_ratio_rounded,
         iconSize: 16,

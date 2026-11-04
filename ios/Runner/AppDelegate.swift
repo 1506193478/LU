@@ -579,6 +579,13 @@ import app_links
     private func startDisplayLink() {
         stopDisplayLink()
         let link = CADisplayLink(target: self, selector: #selector(frameTick))
+        // 60fps 足够：超过片源帧率的回调纯属白跑，ProMotion 上 120Hz 更是
+        // 让主线程忙一倍。
+        if #available(iOS 15.0, *) {
+            link.preferredFrameRateRange = CAFrameRateRange(
+                minimum: 24, maximum: 60, preferred: 60
+            )
+        }
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -590,6 +597,15 @@ import app_links
 
     @objc private func frameTick() {
         guard textureId >= 0, let registrar = registrar else { return }
+        // 有新帧才通知 Flutter 重画。
+        //
+        // 之前是每个 vsync 都 textureFrameAvailable：24fps 的片子也按 60/120Hz
+        // 让引擎去 copyPixelBuffer 拷一遍整帧（4K 一帧 ~12MB），白烧内存带宽，
+        // 掉帧就是这么来的——倍速播时帧率高，更明显。
+        guard let output = output, let player = player else { return }
+        let time = player.currentTime()
+        guard time.isNumeric else { return }
+        guard output.hasNewPixelBuffer(forItemTime: time) else { return }
         registrar.textures().textureFrameAvailable(textureId)
     }
 

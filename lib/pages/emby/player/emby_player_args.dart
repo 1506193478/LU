@@ -10,6 +10,7 @@ class EmbyPlaybackLaunch {
     required this.title,
     required this.episodes,
     this.initialIndex = 0,
+    this.startAt,
   });
 
   final EmbyServer server;
@@ -22,4 +23,10 @@ class EmbyPlaybackLaunch {
 
   /// 从第几条起播，0 起算。
   final int initialIndex;
+
+  /// 起播位置。空 = 用条目自带的 `PlaybackPositionTicks`。
+  ///
+  /// 播放记录里的条目是本地缓存拼出来的（只有 id / 标题），没有 userData，
+  /// 不带这个字段就永远从 0 开始——「点了播放记录却从头放」就是这么来的。
+  final Duration? startAt;
 }

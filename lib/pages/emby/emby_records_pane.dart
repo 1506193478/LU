@@ -40,6 +40,12 @@ void openEmbyWatchRecord(BuildContext context, EmbyWatchRecord record) {
     arguments: EmbyPlaybackLaunch(
       server: server,
       title: record.title,
+      // 记录里存着上次的进度；这里必须显式带过去，否则拼出来的条目没有
+      // userData，播放器会当成新片从头放（「点记录却重新开始」的根因）。
+      // 已经看完了就从头放，续到最后一秒没有意义。
+      startAt: record.finished || record.positionMs <= 0
+          ? null
+          : Duration(milliseconds: record.positionMs),
       episodes: [
         EmbyItem(
           id: record.itemId,

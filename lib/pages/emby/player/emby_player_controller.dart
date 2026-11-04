@@ -316,6 +316,12 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 用户手动标记的「片尾开始」（在「片头片尾」面板点「标记当前进度为片尾」）。
   Duration? _outroUserStart;
 
+  /// 上一次「自动跳过」自己发 seek 的时间。
+  ///
+  /// 跳过窗口里位置每变一次就 seek 一次的话，播放器会被拖成幻灯片——seek
+  /// 还没落地，下一帧又发一个。加个冷却，一次跳过只发一脚。
+  DateTime? _lastAutoSkip;
+
   /// 当前条目的章节（Emby 提供时才有）。
   List<EmbyChapter> chapters = const [];
 
@@ -432,6 +438,7 @@ class EmbyPlayerController extends ChangeNotifier {
       _introEnd = null;
       _outroStart = null;
       _outroSkipped = false;
+      _lastAutoSkip = null;
       _outroUserStart = null;
       chapters = const [];
       embySubtitleTracks = const [];
@@ -490,6 +497,7 @@ class EmbyPlayerController extends ChangeNotifier {
       _introEnd = source?.introEnd;
       _outroStart = source?.outroStart;
       _outroSkipped = false;
+      _lastAutoSkip = null;
       _outroUserStart = null;
       chapters = source?.chapters ?? const [];
 
@@ -502,7 +510,13 @@ class EmbyPlayerController extends ChangeNotifier {
     }
 
     // 服务端记着上次看到哪，直接接着播。
-    final startAt = item.resumePosition?.inSeconds ?? 0;
+    //
+    // 播放记录页拿到的条目是本地缓存拼的（没有 userData），续播位置只能由
+    // 调用方通过 [EmbyPlaybackLaunch.startAt] 递进来；它只对**首集**有效，
+    // 换集之后当然要从头播。
+    final resume = (target == launch.initialIndex ? launch.startAt : null) ??
+        item.resumePosition;
+    final startAt = resume?.inSeconds ?? 0;
 
     // iOS + 转码（HLS）优先走 AVPlayer：原生硬解、HDR、seek 稳；其余照旧
     // media_kit（mpv）。设置里可以强制指定内核做兜底。AV 起播失败会自动
@@ -1466,16 +1480,35 @@ class EmbyPlayerController extends ChangeNotifier {
         DateTime.now().difference(last) < const Duration(milliseconds: 1500)) {
       return;
     }
-    if (introSkip && _introStart != null && _introEnd != null) {
-      if (value >= _introStart! && value < _introEnd!) {
-        unawaited(seek(_introEnd!, user: false));
-        return;
-      }
+    // 自己刚跳过：等播放器把位置搬过去再说，否则会连着发 seek（画面直接
+    // 一顿一顿的，倍速下更明显）。
+    final auto = _lastAutoSkip;
+    if (auto != null &&
+        DateTime.now().difference(auto) < const Duration(seconds: 3)) {
+      return;
+    }
+    final introStart = _introStart;
+    final introEnd = _introEnd;
+    if (introSkip &&
+        introStart != null &&
+        introEnd != null &&
+        introEnd > introStart &&
+        value >= introStart &&
+        value < introEnd) {
+      _lastAutoSkip = DateTime.now();
+      unawaited(seek(introEnd, user: false));
+      return;
     }
     if (outroSkip && !_outroSkipped) {
       final outro = _outroUserStart ?? _outroStart;
-      if (outro != null && value >= outro) {
+      // 片尾点必须是「影片里」的合法位置：0 或超过总时长（服务端偶尔回
+      // 这种脏数据）会让刚起播就跳到结尾。
+      if (outro != null &&
+          outro > const Duration(seconds: 5) &&
+          outro < duration &&
+          value >= outro) {
         _outroSkipped = true;
+        _lastAutoSkip = DateTime.now();
         unawaited(
           seek(duration - const Duration(milliseconds: 300), user: false),
         );

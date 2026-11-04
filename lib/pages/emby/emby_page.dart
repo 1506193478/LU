@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
@@ -167,6 +169,19 @@ class _EmbyPageState extends State<EmbyPage> {
     if (mounted) setState(() => _pane = 2);
   }
 
+  /// 首页右上角的搜索：只搜这台服务器上的影片。
+  ///
+  /// 和「搜索」页签（聚合所有服务器 + 播放记录）刻意分开：那一个是找
+  /// 「我到底把它放哪了」，这一个是在当前服务器里翻片。
+  Future<void> _openServerSearch(EmbyServer server) async {
+    final active = EmbyService.instance.activeServer;
+    if (active?.id != server.id) {
+      await EmbyService.instance.setActive(server.id);
+    }
+    if (!mounted) return;
+    await context.pushNamed('/emby/search', arguments: server.id);
+  }
+
   void _openDetail(EmbyItem item) {
     // 点卡片的瞬间就开始拉详情数据，转场期间网络并行跑。
     EmbyDetailPage.prefetch(item);
@@ -272,6 +287,7 @@ class _EmbyPageState extends State<EmbyPage> {
                 onOpenDetail: _openDetail,
                 onOpenLibrary: _openLibrary,
                 onOpenSearch: _openSearch,
+                onSearchServer: _openServerSearch,
               ),
               EmbyResourcePane(
                 onSwitchServer: _switchServer,
@@ -486,6 +502,7 @@ class _LibraryPane extends StatelessWidget {
     required this.onOpenDetail,
     required this.onOpenLibrary,
     required this.onOpenSearch,
+    required this.onSearchServer,
   });
 
   final Future<_HomeData>? future;
@@ -496,6 +513,7 @@ class _LibraryPane extends StatelessWidget {
   final ValueChanged<EmbyItem> onOpenDetail;
   final ValueChanged<EmbyLibrary> onOpenLibrary;
   final VoidCallback onOpenSearch;
+  final ValueChanged<EmbyServer> onSearchServer;
 
   @override
   Widget build(BuildContext context) {
@@ -517,6 +535,7 @@ class _LibraryPane extends StatelessWidget {
             onRetry: onRetry,
             onOpenServers: onSwitchServer,
             onOpenSearch: onOpenSearch,
+            onSearchServer: onSearchServer,
           );
         },
       ),
@@ -524,7 +543,7 @@ class _LibraryPane extends StatelessWidget {
   }
 }
 
-class _HomeBody extends StatelessWidget {
+class _HomeBody extends StatefulWidget {
   const _HomeBody({
     required this.data,
     required this.onPlay,
@@ -533,6 +552,7 @@ class _HomeBody extends StatelessWidget {
     required this.onRetry,
     required this.onOpenServers,
     required this.onOpenSearch,
+    required this.onSearchServer,
   });
 
   final _HomeData data;
@@ -543,8 +563,36 @@ class _HomeBody extends StatelessWidget {
   final VoidCallback onOpenServers;
   final VoidCallback onOpenSearch;
 
+  /// 右上角搜索：只搜这台服务器（另一个搜索页签是聚合所有服务器）。
+  final ValueChanged<EmbyServer> onSearchServer;
+
+  @override
+  State<_HomeBody> createState() => _HomeBodyState();
+}
+
+class _HomeBodyState extends State<_HomeBody> {
+  /// 顶栏毛玻璃的「进度」：滚多少，玻璃吃多少背景。
+  ///
+  /// 用 ValueNotifier 而不是 setState——滚动是每帧都在变的事件，整页跟着
+  /// rebuild 就本末倒置了（首页本来就有一堆网络图）。
+  final ValueNotifier<double> _scroll = ValueNotifier<double>(0);
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  bool _onScroll(ScrollNotification n) {
+    if (n.metrics.axis == Axis.vertical) {
+      _scroll.value = n.metrics.pixels;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final data = widget.data;
     final server = data.server!;
     final bool desktop = embyIsDesktop(context);
 
@@ -553,93 +601,103 @@ class _HomeBody extends StatelessWidget {
         ? 380
         : (MediaQuery.sizeOf(context).height * 0.59).clamp(440.0, 560.0);
 
-    return RefreshIndicator(
-      onRefresh: () async => onRetry(),
-      child: CustomScrollView(
-        slivers: [
-          // 通栏大图：图片顶到状态栏底下，服务器胶囊浮在左上、爱心在右上。
-          SliverToBoxAdapter(
-            child: RexBigViewCarousel(
-              items: heroItems,
-              fadeColor: PvColors.page(context),
-              height: heroHeight,
-              emptyBuilder: _EmptyHero(onOpenServers: onOpenServers),
-              topOverlay: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    embyPagePadding(context) - 6,
-                    10,
-                    embyPagePadding(context),
-                    0,
-                  ),
-                  child: Row(
-                    children: [
-                      _ServerChipWithDrop(
-                        server: server,
-                        onManage: onOpenServers,
-                      ),
-                      const Spacer(),
-                      _HeartButton(
-                        onTap: () =>
-                            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                              const SnackBar(
-                                content: Text('已收藏这个服务器'),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            ),
-                      ),
-                    ],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 内容整条滑到顶栏下面，顶栏不再跟着滚走。
+        RefreshIndicator(
+          onRefresh: () async => widget.onRetry(),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScroll,
+            child: CustomScrollView(
+              slivers: [
+                // 通栏大图：图片顶到状态栏底下，服务器胶囊浮在左上、爱心在右上。
+                SliverToBoxAdapter(
+                  child: RexBigViewCarousel(
+                    items: heroItems,
+                    fadeColor: PvColors.page(context),
+                    height: heroHeight,
+                    emptyBuilder: _EmptyHero(
+                      onOpenServers: widget.onOpenServers,
+                    ),
                   ),
                 ),
-              ),
+                if (data.resume.isNotEmpty) ...[
+                  PvSliverHead(
+                    title: '继续观看',
+                    count: '${data.resume.length}',
+                    onMore: () {},
+                  ),
+                  SliverToBoxAdapter(
+                    child: _ResumeRail(
+                      data: data,
+                      // 顶部状态栏压在大图上，先给顶栏留出安全区。
+                      onPlay: widget.onPlay,
+                    ),
+                  ),
+                ],
+                PvSliverHead(
+                  title: '我的媒体',
+                  count: '${data.libraries.length}',
+                  onMore: () {},
+                ),
+                SliverToBoxAdapter(
+                  child: _MediaFolderRail(
+                    data: data,
+                    onOpen: widget.onOpenLibrary,
+                  ),
+                ),
+                for (final rail in data.rails) ...[
+                  PvSliverHead(
+                    title: rail.library.name,
+                    count: rail.count > 0 ? _formatCount(rail.count) : null,
+                    onMore: () => widget.onOpenLibrary(rail.library),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _PosterRail(
+                      server: server,
+                      items: rail.items,
+                      onTap: (item) => item.isSeries
+                          ? widget.onOpenDetail(item)
+                          : widget.onPlay(item),
+                    ),
+                  ),
+                ],
+                if (data.counts != null)
+                  SliverToBoxAdapter(child: _StatsRow(counts: data.counts!)),
+                const SliverPadding(
+                  padding: EdgeInsets.only(bottom: pvSubDockClearance),
+                ),
+              ],
             ),
           ),
-          if (data.resume.isNotEmpty) ...[
-            PvSliverHead(
-              title: '继续观看',
-              count: '${data.resume.length}',
-              onMore: () {},
-            ),
-            SliverToBoxAdapter(
-              child: _ResumeRail(data: data, onPlay: onPlay),
-            ),
-          ],
-          PvSliverHead(
-            title: '我的媒体',
-            count: '${data.libraries.length}',
-            onMore: () {},
+        ),
+        // 常驻顶栏：液态玻璃胶囊，滚到哪都在，背景从下面透出来。
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          child: _GlassTopBar(
+            server: server,
+            scroll: _scroll,
+            onManage: widget.onOpenServers,
+            onSearch: () => widget.onSearchServer(server),
+            onFavorite: () =>
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                  const SnackBar(
+                    content: Text('已收藏这个服务器'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                ),
           ),
-          SliverToBoxAdapter(
-            child: _MediaFolderRail(data: data, onOpen: onOpenLibrary),
-          ),
-          for (final rail in data.rails) ...[
-            PvSliverHead(
-              title: rail.library.name,
-              count: rail.count > 0 ? _formatCount(rail.count) : null,
-              onMore: () => onOpenLibrary(rail.library),
-            ),
-            SliverToBoxAdapter(
-              child: _PosterRail(
-                server: server,
-                items: rail.items,
-                onTap: (item) =>
-                    item.isSeries ? onOpenDetail(item) : onPlay(item),
-              ),
-            ),
-          ],
-          if (data.counts != null)
-            SliverToBoxAdapter(child: _StatsRow(counts: data.counts!)),
-          const SliverPadding(
-            padding: EdgeInsets.only(bottom: pvSubDockClearance),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   /// 大视图轮播数据：正在看的优先，再补最近入库，最多 5 条。
   List<RexBigViewItem> _heroItems() {
+    final data = widget.data;
     final server = data.server!;
     final heroes = <EmbyItem>[];
     for (final item in data.resume) {
@@ -681,7 +739,9 @@ class _HomeBody extends StatelessWidget {
           desc: (item.overview ?? '').trim().isEmpty
               ? null
               : item.overview!.trim(),
-          onTap: () => item.isEpisode ? onPlay(item) : onOpenDetail(item),
+          onTap: () => item.isEpisode
+              ? widget.onPlay(item)
+              : widget.onOpenDetail(item),
         ),
     ];
   }
@@ -766,27 +826,10 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
     return GestureDetector(
       key: _chipKey,
       onTap: _openDrop,
-      child: Container(
-        height: 34,
-        padding: const EdgeInsets.fromLTRB(9, 0, 12, 0),
-        decoration: BoxDecoration(
-          color: dark
-              ? Colors.black.withValues(alpha: 0.42)
-              : Colors.white.withValues(alpha: 0.82),
-          borderRadius: BorderRadius.circular(17),
-          border: Border.all(
-            color: dark
-                ? Colors.white.withValues(alpha: 0.10)
-                : Colors.white.withValues(alpha: 0.9),
-          ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x1F141E32),
-              blurRadius: 12,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
+      child: _GlassPlate(
+        radius: 19,
+        height: 38,
+        padding: const EdgeInsets.fromLTRB(10, 0, 13, 0),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -835,43 +878,186 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
   }
 }
 
-/// `.heartbtn`：38x38 白玻璃圆钮 + 红心。
-class _HeartButton extends StatelessWidget {
-  const _HeartButton({required this.onTap});
+/// 常驻顶栏：服务器胶囊 + 服务器内搜索 + 收藏。
+///
+/// 之前这排按钮挂在通栏大图的 `topOverlay` 上，跟着大图一起滚走——滑到
+/// 「继续观看」就没有入口了。现在钉在页面顶部，滚动时背景从玻璃后面透
+/// 出来（液态玻璃：磨砂 + 淡色调 + 高光描边），滚得越多雾面越实。
+class _GlassTopBar extends StatelessWidget {
+  const _GlassTopBar({
+    required this.server,
+    required this.scroll,
+    required this.onManage,
+    required this.onSearch,
+    required this.onFavorite,
+  });
 
-  final VoidCallback onTap;
+  final EmbyServer server;
+  final ValueListenable<double> scroll;
+  final VoidCallback onManage;
+  final VoidCallback onSearch;
+  final VoidCallback onFavorite;
 
   @override
   Widget build(BuildContext context) {
-    final dark = PvColors.isDark(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: dark
-              ? Colors.black.withValues(alpha: 0.42)
-              : Colors.white.withValues(alpha: 0.82),
-          border: Border.all(
-            color: dark
-                ? Colors.white.withValues(alpha: 0.10)
-                : Colors.white.withValues(alpha: 0.9),
-          ),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x1F141E32),
-              blurRadius: 12,
-              offset: Offset(0, 4),
+    final Color page = PvColors.page(context);
+    return ValueListenableBuilder<double>(
+      valueListenable: scroll,
+      builder: (context, offset, _) {
+        // 0 = 还压在大图上（几乎全透），1 = 已经滑到海报墙上（雾面兜住）。
+        final double t = (offset / 120).clamp(0.0, 1.0);
+        return Stack(
+          children: [
+            if (t > 0.02)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ClipRect(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              page.withValues(alpha: 0.88 * t),
+                              page.withValues(alpha: 0.62 * t),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  embyPagePadding(context) - 6,
+                  10,
+                  embyPagePadding(context),
+                  10,
+                ),
+                child: Row(
+                  children: [
+                    _ServerChipWithDrop(server: server, onManage: onManage),
+                    const Spacer(),
+                    _GlassIconButton(
+                      icon: Icons.search_rounded,
+                      hint: '搜索这台服务器的影片',
+                      onTap: onSearch,
+                    ),
+                    const SizedBox(width: 8),
+                    _GlassIconButton(
+                      icon: Icons.favorite_rounded,
+                      color: PvColors.red,
+                      hint: '收藏',
+                      onTap: onFavorite,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+/// 液态玻璃底板：圆角裁切 + 背景模糊 + 半透明着色 + 顶部高光。
+///
+/// `BackdropFilter` 必须包在 `ClipRRect` 里，否则模糊会溢出圆角，看起来
+/// 就是一块糊掉的方块而不是玻璃。
+class _GlassPlate extends StatelessWidget {
+  const _GlassPlate({
+    required this.child,
+    this.radius = 19,
+    this.padding = EdgeInsets.zero,
+    this.width,
+    this.height,
+  });
+
+  final Widget child;
+  final double radius;
+  final EdgeInsets padding;
+  final double? width;
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = PvColors.isDark(context);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: Container(
+          width: width,
+          height: height,
+          padding: padding,
+          decoration: BoxDecoration(
+            // 深色主题用黑玻璃、浅色用白玻璃；两边都留一点底色保证文字
+            // 压在任何封面上都读得清。
+            color: (dark ? Colors.black : Colors.white).withValues(
+              alpha: dark ? 0.44 : 0.58,
+            ),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: dark ? 0.14 : 0.72),
+              width: 0.8,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x1A141E32),
+                blurRadius: 14,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: child,
         ),
-        alignment: Alignment.center,
-        child: const Icon(
-          Icons.favorite_rounded,
-          size: 19,
-          color: PvColors.red,
+      ),
+    );
+  }
+}
+
+/// 顶栏的圆形玻璃按钮（搜索 / 收藏）。
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
+    required this.icon,
+    required this.hint,
+    required this.onTap,
+    this.color,
+  });
+
+  final IconData icon;
+  final String hint;
+  final VoidCallback onTap;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = PvColors.isDark(context);
+    return Semantics(
+      button: true,
+      label: hint,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: _GlassPlate(
+          radius: 19,
+          width: 38,
+          height: 38,
+          child: Center(
+            child: Icon(
+              icon,
+              size: 19,
+              color:
+                  color ??
+                  (dark ? const Color(0xFFEDEDEF) : const Color(0xFF26262B)),
+            ),
+          ),
         ),
       ),
     );
