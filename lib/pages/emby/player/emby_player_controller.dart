@@ -293,6 +293,10 @@ class EmbyPlayerController extends ChangeNotifier {
   /// mpv 这次 open 的时间，用于判断「开播不久就失败」。
   DateTime? _mpvOpenedAt;
 
+  /// 下一次 [_open] 的起播位置（回前台卡死重载时用当前进度，而不是让
+  /// 服务端进度把人拽回几秒前）。
+  Duration? _resumeOverride;
+
   /// AVPlayer 最后一次失败的原因。回退 mpv 后如果 mpv 也失败，
   /// 两边原因一起显示——一张截图就能看出坏在哪条路。
   String _lastAvError = '';
@@ -555,8 +559,10 @@ class EmbyPlayerController extends ChangeNotifier {
     // 播放记录页拿到的条目是本地缓存拼的（没有 userData），续播位置只能由
     // 调用方通过 [EmbyPlaybackLaunch.startAt] 递进来；它只对**首集**有效，
     // 换集之后当然要从头播。
-    final resume = (target == launch.initialIndex ? launch.startAt : null) ??
+    final resume = _resumeOverride ??
+        (target == launch.initialIndex ? launch.startAt : null) ??
         item.resumePosition;
+    _resumeOverride = null;
     final startAt = resume?.inSeconds ?? 0;
 
     // iOS + 转码（HLS）优先走 AVPlayer：原生硬解、HDR、seek 稳；其余照旧
@@ -1439,6 +1445,39 @@ class EmbyPlayerController extends ChangeNotifier {
     _notify();
   }
 
+  /// 回前台后重建视频解码器。
+  ///
+  /// iOS 在 App 进后台期间会回收 VideoToolbox 的解码会话，回到前台 mpv
+  /// 还拿着这个已经失效的 session 继续解——日志里那一串
+  /// `hevc: Failed to decode frame (invalid session, -12903)` /
+  /// `vt decoder cb: output image buffer is null` 就是它。表现是画面
+  /// 掉帧卡住，持续失败还会把解码队列和内存堆死，最后闪退。
+  ///
+  /// mpv 不会自己重建失效的 VT 会话，所以把 `hwdec` 切走再切回来：这会让
+  /// 它拆掉整条视频解码链重新建，新会话由系统重新签发。切完必须从当前
+  /// 位置再 seek 一次，否则解码器停在半个 GOP 上（花屏或一直等帧）。
+  Future<void> rebuildDecoderAfterBackground() async {
+    // AVPlayer 内核的解码会话由系统托管，不用我们插手。
+    if (_av != null || _disposed) return;
+    final platform = playback.mediaPlayer?.platform;
+    if (platform is! NativePlayer) return;
+    // 本来就是软解，没有会失效的硬解会话。
+    if (!playback.hAenable) return;
+    final hw = playback.hardwareDecoder;
+    if (hw.isEmpty || hw == 'no') return;
+    try {
+      await platform.setProperty('hwdec', 'no');
+      // 给 mpv 一点时间真正销毁旧 decoder，再切回去才会重建。
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      await platform.setProperty('hwdec', hw);
+      if (_disposed) return;
+      await seek(position, user: false);
+      KazumiLogger().i('Emby player: video decoder rebuilt ($hw)');
+    } catch (e) {
+      KazumiLogger().w('Emby player: rebuild decoder failed', error: e);
+    }
+  }
+
   void setSubtitleSettings(EmbySubtitleSettings next) {
     subtitleSettings = next;
     _applySubtitleSettings();
@@ -1501,8 +1540,14 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 片头窗口固定按 90 秒算：每次都重算 end——从上一集继承来的 end 可能
   /// 落在新 start 前面，窗口直接作废，表现就是「标了但不跳」。
   void markIntroAt(Duration position) {
-    _introStart = position;
-    _introEnd = position + const Duration(seconds: 90);
+    // 语义是「当前进度 = 片头结束」：用户都是看到正片起来了才点按钮。
+    // 以前记成「片头开始 +90 秒」，等于把用户点的位置又往后吞了 90 秒，
+    // 就是「标完反而跳错」的直接原因。
+    const window = Duration(seconds: 90);
+    _introEnd = position;
+    _introStart = position > window ? position - window : Duration.zero;
+    _outroSkipped = false;
+    _lastAutoSkip = null;
     _storeMarks();
     setIntroSkip(true);
   }
@@ -1511,8 +1556,61 @@ class EmbyPlayerController extends ChangeNotifier {
   void markOutroAt(Duration position) {
     _outroStart = position;
     _outroUserStart = position;
+    _outroSkipped = false;
+    _lastAutoSkip = null;
     _storeMarks();
     setOutroSkip(true);
+  }
+
+  /// 有没有标过片头 / 片尾（面板据此显示「清除」）。
+  bool get hasIntroMark => _introStart != null && _introEnd != null;
+  bool get hasOutroMark => (_outroUserStart ?? _outroStart) != null;
+
+  /// 面板副标题用的可读范围。
+  String get introMarkLabel =>
+      hasIntroMark ? '${_fmt(_introStart!)} – ${_fmt(_introEnd!)}' : '';
+  String get outroMarkLabel {
+    final v = _outroUserStart ?? _outroStart;
+    return v == null ? '' : '从 ${_fmt(v)} 起';
+  }
+
+  static String _fmt(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(h > 0 ? 2 : 1, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
+
+  /// 清掉片头标记（标错了用这个，之前只能写不能删）。
+  void clearIntroMark() {
+    _introStart = null;
+    _introEnd = null;
+    _lastAutoSkip = null;
+    _storeMarks(clearIntro: true);
+    _notify();
+  }
+
+  /// 清掉片尾标记。
+  void clearOutroMark() {
+    _outroStart = null;
+    _outroUserStart = null;
+    _outroSkipped = false;
+    _lastAutoSkip = null;
+    _storeMarks(clearOutro: true);
+    _notify();
+  }
+
+  /// 回前台后画面彻底不动时的兜底重载。
+  ///
+  /// 极少数情况下 VT 会话连重建都救不回来（系统直接把进程的解码能力废了），
+  /// 这时只能整条流重新打开。调用方会先观察几秒，确认进度真的不推进才调，
+  /// 避免正常缓冲也被判成卡死。
+  Future<void> reloadAfterStall() async {
+    if (_disposed || loading) return;
+    final at = position;
+    KazumiLogger().w('Emby player: reload after stall at ${at.inSeconds}s');
+    _resumeOverride = at;
+    await _open(_index);
   }
 
   /// 读某个条目的标记：本次会话的内存副本优先，其次本地存储。
@@ -1534,32 +1632,51 @@ class EmbyPlayerController extends ChangeNotifier {
   }
 
   /// 把当前条目的片头片尾同时写进内存和本地存储（按单集 + 整剧两个键）。
-  void _storeMarks() {
+  ///
+  /// [clearIntro] / [clearOutro] 为 true 时对应字段会被移除而不是写入——
+  /// 标错了必须能撤销，否则每次播到那儿都会往外跳。
+  void _storeMarks({bool clearIntro = false, bool clearOutro = false}) {
     final item = current;
     if (item == null) return;
     final mark = EmbySkipMark(
-      introStart: _introStart,
-      introEnd: _introEnd,
-      outroStart: _outroUserStart ?? _outroStart,
+      introStart: clearIntro ? null : _introStart,
+      introEnd: clearIntro ? null : _introEnd,
+      outroStart: clearOutro ? null : (_outroUserStart ?? _outroStart),
     );
     for (final key in EmbySkipMarks.keysFor(
       seriesId: item.seriesId,
       seriesName: item.seriesName,
       itemId: item.id,
     )) {
-      _sessionMarks[key] = mark;
+      if (mark.isEmpty) {
+        _sessionMarks.remove(key);
+      } else {
+        _sessionMarks[key] = mark;
+      }
     }
-    EmbySkipMarks.write(
-      seriesId: item.seriesId,
-      seriesName: item.seriesName,
-      itemId: item.id,
-      introStart: _introStart?.inSeconds,
-      introEnd: _introEnd?.inSeconds,
-      outroStart: (_outroUserStart ?? _outroStart)?.inSeconds,
-    );
+    if (clearIntro || clearOutro) {
+      EmbySkipMarks.clear(
+        seriesId: item.seriesId,
+        seriesName: item.seriesName,
+        itemId: item.id,
+        intro: clearIntro,
+        outro: clearOutro,
+      );
+    }
+    if (!mark.isEmpty) {
+      EmbySkipMarks.write(
+        seriesId: item.seriesId,
+        seriesName: item.seriesName,
+        itemId: item.id,
+        introStart: mark.introStart?.inSeconds,
+        introEnd: mark.introEnd?.inSeconds,
+        outroStart: mark.outroStart?.inSeconds,
+      );
+    }
     KazumiLogger().i(
-      'Emby skip marks saved: intro=${_introStart?.inSeconds}'
-      '-${_introEnd?.inSeconds} outro=${(_outroUserStart ?? _outroStart)?.inSeconds} '
+      'Emby skip marks saved: intro=${mark.introStart?.inSeconds}'
+      '-${mark.introEnd?.inSeconds} outro=${mark.outroStart?.inSeconds} '
+      'clearIntro=$clearIntro clearOutro=$clearOutro '
       'item=${item.id} series=${item.seriesId}',
     );
   }

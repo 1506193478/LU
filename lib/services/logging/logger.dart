@@ -124,19 +124,50 @@ class KazumiLogOutput extends LogOutput {
   }
 
   void _writeToFile(OutputEvent event) {
-    _logLock.synchronized(() async {
+    for (var line in event.lines) {
+      _pendingLines.add(_removeAnsiCodes(line));
+    }
+    // 解码失败这类场景一秒能刷上百行，这里兜住内存：只留最近一批。
+    if (_pendingLines.length > 4000) {
+      _pendingLines.removeRange(0, _pendingLines.length - 4000);
+    }
+    // 攒一小批再写：之前每条日志都要「打开文件 → 写 → 关闭」，高频错误
+    // 下光是文件 IO 加锁竞争就能把 UI 拖卡，甚至拖崩。
+    _flushTimer ??= Timer(
+      const Duration(milliseconds: 800),
+      () => unawaited(_flush()),
+    );
+  }
+
+  final List<String> _pendingLines = <String>[];
+  Timer? _flushTimer;
+
+  /// 日志文件上限：超过就砍掉前半，只留最近的。
+  static const int _maxLogBytes = 8 * 1024 * 1024;
+
+  Future<void> _flush() async {
+    _flushTimer = null;
+    if (_pendingLines.isEmpty) return;
+    final lines = List<String>.of(_pendingLines);
+    _pendingLines.clear();
+    await _logLock.synchronized(() async {
       try {
         final filePath = await _getLogFilePath();
         final file = File(filePath);
-
-        final buffer = StringBuffer();
-        for (var line in event.lines) {
-          final cleanLine = _removeAnsiCodes(line);
-          buffer.writeln(cleanLine);
+        try {
+          if (await file.exists() && await file.length() > _maxLogBytes) {
+            final content = await file.readAsString();
+            // 直接砍一半：保留最近的日志，避免文件无限长到读都读不动。
+            await file.writeAsString(
+              content.substring(content.length ~/ 2),
+              mode: FileMode.writeOnly,
+            );
+          }
+        } catch (_) {
+          // 截断失败不影响继续追加。
         }
-
         await file.writeAsString(
-          buffer.toString(),
+          '${lines.join('\n')}\n',
           mode: FileMode.writeOnlyAppend,
         );
       } catch (e) {

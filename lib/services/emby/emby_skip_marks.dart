@@ -117,6 +117,43 @@ class EmbySkipMarks {
     _save(data);
   }
 
+  /// 清掉片头 / 片尾标记。
+  ///
+  /// 之前只能写不能删：标错一次就永久生效，每次播到那儿都往外跳，用户
+  /// 除了清数据没有任何办法。现在支持只清片头、只清片尾，或两个一起清。
+  static void clear({
+    String? seriesId,
+    String? seriesName,
+    required String itemId,
+    bool intro = false,
+    bool outro = false,
+  }) {
+    if (!intro && !outro) return;
+    final data = _load();
+    for (final k in keysFor(
+      seriesId: seriesId,
+      seriesName: seriesName,
+      itemId: itemId,
+    )) {
+      final v = data[k];
+      if (v is! Map) continue;
+      final entry = v.cast<String, dynamic>();
+      if (intro) {
+        entry.remove('introStart');
+        entry.remove('introEnd');
+      }
+      if (outro) {
+        entry.remove('outroStart');
+      }
+      if (entry.isEmpty) {
+        data.remove(k);
+      } else {
+        data[k] = entry;
+      }
+    }
+    _save(data);
+  }
+
   static Duration? _seconds(Object? value) {
     final n = value is int ? value : int.tryParse('$value');
     // 0 是合法位置：片头就标在 0:00 的人不少，之前 `n <= 0` 直接把它当成

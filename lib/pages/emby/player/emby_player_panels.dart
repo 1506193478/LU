@@ -921,11 +921,21 @@ Widget buildEmbyPlaybackModePanel({
 }
 
 /// 片头片尾面板。
+///
+/// 文案刻意说「片头结束 / 片尾开始」：用户是看到正片起来了才去点按钮，
+/// 那时候标的应该是片头的**结束点**。之前写「标记当前为片头」，点完反而
+/// 把后面 90 秒也跳了，看着就是「标了跳错」。
 Widget buildEmbyIntroOutroPanel({
   required bool introSkip,
   required bool outroSkip,
+  required bool introMarked,
+  required bool outroMarked,
+  required String introLabel,
+  required String outroLabel,
   required VoidCallback onMarkIntro,
   required VoidCallback onMarkOutro,
+  required VoidCallback onClearIntro,
+  required VoidCallback onClearOutro,
   required ValueChanged<bool> onIntroChanged,
   required ValueChanged<bool> onOutroChanged,
 }) {
@@ -934,14 +944,31 @@ Widget buildEmbyIntroOutroPanel({
     children: [
       _PanelRow(
         icon: Icons.bookmark_add_outlined,
-        title: '标记当前进度为片头',
+        title: introMarked ? '重新标记片头结束' : '标记当前为片头结束',
+        subtitle: introMarked ? '片头 $introLabel' : null,
         onTap: onMarkIntro,
       ),
       _PanelRow(
         icon: Icons.bookmark_outline_rounded,
-        title: '标记当前进度为片尾',
+        title: outroMarked ? '重新标记片尾开始' : '标记当前为片尾开始',
+        subtitle: outroMarked ? '片尾 $outroLabel' : null,
         onTap: onMarkOutro,
       ),
+      // 标错了得能撤销：之前只能写不能删，标错一次就永久往外跳。
+      if (introMarked)
+        _PanelRow(
+          icon: Icons.clear_rounded,
+          title: '清除片头标记',
+          destructive: true,
+          onTap: onClearIntro,
+        ),
+      if (outroMarked)
+        _PanelRow(
+          icon: Icons.clear_rounded,
+          title: '清除片尾标记',
+          destructive: true,
+          onTap: onClearOutro,
+        ),
       // 开关项用菜单勾位表示状态：行首出现对号即为开启，点一下切换。
       _PanelRow(
         icon: Icons.skip_next_rounded,

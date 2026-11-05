@@ -184,6 +184,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   @override
   void dispose() {
     _hudTimer?.cancel();
+    _resumeHealthTimer?.cancel();
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -227,10 +228,15 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   /// 开着「后台音频」或正在画中画时不介入（这两种本来就要继续播）。
   bool _pausedByBackground = false;
 
+  /// 真的进过后台（`paused`），不只是下拉通知中心那种 `inactive`。
+  /// 只有这种才需要重建解码器——VT 会话是在进后台时被系统回收的。
+  bool _wasBackgrounded = false;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_isDesktop) return;
     if (state == AppLifecycleState.paused) {
+      _wasBackgrounded = true;
       if (_pausedByBackground) return;
       if (controller.backgroundAudio || controller.pipActive) return;
       if (!controller.playing) return;
@@ -238,12 +244,52 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       unawaited(controller.togglePlay());
       return;
     }
-    if (state == AppLifecycleState.resumed && _pausedByBackground) {
+    if (state == AppLifecycleState.resumed) {
+      final wasPaused = _pausedByBackground;
+      final rebuild = _wasBackgrounded;
       _pausedByBackground = false;
-      if (!controller.playing && controller.error.isEmpty) {
-        unawaited(controller.togglePlay());
-      }
+      _wasBackgrounded = false;
+      // 进过后台就必须重建解码器：iOS 会回收 VideoToolbox 会话，不重建
+      // 就是满屏解码失败（掉帧，然后闪退）。只是下拉通知中心（inactive）
+      // 不重建，避免无谓的画面闪烁。
+      // 顺序也要对——先重建再起播，中途切 hwdec 时播放器是停着的，不闪。
+      unawaited(() async {
+        if (rebuild) {
+          await controller.rebuildDecoderAfterBackground();
+          if (!mounted) return;
+        }
+        if (wasPaused && !controller.playing && controller.error.isEmpty) {
+          await controller.togglePlay();
+        }
+        if (rebuild) _scheduleResumeHealthCheck();
+      }());
     }
+  }
+
+  /// 回前台后盯几秒：进度真的一点不动，就整条流重开。
+  ///
+  /// 重建解码器能救绝大多数情况，但系统偶尔会把这个进程的 VT 解码能力
+  /// 整个废掉，只能重开流。这里只在「在播 + 不在缓冲 + 没报错」且位置
+  /// 几乎没推进时才动手，正常看片不会误触发。
+  Timer? _resumeHealthTimer;
+
+  void _scheduleResumeHealthCheck() {
+    _resumeHealthTimer?.cancel();
+    if (_isDesktop) return;
+    final before = controller.position;
+    _resumeHealthTimer = Timer(const Duration(seconds: 6), () {
+      if (!mounted) return;
+      if (!controller.playing ||
+          controller.buffering ||
+          controller.loading ||
+          controller.error.isNotEmpty) {
+        return;
+      }
+      if (controller.position - before > const Duration(milliseconds: 800)) {
+        return;
+      }
+      unawaited(controller.reloadAfterStall());
+    });
   }
 
   Future<void> _readInitialBrightness() async {
@@ -638,13 +684,25 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         builder: (context, _) => buildEmbyIntroOutroPanel(
           introSkip: controller.introSkip,
           outroSkip: controller.outroSkip,
+          introMarked: controller.hasIntroMark,
+          outroMarked: controller.hasOutroMark,
+          introLabel: controller.introMarkLabel,
+          outroLabel: controller.outroMarkLabel,
           onMarkIntro: () {
             controller.markIntroAt(controller.position);
-            KazumiDialog.showToast(message: '已把当前进度标记为片头');
+            KazumiDialog.showToast(message: '已标记：从这里开始是正片');
           },
           onMarkOutro: () {
             controller.markOutroAt(controller.position);
-            KazumiDialog.showToast(message: '已把当前进度标记为片尾');
+            KazumiDialog.showToast(message: '已标记：片尾从这里开始');
+          },
+          onClearIntro: () {
+            controller.clearIntroMark();
+            KazumiDialog.showToast(message: '已清除片头标记');
+          },
+          onClearOutro: () {
+            controller.clearOutroMark();
+            KazumiDialog.showToast(message: '已清除片尾标记');
           },
           onIntroChanged: controller.setIntroSkip,
           onOutroChanged: controller.setOutroSkip,

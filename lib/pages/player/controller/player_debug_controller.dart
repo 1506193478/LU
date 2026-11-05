@@ -15,6 +15,9 @@ abstract class _PlayerDebugController with Store {
   /// LogLevel 0: 错误 1: 警告 2: 简略 3: 详细
   int playerLogLevel = 2;
 
+  /// 调试日志最多保留这么多行（只在调试面板里看，留太多没意义）。
+  static const int _maxLogLines = 400;
+
   @observable
   ObservableList<String> playerLog = ObservableList.of([]);
   @observable
@@ -54,6 +57,13 @@ abstract class _PlayerDebugController with Store {
     await playerLogSubscription?.cancel();
     if (!isCurrentPlayer(player)) return;
     playerLogSubscription = player.stream.log.listen((event) {
+      // 解码失败时 mpv 会疯狂刷日志（样本里 0.2 秒 20+ 条，每秒上百条）。
+      // 之前这里无上限地往 ObservableList 里塞，每条还会触发一次 MobX
+      // 通知——内存和 CPU 一起涨，卡着卡着就闪退。这里给个硬上限，
+      // 攒到两倍再一次性裁剪，避免每条都触发列表变更。
+      if (playerLog.length > _maxLogLines * 2) {
+        playerLog.removeRange(0, playerLog.length - _maxLogLines);
+      }
       playerLog.add(event.toString());
       if (playerDebugMode) {
         KazumiLogger().i("MPV: ${event.toString()}", forceLog: true);
