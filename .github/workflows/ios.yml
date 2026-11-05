@@ -39,7 +39,15 @@ jobs:
       # 这里不单独跑 pod install —— Generated.xcconfig 要 flutter build 才生成，
       # 提前手动跑 pod install 会找不到它。
       - name: Build iOS
-        run: flutter build ios --release --no-codesign
+        run: |
+          # 关掉 Swift Package Manager，回到 CocoaPods。
+          #
+          # 这个项目所有插件都有 podspec，走 Pods 一直是对的；SPM 在 CI 上
+          # 会临时去 GitHub 抓 DKImagePickerController / SDWebImage 等一堆包，
+          # 解析慢且不稳定，失败时 Flutter 还会报一句误导性的 "需要
+          # Development Team"，掩盖真正原因。
+          flutter config --no-enable-swift-package-manager
+          flutter build ios --release --no-codesign -v
 
       - name: Package IPA
         run: |
