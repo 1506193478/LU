@@ -40,13 +40,13 @@ jobs:
       # 提前手动跑 pod install 会找不到它。
       - name: Build iOS
         run: |
-          # 关掉 Swift Package Manager，回到 CocoaPods。
+          # 保持默认的 Swift Package Manager 路径：media_kit_video 的
+          # `media_kit_mpv_*` C 符号是由 SPM 那边的 libs 包提供头文件的，
+          # 强制退回 CocoaPods 会直接编译失败（cannot find
+          # 'media_kit_mpv_initialize' in scope）。
           #
-          # 这个项目所有插件都有 podspec，走 Pods 一直是对的；SPM 在 CI 上
-          # 会临时去 GitHub 抓 DKImagePickerController / SDWebImage 等一堆包，
-          # 解析慢且不稳定，失败时 Flutter 还会报一句误导性的 "需要
-          # Development Team"，掩盖真正原因。
-          flutter config --no-enable-swift-package-manager
+          # 加 -v 是为了让 Flutter 把 xcodebuild 的真实错误打出来：不加的话
+          # 编译失败只会在结尾甩一句「需要 Development Team」，完全是误导。
           flutter build ios --release --no-codesign -v
 
       - name: Package IPA
