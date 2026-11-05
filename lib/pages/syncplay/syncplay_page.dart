@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/card/network_img_layer.dart';
 import 'package:XL/bean/dialog/adaptive_bottom_sheet.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
@@ -1331,7 +1332,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                 const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: KzLoading(size: 18),
                 ),
                 const SizedBox(width: 10),
                 Text('正在连接', style: PvText.rowTitle(context)),

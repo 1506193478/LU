@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/lu_cloud_drive.dart';
@@ -84,9 +86,7 @@ class _LuCloudBrowsePageState extends State<LuCloudBrowsePage> {
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: message);
   }
 
   @override
@@ -135,7 +135,7 @@ class _LuCloudBrowsePageState extends State<LuCloudBrowsePage> {
         child: SizedBox(
           width: 22,
           height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: KzLoading(size: 18),
         ),
       );
     }
@@ -224,7 +224,7 @@ class _LuCloudBrowsePageState extends State<LuCloudBrowsePage> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: KzLoading(size: 18),
                 )
               : null,
           onTap: () => _open(f),

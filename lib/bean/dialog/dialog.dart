@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'package:XL/bean/dialog/ios_hud.dart';
 import 'package:XL/navigation.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/utils/constants.dart';
 
 /// Single-use ownership of a route, including before its first frame.
@@ -93,6 +95,17 @@ class KazumiDialog {
     VoidCallback? onActionPressed,
     Duration duration = const Duration(seconds: 2),
   }) {
+    // iOS：走 HUD（深色毛玻璃小浮层）。SnackBar 那种贴底黑条在 iOS 上
+    // 不存在，而且会顶起底部导航，观感上就是"这 App 不像 iOS"。
+    if (kIsCupertinoPlatform) {
+      KzHud.show(
+        message,
+        duration: duration,
+        actionLabel: showActionButton ? (actionLabel ?? '关闭') : null,
+        onAction: onActionPressed,
+      );
+      return;
+    }
     final messenger = _resolveScaffoldMessenger(context);
     if (messenger != null && messenger.mounted) {
       final toastContext =

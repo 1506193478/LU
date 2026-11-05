@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 
 /// 底部卡片式表单的共用零件。
@@ -71,7 +72,7 @@ class SheetTopBar extends StatelessWidget {
                     child: SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: KzLoading(size: 18),
                     ),
                   )
                 : GestureDetector(
@@ -281,15 +282,10 @@ class SheetSwitchRow extends StatelessWidget {
           ),
           Transform.scale(
             scale: 0.86,
-            child: Switch(
+            child: KzSwitch(
               value: value,
               onChanged: onChanged,
-              activeColor: Colors.white,
-              activeTrackColor: const Color(0xFF34C759),
-              inactiveThumbColor: Colors.white,
-              inactiveTrackColor: dark
-                  ? Colors.white.withValues(alpha: 0.18)
-                  : const Color(0xFFE4E4E9),
+              activeColor: const Color(0xFF34C759),
             ),
           ),
           const SizedBox(width: 6),
@@ -415,15 +411,10 @@ class SheetNestedSwitchRow extends StatelessWidget {
           ),
           Transform.scale(
             scale: 0.86,
-            child: Switch(
+            child: KzSwitch(
               value: value,
               onChanged: onChanged,
-              activeColor: Colors.white,
-              activeTrackColor: const Color(0xFF34C759),
-              inactiveThumbColor: Colors.white,
-              inactiveTrackColor: dark
-                  ? Colors.white.withValues(alpha: 0.18)
-                  : const Color(0xFFE4E4E9),
+              activeColor: const Color(0xFF34C759),
             ),
           ),
         ],

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/widget/window_drag.dart';
 
 /// LU_3.9.19_预览.html 的设计令牌与 iOS 风组件。
@@ -317,7 +318,12 @@ class PvRow extends StatelessWidget {
       ),
     );
 
-    final body = onTap == null ? row : InkWell(onTap: onTap, child: row);
+    // iOS 的列表行按下是「内容变淡」，不是 Material 的矩形高亮。
+    // 这里换掉 InkWell：全局已关掉 splash，InkWell 的高亮又是方的，
+    // 在圆角卡片里会露出四个直角。
+    final body = onTap == null
+        ? row
+        : KzPressable(onTap: onTap, child: row);
 
     if (!showDivider) return body;
     // `.row + .row::before`：左侧 15px 起的分隔线。
@@ -598,9 +604,11 @@ class PvLibCard extends StatelessWidget {
               .toList()
         : tone;
 
-    return GestureDetector(
+    return KzPressable(
       onTap: onTap,
       onLongPress: onLongPress,
+      // 整张卡片面积大，压得太狠会显得"陷下去"，取 0.72。
+      pressedOpacity: 0.72,
       child: Container(
         height: 120,
         padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),

@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_cloud_browse_page.dart';
 import 'package:XL/pages/emby/emby_cloud_sheet.dart';
@@ -111,9 +113,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: message);
   }
 
   // ------------------------------------------------------------ 本地来源
@@ -319,30 +319,11 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   }
 
   Future<void> _addLink() async {
-    final controller = TextEditingController();
-    final url = await showDialog<String>(
+    final url = await showKzPrompt(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('网络链接'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: '粘贴视频直链，例如 https://.../a.mp4',
-            isDense: true,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('播放'),
-          ),
-        ],
-      ),
+      title: '网络链接',
+      hint: '粘贴视频直链，例如 https://.../a.mp4',
+      confirmLabel: '播放',
     );
     if (url == null || url.isEmpty) return;
     final name = Uri.tryParse(url)?.pathSegments.lastOrNull ?? '网络视频';
@@ -1066,9 +1047,7 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: message);
   }
 
   Future<void> _openCast() async {

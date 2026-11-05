@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/widget/error_widget.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
@@ -195,7 +196,7 @@ class _EmbyLibraryPageState extends State<EmbyLibraryPage> {
   Widget _buildBody(BuildContext context) {
     final theme = Theme.of(context);
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: KzLoading());
     }
     if (_error.isNotEmpty) {
       return SingleChildScrollView(
@@ -222,7 +223,7 @@ class _EmbyLibraryPageState extends State<EmbyLibraryPage> {
     final server = EmbyService.instance.activeServer;
     if (server == null) return const SizedBox.shrink();
 
-    return RefreshIndicator(
+    return KzRefreshIndicator(
       onRefresh: _reload,
       child: GridView.builder(
         controller: _scrollController,

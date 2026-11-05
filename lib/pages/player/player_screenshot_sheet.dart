@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/widget/kazumi_menu.dart';
 import 'package:XL/pages/player/controller/player_screenshot_controller.dart';
 import 'package:XL/pages/player/player_screenshot_image.dart';
@@ -707,7 +708,7 @@ class _PlayerScreenshotSheetState extends State<_PlayerScreenshotSheet> {
           icon: collection.saving
               ? const SizedBox.square(
                   dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: KzLoading(size: 18),
                 )
               : const Icon(Icons.save_alt_rounded, size: 20),
           label: Text(

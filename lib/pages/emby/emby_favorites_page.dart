@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_detail_page.dart';
@@ -68,25 +70,15 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
   Future<void> _removeFavorite(EmbyItem item) async {
     final server = EmbyService.instance.activeServer;
     if (server == null) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showKzConfirm(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: PvColors.card(context),
-        title: const Text('取消收藏'),
-        content: Text('把《${item.name}》从收藏里移掉？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('留着'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('取消收藏'),
-          ),
-        ],
-      ),
+      title: '取消收藏',
+      message: '把《${item.name}》从收藏里移掉？',
+      cancelLabel: '留着',
+      confirmLabel: '取消收藏',
+      destructive: true,
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     try {
       await EmbyService.instance
           .clientFor(server)
@@ -99,9 +91,7 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('取消失败：$e'), behavior: SnackBarBehavior.floating),
-      );
+      KazumiDialog.showToast(message: '取消失败：$e');
     }
   }
 
@@ -158,7 +148,7 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
 
   Widget _body(EmbyServer? server) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: KzLoading());
     }
     if (_error.isNotEmpty) {
       return Center(
@@ -250,7 +240,7 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
           ),
         ),
         Expanded(
-          child: RefreshIndicator(
+          child: KzRefreshIndicator(
             onRefresh: _load,
             child: GridView.builder(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 40),

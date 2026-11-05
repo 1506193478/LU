@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_vault_lock_page.dart';
 import 'package:XL/services/emby/vault_lock.dart';
@@ -28,9 +30,7 @@ class _VaultLockSettingsPageState extends State<VaultLockSettingsPage> {
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: message);
   }
 
   /// 验证旧密码：复用锁页的解锁模式，返回 true 表示验证通过。
@@ -65,24 +65,14 @@ class _VaultLockSettingsPageState extends State<VaultLockSettingsPage> {
 
   Future<void> _disableLock() async {
     if (!await _verifyOldPin() || !mounted) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showKzConfirm(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('关闭密码锁？'),
-        content: const Text('关闭后进入本地私密将不再需要密码，生物解锁也会一并关闭。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
+      title: '关闭密码锁？',
+      message: '关闭后进入本地私密将不再需要密码，生物解锁也会一并关闭。',
+      confirmLabel: '关闭',
+      destructive: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     await VaultLock.reset();
     if (mounted) {
       _toast('已关闭本地私密锁');

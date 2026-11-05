@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/bean/widget/state_presentation.dart';
 import 'package:XL/modules/my/watch_stats.dart';
 import 'package:XL/pages/my/profile_card.dart';
@@ -194,9 +195,7 @@ class _ProfileTileState extends State<_ProfileTile> {
     _reload();
     // 提示要在面板关掉之后弹，用面板自己的 context 已经取不到 Scaffold 了。
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('已保存'), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: '已保存');
   }
 
   @override
@@ -314,9 +313,7 @@ class _ProfileEditorSheetState extends State<_ProfileEditorSheet> {
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: message);
   }
 
   Future<void> _pickFromGallery() async {

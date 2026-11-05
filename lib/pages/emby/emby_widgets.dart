@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/bean/widget/error_widget.dart';
 import 'package:XL/bean/widget/state_presentation.dart';
@@ -53,7 +54,7 @@ class EmbyFutureView<T> extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return loadingBuilder?.call(context) ??
-              const Center(child: CircularProgressIndicator());
+              const Center(child: KzLoading());
         }
         if (snapshot.hasError) {
           return SingleChildScrollView(

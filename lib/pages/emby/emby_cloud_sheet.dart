@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/lu_cloud_drive.dart';
 
@@ -266,7 +267,7 @@ class _CloudSheetState extends State<_CloudSheet> {
                           child: SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: KzLoading(size: 18),
                           ),
                         )
                       : GestureDetector(
@@ -405,7 +406,7 @@ class _CloudSheetState extends State<_CloudSheet> {
                       child: SizedBox(
                         width: 22,
                         height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: KzLoading(size: 18),
                       ),
                     )
                   : Image.network(

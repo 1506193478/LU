@@ -1,4 +1,6 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/utils/constants.dart';
 
 /// 内容沉浸型主题：深色为主、大圆角、去边框、弱化分割线。
@@ -137,7 +139,11 @@ ThemeData buildImmersiveTheme({
     // 51 处 InkWell 不用逐个包。
     splashFactory: NoSplash.splashFactory,
     splashColor: Colors.transparent,
-    highlightColor: Colors.transparent,
+    // 但**不能连高亮也关掉**：上一版这里给了 transparent，结果点任何
+    // InkWell 都毫无反馈——iOS 的按压反馈本来就是「内容自己变暗」，
+    // 涟漪可以没有，变暗必须有。给一个比 iOS 原生（约 6%）略淡的值，
+    // 既能感知到按下了，又不会让大面积卡片突然一变。
+    highlightColor: scheme.onSurface.withValues(alpha: dark ? 0.08 : 0.05),
     hoverColor: scheme.onSurface.withValues(alpha: 0.04),
   );
 
@@ -191,6 +197,20 @@ ThemeData buildImmersiveTheme({
           top: Radius.circular(immersiveRadiusLarge),
         ),
       ),
+    ),
+    // ---- iOS 平台控件默认值（只影响还没走 Kz* 适配封装的零散调用） ----
+    // 开关的绿色轨道下面已有专门配置，这里只补文本选择与 Cupertino 强调色。
+    // 光标、选中高亮、选择手柄统一成 iOS 系统蓝：TextField 在 iOS 上本来
+    // 就用 Cupertino 那套选择菜单，只有颜色还是主题色，看着很"错位"。
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: kCupertinoBlue,
+      selectionColor: kCupertinoBlue.withValues(alpha: 0.24),
+      selectionHandleColor: kCupertinoBlue,
+    ),
+    // Cupertino 组件的强调色（ActionSheet 按钮、滑块、日期选择器）。
+    cupertinoOverrideTheme: CupertinoThemeData(
+      brightness: brightness,
+      primaryColor: kCupertinoBlue,
     ),
     navigationBarTheme: NavigationBarThemeData(
       elevation: 0,

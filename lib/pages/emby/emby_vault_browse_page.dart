@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/lu_media_vault.dart';
@@ -108,9 +110,7 @@ class _EmbyVaultBrowsePageState extends State<EmbyVaultBrowsePage> {
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: message);
   }
 
   @override
@@ -178,7 +178,7 @@ class _EmbyVaultBrowsePageState extends State<EmbyVaultBrowsePage> {
         child: SizedBox(
           width: 22,
           height: 22,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: KzLoading(size: 18),
         ),
       );
     }

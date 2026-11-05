@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
@@ -32,12 +33,7 @@ Future<void> openEmbyWatchRecord(
     }
   }
   if (server == null) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(
-        content: Text('这台服务器已经不在列表里了'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    KazumiDialog.showToast(message: '这台服务器已经不在列表里了');
     return;
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
@@ -444,7 +445,7 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
     // 集数部分单独一个 Future：季切换时会换。
     final episodesFuture = _episodesFuture;
     if (episodesFuture == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: KzLoading());
     }
 
     Widget content = ListView(
@@ -1035,7 +1036,7 @@ class _PlayButton extends StatelessWidget {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: KzLoading(size: 18),
                     )
                   : const Icon(
                       Icons.play_arrow_rounded,
@@ -1477,8 +1478,9 @@ class _EpisodeCard extends StatelessWidget {
         : (item.runTimeTicks! ~/ 600000000);
     final double? rating = item.communityRating;
 
-    return GestureDetector(
+    return KzPressable(
       onTap: onPick,
+      pressedOpacity: 0.72,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.all(8),
@@ -1855,8 +1857,9 @@ class _AllEpisodeCard extends StatelessWidget {
       tag: hasOwnImage ? item.primaryImageTag : null,
     );
 
-    return GestureDetector(
+    return KzPressable(
       onTap: onTap,
+      pressedOpacity: 0.72,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

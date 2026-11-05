@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
@@ -141,13 +143,7 @@ class _EmbySubtitleSearchPageState extends State<EmbySubtitleSearchPage> {
     final ok = await widget.controller.applyRemoteSubtitle(sub);
     if (!mounted) return;
     setState(() => _applying = false);
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(ok ? '字幕已挂上' : '这条字幕没能下载'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    KazumiDialog.showToast(message: ok ? '字幕已挂上' : '这条字幕没能下载');
     if (ok && mounted) Navigator.of(context).maybePop();
   }
 
@@ -362,7 +358,7 @@ class _EmbySubtitleSearchPageState extends State<EmbySubtitleSearchPage> {
     if (_searching) {
       return const Padding(
         padding: EdgeInsets.only(top: 40),
-        child: Center(child: CircularProgressIndicator(color: Colors.white70)),
+        child: Center(child: KzLoading(size: 22, color: Colors.white70)),
       );
     }
     if (_results.isEmpty) {
@@ -480,7 +476,7 @@ class _ResultRow extends StatelessWidget {
               const SizedBox(
                 width: 16,
                 height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: KzLoading(size: 18),
               )
             else
               Icon(

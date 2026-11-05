@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/vault_lock.dart';
 
@@ -151,40 +153,22 @@ class _EmbyVaultLockPageState extends State<EmbyVaultLockPage> {
     var enable = false;
     if (usable) {
       final name = _bioName();
-      enable = await showDialog<bool>(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => AlertDialog(
-              title: Text('启用$name解锁？'),
-              content: const Text('之后进入本地私密时，可以用生物识别代替数字密码。'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('暂不'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('启用'),
-                ),
-              ],
-            ),
-          ) ??
-          false;
+      enable = await showKzConfirm(
+        context: context,
+        title: '启用$name解锁？',
+        message: '之后进入本地私密时，可以用生物识别代替数字密码。',
+        cancelLabel: '暂不',
+        confirmLabel: '启用',
+      );
     }
     if (enable && mounted) {
-      final messenger = ScaffoldMessenger.maybeOf(context);
       setState(() => _busy = true);
       final ok = await VaultLock.authenticateWithBiometrics();
       if (!mounted) return;
       setState(() => _busy = false);
       await VaultLock.setBiometricEnabled(ok);
-      if (!ok && messenger != null) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('生物识别没有通过，之后可以在解锁页再开'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      if (!ok) {
+        KazumiDialog.showToast(message: '生物识别没有通过，之后可以在解锁页再开');
       }
     }
     if (mounted) _done();

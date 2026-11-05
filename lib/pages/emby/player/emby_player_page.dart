@@ -10,6 +10,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
@@ -573,27 +574,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       KazumiDialog.showToast(message: '本地文件暂不支持画中画');
       return;
     }
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showKzConfirm(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('用画中画播放？'),
-        content: const Text(
-          '当前是直连播放。画中画需要切换为服务器转码，画面会重新加载几秒，'
+      title: '用画中画播放？',
+      message: '当前是直连播放。画中画需要切换为服务器转码，画面会重新加载几秒，'
           '之后自动进入小窗。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('切换'),
-          ),
-        ],
-      ),
+      confirmLabel: '切换',
     );
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       await controller.switchToPipByTranscode();
     }
   }
@@ -808,9 +796,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
-    );
+    KazumiDialog.showToast(message: message);
   }
 
   Future<void> _openSubtitle() async {

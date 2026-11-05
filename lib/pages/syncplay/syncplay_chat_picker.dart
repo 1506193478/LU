@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/dialog/adaptive_bottom_sheet.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/widget/syncplay_sticker_view.dart';
@@ -459,7 +460,7 @@ class _StickerImportSheetState extends State<_StickerImportSheet> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: KzLoading(size: 18),
                         )
                       : const Text('导入'),
                 ),

@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
@@ -594,7 +596,7 @@ class _HomeBodyState extends State<_HomeBody> {
       fit: StackFit.expand,
       children: [
         // 内容整条滑到顶栏下面，顶栏不再跟着滚走。
-        RefreshIndicator(
+        KzRefreshIndicator(
           onRefresh: () async => widget.onRetry(),
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScroll,
@@ -672,12 +674,7 @@ class _HomeBodyState extends State<_HomeBody> {
             onManage: widget.onOpenServers,
             onSearch: () => widget.onSearchServer(server),
             onFavorite: () =>
-                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                  const SnackBar(
-                    content: Text('已收藏这个服务器'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                ),
+                KazumiDialog.showToast(message: '已收藏这个服务器'),
           ),
         ),
       ],
@@ -812,9 +809,10 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
   @override
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
-    return GestureDetector(
+    return KzPressable(
       key: _chipKey,
       onTap: _openDrop,
+      pressedOpacity: 0.6,
       child: _GlassPlate(
         radius: 19,
         height: 38,
@@ -1031,9 +1029,9 @@ class _GlassIconButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: hint,
-      child: GestureDetector(
+      child: KzPressable(
         onTap: onTap,
-        behavior: HitTestBehavior.opaque,
+        pressedOpacity: 0.6,
         child: _GlassPlate(
           radius: 19,
           width: 38,
