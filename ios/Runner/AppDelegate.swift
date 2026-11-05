@@ -210,6 +210,12 @@ import app_links
     /// 「自动开启画中画」开关（设置页下发），只影响自动触发，手动按钮不受限。
     static var autoPipEnabled = true
 
+    /// 宿主平时的大小（1x1 贴右下角），退出小窗时缩回它。
+    private var pipHostSmallFrame: CGRect = .zero
+
+    /// 纹理取帧是否被挂起（进小窗前会挂起，避免和 AVPlayerLayer 抢渲染）。
+    private var textureSuspended = false
+
     /// register 时存一份引用，App 回到前台时好找到它。
     private static var shared: AvPlayerEnginePlugin?
 
@@ -257,8 +263,40 @@ import app_links
     ///
     /// 宿主层本身就是全屏的（见 setupPip），这里只做「等系统就绪」的轮询，
     /// 不再临时改图层尺寸——改尺寸会让 AVPlayer 重排渲染管线，画面会闪。
+    /// 进小窗前把宿主撑到全屏，并挂起纹理取帧。
+    ///
+    /// 系统只有在「屏幕上有一块足够大的 inline 视频」时才认
+    /// `isPictureInPicturePossible`；而 AVPlayerLayer 一旦真的开始显示，
+    /// 再让 videoOutput 同时取帧就会互相拖累。所以这两件事必须一起做：
+    /// 放大 + 停纹理。
+    private func preparePipHost() {
+        guard let host = pipHost, let window = host.superview else { return }
+        if host.frame.width > 100 { return }
+        textureSuspended = true
+        stopDisplayLink()
+        host.frame = window.bounds
+        pipLayer?.frame = host.bounds
+    }
+
+    /// 退出/失败时缩回宿主并恢复纹理。
+    private func restorePipHost() {
+        guard let host = pipHost else { return }
+        if pipHostSmallFrame != .zero { host.frame = pipHostSmallFrame }
+        pipLayer?.frame = host.bounds
+        textureSuspended = false
+        // 纹理挂起期间解码器可能被系统切走，回来必须重新解一帧，
+        // 否则画面会停在旧帧上（看着像卡死）。
+        if let player = player {
+            let t = player.currentTime()
+            player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
+            if player.timeControlStatus != .paused { startDisplayLink() }
+        }
+    }
+
     private func startPipIfPossible(attempt: Int = 0) {
         guard let pip = pipController, !pip.isPictureInPictureActive else { return }
+        // 先放大再问系统「能不能小窗」。
+        preparePipHost()
         if pip.isPictureInPicturePossible {
             pip.startPictureInPicture()
             return
@@ -271,6 +309,7 @@ import app_links
             }
             return
         }
+        restorePipHost()
         eventSink?([
             "type": "pip", "active": false,
             "message": "系统还没准备好画中画，请稍后再试",
@@ -310,6 +349,8 @@ import app_links
     // ---- Texture ----
 
     public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
+        // 正在进小窗：纹理这一路必须让位，否则两路同时渲染会黑屏。
+        if textureSuspended { return nil }
         // 只把「取引用」放在锁里：拿到强引用后即使主线程正在 teardown，
         // 局部变量也能保证对象活到这次拷贝结束。
         bufferLock.lock()
@@ -488,20 +529,23 @@ import app_links
               let window = windowScene.windows.first else {
             return
         }
-        // 尺寸和层级是画中画能不能起来的**关键**。
+        // 平时宿主保持 1x1、贴在右下角：不挡手势，也不和 Flutter 的纹理
+        // 抢渲染资源。
         //
-        // 之前为了不挡手势，把宿主做成贴在右下角的 1x1 pt。系统判定
-        // 「屏幕上没有一块足够大的 inline 视频」，于是
-        // `isPictureInPicturePossible` 一直是 false——手动点小窗按钮失败，
-        // 退后台自动触发更不可能。这就是前几版一直「拉不起画中画」的真正
-        // 原因，跟开关、跟 canStartPictureInPictureAutomatically 都没关系。
-        //
-        // 现在：全屏尺寸 + 插到 window 最底层。Flutter 的页面把它整个盖住，
-        // 用户完全看不见；对系统来说它就是屏幕上正在播放的一层。
-        // isUserInteractionEnabled = false 保证它不抢任何手势。
-        let host = UIView(frame: window.bounds)
+        // **不能常驻全屏**。上一版把宿主做成全屏试过：AVPlayer 会同时往
+        // AVPlayerLayer 和 AVPlayerItemVideoOutput（Flutter 纹理）供帧，
+        // 两条渲染路径互相拖累，4K 片直接黑屏不出画——用户看到的就是
+        // 「什么片都播不了」。所以改成按需放大：只有真的要进小窗时才
+        // 临时撑大，并且**同步停掉纹理取帧**，绝不让两路同时跑。
+        let small = CGRect(
+            x: window.bounds.width - 1.5,
+            y: window.bounds.height - 1.5,
+            width: 1,
+            height: 1
+        )
+        let host = UIView(frame: small)
         host.isUserInteractionEnabled = false
-        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        pipHostSmallFrame = small
         window.insertSubview(host, at: 0)
         let layer = AVPlayerLayer(player: newPlayer)
         layer.frame = host.bounds
@@ -721,6 +765,7 @@ extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
     public func pictureInPictureControllerDidStopPictureInPicture(
         _ pictureInPictureController: AVPictureInPictureController
     ) {
+        restorePipHost()
         resumeRenderingIfNeeded()
         eventSink?(["type": "pip", "active": false] as [String: Any])
     }
@@ -737,8 +782,8 @@ extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
     ) {
-        // willStart 里把取帧循环停掉了；启动失败一定要拉回来，否则画面上
-        // 只剩最后一帧（用户看到的就是「卡死」）。
+        // 启动失败：宿主缩回去、纹理恢复，否则画面会停在最后一帧。
+        restorePipHost()
         resumeRenderingIfNeeded()
         // 注意不能发 "error" 类型——那会触发 Dart 侧的回退 mpv 逻辑。
         eventSink?([
