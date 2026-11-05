@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
+import 'package:XL/services/subtitle/han_convert.dart';
 
 /// 播放器内的面板。
 ///
@@ -568,6 +570,19 @@ Widget buildEmbySubtitlePanel({
               }),
             ),
             if (open) ...[
+              if (which == _SubtitleSection.secondary)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+                  child: Text(
+                    '选中的这条会和主字幕同时显示在画面上（也就是「双字幕」），'
+                    '副字幕比主字幕小一号。',
+                    style: TextStyle(
+                      color: _inkTertiary,
+                      fontSize: 12,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
               _SubOptionRow(
                 label: '禁用',
                 checked: selected == null || selected.id == 'no',
@@ -620,6 +635,21 @@ Widget buildEmbySubtitlePanel({
           ),
           _PanelRow(title: '字幕搜索', chevron: true, onTap: onSearch),
           _PanelRow(title: '本地导入', chevron: true, onTap: onImport),
+          // iOS 开了文件共享（Info.plist 的 UIFileSharingEnabled），
+          // Documents 会出现在「文件」App 里；不写一句没人会知道。
+          if (defaultTargetPlatform == TargetPlatform.iOS)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Text(
+                '也可以先把字幕放进「文件」App → 我的 iPhone → LU，'
+                '再点「本地导入」选它。',
+                style: TextStyle(
+                  color: _inkTertiary,
+                  fontSize: 11.5,
+                  height: 1.45,
+                ),
+              ),
+            ),
           _PanelRow(title: '字幕设置', chevron: true, onTap: onSettings),
           _PanelRow(
             title: '永久禁用',
@@ -757,6 +787,8 @@ Widget buildEmbySubtitleSettingsPanel({
   required ValueChanged<EmbySubtitleSettings> onChanged,
   VoidCallback? onReset,
   bool subtitleActive = true,
+  HanConvertMode hanMode = HanConvertMode.off,
+  ValueChanged<HanConvertMode>? onHanModeChanged,
 }) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -815,6 +847,38 @@ Widget buildEmbySubtitleSettingsPanel({
           settings.copyWith(opacity: (settings.opacity + 0.1).clamp(0.1, 1)),
         ),
       ),
+      if (onHanModeChanged != null) ...[
+        Container(
+          height: 0.8,
+          margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          color: _ink.withValues(alpha: 0.08),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 4),
+          child: Text(
+            '简繁转换',
+            style: TextStyle(
+              color: _inkSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        for (final mode in HanConvertMode.values)
+          EmbyMenuRow(
+            label: mode.label,
+            checked: hanMode == mode,
+            onTap: () => onHanModeChanged(mode),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
+          child: Text(
+            '只改显示，不动字幕文件。词表在本地，离线也能用；'
+            '繁体用 OpenCC 的通用繁体（港台字形差异不细分）。',
+            style: TextStyle(color: _inkTertiary, fontSize: 11.5, height: 1.45),
+          ),
+        ),
+      ],
       if (onReset != null) ...[
         Container(
           height: 0.8,

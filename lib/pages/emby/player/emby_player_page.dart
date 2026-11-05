@@ -18,6 +18,7 @@ import 'package:XL/pages/emby/player/emby_player_popover.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
+import 'package:XL/services/subtitle/han_convert.dart';
 import 'package:XL/utils/motion.dart';
 
 /// Emby 独立播放器。
@@ -815,12 +816,20 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     // 显示不动、而且每次都基于同一个旧值算——点十下也还是 +0.5s，
     // 表现出来就是「字幕设置没接入」。
     var current = controller.subtitleSettings;
+    // 简繁转换是全局设置（不是按集存的），面板上要能立刻看到当前值。
+    var hanMode = HanConvert.mode;
     await _showMenuPage(
       '字幕设置',
       (ctx) => StatefulBuilder(
         builder: (ctx, setSheetState) => buildEmbySubtitleSettingsPanel(
           settings: current,
           subtitleActive: (controller.currentSubtitle?.id ?? 'no') != 'no',
+          hanMode: hanMode,
+          onHanModeChanged: (mode) async {
+            setSheetState(() => hanMode = mode);
+            await controller.setHanConvertMode(mode);
+            if (mounted) setSheetState(() {});
+          },
           onChanged: (next) {
             current = next;
             controller.setSubtitleSettings(next);
@@ -994,6 +1003,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       Offset(2.2, 0),
     ];
     return SubtitleViewConfiguration(
+      // 开了简繁转换 / 挂了副字幕时，这一层会被关掉，由
+      // [_buildMpvSubtitleOverlay] 顶上——原生那层只认 mpv 给的原文，
+      // 改不了文本也画不出第二行。
+      visible: !controller.usesCustomSubtitleLayer,
       style: TextStyle(
         color: ink,
         fontSize: 30 * scale,
@@ -1032,7 +1045,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       s.opacity,
       s.scale,
       s.verticalOffset,
-      controller.avSubtitleText,
+      // 简繁转换开关 / 双字幕开关变了要重建画面层：它决定走原生字幕层
+      // 还是自绘层，不在这份 key 里就会出现「开了转换但画面不刷新」。
+      controller.usesCustomSubtitleLayer,
+      controller.primarySubtitleText,
+      controller.secondarySubtitleText,
       identityHashCode(controller.videoController),
     ].join('|');
     if (key == _surfaceKey && _surfaceCache != null) return _surfaceCache!;
@@ -1077,12 +1094,24 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       fill: Colors.black,
       subtitleViewConfiguration: _subtitleViewConfig(),
     );
-    Widget output = child;
+    Widget output = controller.usesCustomSubtitleLayer
+        ? Stack(
+            fit: StackFit.expand,
+            children: [
+              child,
+              // 自绘字幕层：简繁转换后的文本 + 第二路副字幕。
+              // IgnorePointer —— 字幕不能吃掉画面上的手势。
+              Positioned.fill(
+                child: IgnorePointer(child: _buildMpvSubtitleOverlay()),
+              ),
+            ],
+          )
+        : child;
     final ratio = _videoAspect;
     if (ratio != null) {
       // 4:3 / 16:9 这类具体比例：把画面裁成该比例居中显示。
       output = Center(
-        child: AspectRatio(aspectRatio: ratio, child: child),
+        child: AspectRatio(aspectRatio: ratio, child: output),
       );
     }
     if (_zoom > 1.001) {
@@ -1097,8 +1126,106 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     return output;
   }
 
-  /// AVPlayer 内核的画面层：Texture 渲染 + 自绘字幕 overlay。
+  /// mpv 路径的自绘字幕层。
   ///
+  /// 字号缩放必须和 media_kit 的 `SubtitleView` 一致（按画面面积对 1080p
+  /// 取 sqrt 比例），否则「一开简繁转换字幕就变大/变小」——那等于把一个
+  /// 纯文本功能变成一次视觉回归。位置、描边、透明度沿用面板里的设置。
+  Widget _buildMpvSubtitleOverlay() {
+    final s = controller.subtitleSettings;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final area = constraints.maxWidth * constraints.maxHeight;
+        const referenceArea = 1920.0 * 1080.0;
+        final factor = math.sqrt((area / referenceArea).clamp(0.0, 1.0));
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(22, 0, 22, 18 + s.verticalOffset * 2.6),
+            child: _buildSubtitleLines(
+              textScaler: TextScaler.linear(factor),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 主 / 副字幕两行。两条内核共用一套样式，看起来是同一个播放器。
+  ///
+  /// [textScaler] 为 null 时不覆盖 TextScaler——AVPlayer 路径原来就是按
+  /// 逻辑像素直出 30×缩放，这里保持原样，别顺手把它的字号也改了。
+  Widget _buildSubtitleLines({
+    TextScaler? textScaler,
+    double fontSize = 30,
+  }) {
+    final s = controller.subtitleSettings;
+    // mpv 的 sub-text 里换行是字面的 `\N`（ASS 转义），直接塞进 Text 会
+    // 在画面上看到「\N」两个字符。这里统一还原成真正的换行。
+    final primary = _cleanSubtitleText(controller.primarySubtitleText);
+    final secondary = _cleanSubtitleText(controller.secondarySubtitleText);
+    if (primary.isEmpty && secondary.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final double opacity = s.opacity.clamp(0.0, 1.0);
+    final double scale = s.scale.clamp(0.5, 2.0);
+    final Color ink = Colors.white.withValues(alpha: opacity);
+    final Color halo = Colors.black.withValues(alpha: 0.62 * opacity);
+    const List<Offset> ring = [
+      Offset(-1.6, -1.6),
+      Offset(1.6, -1.6),
+      Offset(-1.6, 1.6),
+      Offset(1.6, 1.6),
+      Offset(0, -2.2),
+      Offset(0, 2.2),
+      Offset(-2.2, 0),
+      Offset(2.2, 0),
+    ];
+
+    Widget line(String text, double size) => Text(
+      text,
+      textAlign: TextAlign.center,
+      textScaler: textScaler,
+      style: TextStyle(
+        color: ink,
+        fontSize: size * scale,
+        height: 1.26,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.2,
+        backgroundColor: Colors.transparent,
+        shadows: [
+          for (final o in ring) Shadow(offset: o, blurRadius: 2.6, color: halo),
+        ],
+      ),
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (primary.isNotEmpty) line(primary, fontSize),
+        // 副字幕小一号压在下面：两行一样大在窄画面上会挤成一坨，
+        // 而双字幕的用途就是「一眼分得清哪行是母语」。
+        if (secondary.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: line(secondary, fontSize * 0.86),
+          ),
+      ],
+    );
+  }
+
+  /// mpv 的 `sub-text` 里显式换行是字面的 `\N`（ASS 转义），
+  /// 直接塞进 Text 会在画面上看到「\N」这两个字符。
+  String _cleanSubtitleText(String raw) {
+    if (raw.isEmpty) return '';
+    return raw
+        .replaceAll(RegExp(r'\\[Nn]'), '\n')
+        .replaceAll('\r', '')
+        .trim();
+  }
+
+  /// AVPlayer 内核的画面层：Texture 渲染 + 自绘字幕 overlay。  ///
   /// 字幕样式刻意和 mpv 路径的 [_subtitleViewConfig] 保持同一套
   /// （透明底 + 八向描边 + 缩放 + 垂直偏移），两条路径看起来是一个播放器。
   Widget _buildAvSurface(int textureId) {
@@ -1115,19 +1242,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         : SizedBox.expand(child: Texture(textureId: textureId));
 
     final s = controller.subtitleSettings;
-    final double opacity = s.opacity.clamp(0.0, 1.0);
-    final double scale = s.scale.clamp(0.5, 2.0);
-    final Color halo = Colors.black.withValues(alpha: 0.62 * opacity);
-    const List<Offset> ring = [
-      Offset(-1.6, -1.6),
-      Offset(1.6, -1.6),
-      Offset(-1.6, 1.6),
-      Offset(1.6, 1.6),
-      Offset(0, -2.2),
-      Offset(0, 2.2),
-      Offset(-2.2, 0),
-      Offset(2.2, 0),
-    ];
+    final hasSubtitle =
+        controller.primarySubtitleText.trim().isNotEmpty ||
+        controller.secondarySubtitleText.trim().isNotEmpty;
 
     final Widget child = ColoredBox(
       color: Colors.black,
@@ -1135,7 +1252,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         fit: StackFit.expand,
         children: [
           video,
-          if (controller.avSubtitleText.isNotEmpty)
+          if (hasSubtitle)
             Align(
               alignment: Alignment.bottomCenter,
               child: Padding(
@@ -1145,22 +1262,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                   22,
                   18 + s.verticalOffset * 2.6,
                 ),
-                child: Text(
-                  controller.avSubtitleText,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: opacity),
-                    fontSize: 30 * scale,
-                    height: 1.26,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.2,
-                    backgroundColor: Colors.transparent,
-                    shadows: [
-                      for (final o in ring)
-                        Shadow(offset: o, blurRadius: 2.6, color: halo),
-                    ],
-                  ),
-                ),
+                child: _buildSubtitleLines(),
               ),
             ),
         ],

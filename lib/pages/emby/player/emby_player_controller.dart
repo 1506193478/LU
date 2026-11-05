@@ -26,6 +26,7 @@ import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/services/player/emby_srt.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/services/storage/storage.dart';
+import 'package:XL/services/subtitle/han_convert.dart';
 import 'package:XL/services/video_source/video_source_format.dart';
 
 /// 播完一条后的行为。
@@ -417,6 +418,47 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 副字幕（"双字幕"里的第二路）。见 [selectSecondarySubtitle]。
   SubtitleTrack? secondarySubtitle;
 
+  /// mpv 内核的当前字幕文本。
+  ///
+  /// media_kit 把 mpv 的 `sub-text` 和 `secondary-sub-text` 一起塞进
+  /// `player.stream.subtitle`（下标 0 是主字幕、1 是副字幕），这里存下来给
+  /// 自绘字幕层用。只有走到自绘层（开了简繁转换或挂了副字幕）才会读它。
+  String _mpvSubtitleText = '';
+  String _mpvSecondaryText = '';
+
+  /// AVPlayer 内核的副字幕：mpv 那套 `secondary-sid` 用不上，改成把字幕拉
+  /// 下来解析成时间轴，跟着 position 自己算当前这一句。
+  List<SrtCue> _avSecondaryCues = const [];
+  String _avSecondaryText = '';
+
+  /// 要不要把 media_kit 自带的字幕层关掉、换成本地自绘的一层。
+  ///
+  /// 只有两种情况需要：开了简繁转换（要改文本），或者挂了副字幕（要画两行）。
+  /// 其余情况仍然走 media_kit 原生那层——不转换、不看双字幕的用户拿到的
+  /// 画面和 3.9.55 一模一样，不给「只是打开播放器」的人引入任何变量。
+  bool get usesCustomSubtitleLayer =>
+      HanConvert.mode != HanConvertMode.off || secondarySubtitle != null;
+
+  /// 主字幕文本（已按用户设置做简繁转换）。
+  String get primarySubtitleText =>
+      HanConvert.apply(isAvBackend ? avSubtitleText : _mpvSubtitleText);
+
+  /// 副字幕文本（已做简繁转换）。
+  String get secondarySubtitleText =>
+      HanConvert.apply(isAvBackend ? _avSecondaryText : _mpvSecondaryText);
+
+  /// 切换简繁转换方向。转换是「渲染前改文本」，所以换完立刻整页刷新一次；
+  /// 词表是懒加载的，加载完再刷一次，用户不会看到「开了没反应」。
+  Future<void> setHanConvertMode(HanConvertMode mode) async {
+    await HanConvert.setMode(mode);
+    if (_disposed) return;
+    _notify();
+    // 词表首次加载要读两份资源（几十毫秒），加载完再推一次把文本换掉。
+    await Future<void>.delayed(const Duration(milliseconds: 260));
+    if (_disposed) return;
+    _notify();
+  }
+
   Timer? _progressTimer;
   Timer? _hideTimer;
   Timer? _autoNextTimer;
@@ -425,6 +467,8 @@ class EmbyPlayerController extends ChangeNotifier {
   // ------------------------------------------------------------ 生命周期
 
   Future<void> start() async {
+    // 简繁转换：先把设置读进内存（词表懒加载，不转换就不加载）。
+    HanConvert.init();
     await _open(launch.initialIndex);
   }
 
@@ -679,6 +723,17 @@ class EmbyPlayerController extends ChangeNotifier {
       audioTracks = tracks.audio;
       subtitleTracks = tracks.subtitle;
       _notify();
+    });
+    // mpv 的 sub-text / secondary-sub-text。media_kit 已经把两路一起发出来了
+    // （[主, 副]），不需要我们再去 observeProperty。
+    bind(player.stream.subtitle, (lines) {
+      final primary = lines.isEmpty ? '' : lines[0];
+      final secondary = lines.length > 1 ? lines[1] : '';
+      if (primary == _mpvSubtitleText && secondary == _mpvSecondaryText) return;
+      _mpvSubtitleText = primary;
+      _mpvSecondaryText = secondary;
+      // 自绘层没开的时候这两段文本没人看，别为它触发整页重建。
+      if (usesCustomSubtitleLayer) _notify();
     });
     bind(player.stream.track, (_) {
       currentAudio = player.state.track.audio;
@@ -953,29 +1008,24 @@ class EmbyPlayerController extends ChangeNotifier {
   }
 
   void _updateAvSubtitleText() {
-    if (_avCues.isEmpty) {
-      if (avSubtitleText.isNotEmpty) avSubtitleText = '';
-      return;
-    }
     final offset = Duration(
       milliseconds: (subtitleSettings.delay * 1000).round(),
     );
-    final cue = srtCueAt(_avCues, position - offset);
-    final text = cue?.text ?? '';
-    if (text != avSubtitleText) avSubtitleText = text;
+    final primary = _avCues.isEmpty
+        ? ''
+        : (srtCueAt(_avCues, position - offset)?.text ?? '');
+    if (primary != avSubtitleText) avSubtitleText = primary;
+    final secondary = _avSecondaryCues.isEmpty
+        ? ''
+        : (srtCueAt(_avSecondaryCues, position - offset)?.text ?? '');
+    if (secondary != _avSecondaryText) _avSecondaryText = secondary;
   }
 
-  /// AV 路径挂字幕：srt/vtt/ass 都让服务器按 `Stream.srt` 交付（服务端会转），
-  /// 拉回来在 Dart 里解析、跟着 position 显示。本地导入的文件直接读。
-  Future<void> _loadAvSubtitle(SubtitleTrack track) async {
-    _avCues = const [];
-    avSubtitleText = '';
-    currentSubtitle = track;
-    _notify();
+  /// 拉一份字幕并按时间轴切成 cue。地址可以是 http（Emby 的
+  /// `/Stream.srt`）或本地文件路径。失败返回 null，调用方自己决定怎么退化。
+  Future<List<SrtCue>?> _fetchSubtitleCues(String source) async {
     try {
       final String raw;
-      // uri 轨的地址存在 id 里（SubtitleTrack.uri(url) → id = url）。
-      final source = track.id;
       if (source.startsWith('http')) {
         final client = HttpClient()
           ..connectionTimeout = const Duration(seconds: 12);
@@ -996,13 +1046,25 @@ class EmbyPlayerController extends ChangeNotifier {
           )
           .where((c) => c.text.isNotEmpty)
           .toList();
-      if (cues.isEmpty) {
-        currentSubtitle = SubtitleTrack.no();
-      } else {
-        _avCues = cues;
-      }
+      return cues.isEmpty ? null : cues;
     } catch (_) {
+      return null;
+    }
+  }
+
+  /// AV 路径挂字幕：srt/vtt/ass 都让服务器按 `Stream.srt` 交付（服务端会转），
+  /// 拉回来在 Dart 里解析、跟着 position 显示。本地导入的文件直接读。
+  Future<void> _loadAvSubtitle(SubtitleTrack track) async {
+    _avCues = const [];
+    avSubtitleText = '';
+    currentSubtitle = track;
+    _notify();
+    final cues = await _fetchSubtitleCues(track.id);
+    if (_disposed) return;
+    if (cues == null) {
       currentSubtitle = SubtitleTrack.no();
+    } else {
+      _avCues = cues;
     }
     _notify();
   }
@@ -1443,10 +1505,112 @@ class EmbyPlayerController extends ChangeNotifier {
     }
   }
 
-  /// 副字幕：media_kit 一次只能渲染一路内封字幕，所以副轨只记下来，
-  /// 供「双字幕」开关将来做叠加渲染时用，不直接塞给引擎。
+  /// 副字幕 —— 也就是「双字幕」的第二路。
+  ///
+  /// 之前这里只把选中的轨道记在内存里就完事了（注释写的是「等将来做叠加
+  /// 渲染」），所以面板上能选、画面上永远只有一路。现在两条内核各走各的路：
+  ///
+  ///   * mpv：`sub-add` 把外掛轨挂进来（**不带 select 标志**，主字幕不受
+  ///     影响），再从 `track-list/N/id` 读回它分到的 sid，写进
+  ///     `secondary-sid`。文本由 mpv 自己算，media_kit 已经通过
+  ///     `secondary-sub-text` 并进 `stream.subtitle[1]` 了。
+  ///   * AVPlayer：mpv 那套完全用不上，把字幕当 srt 拉下来解析成时间轴，
+  ///     跟着 position 自己算——和主字幕用的是同一套 `srtCueAt`。
   Future<void> selectSecondarySubtitle(SubtitleTrack track) async {
-    secondarySubtitle = track.id == 'no' ? null : track;
+    if (track.id == 'no') {
+      secondarySubtitle = null;
+      _avSecondaryCues = const [];
+      _avSecondaryText = '';
+      _mpvSecondaryText = '';
+      await _setSecondarySid('no');
+      _notify();
+      return;
+    }
+    secondarySubtitle = track;
+    _notify();
+    if (_av != null) {
+      await _loadAvSecondarySubtitle(track);
+      return;
+    }
+    await _applySecondarySid(track);
+  }
+
+  Future<void> _setSecondarySid(String sid) async {
+    final platform = playback.mediaPlayer?.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      await platform.setProperty('secondary-sid', sid);
+    } catch (e) {
+      KazumiLogger().w('Emby player: set secondary-sid=$sid failed', error: e);
+    }
+  }
+
+  Future<void> _applySecondarySid(SubtitleTrack track) async {
+    final platform = playback.mediaPlayer?.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      var sid = track.id;
+      if (!RegExp(r'^\d+$').hasMatch(sid)) {
+        // 外挂轨（Emby 的字幕地址 / 本地导入的文件）：容器里没有这一条，
+        // 必须先 sub-add 让 mpv 认识，才会分配 sid。
+        final primary = playback.mediaPlayer?.state.track.subtitle;
+        var path = sid;
+        if (sid.startsWith('http')) {
+          path = await _prepareSanitizedSubtitleFile(sid) ?? sid;
+        }
+        await platform.command(['sub-add', path]);
+        // 不同的 mpv 版本对「sub-add 不带 flags 会不会顺手选中」处理不一致。
+        // 万一主字幕被顶掉了，用 sid 直接写回去——重新 setSubtitleTrack 会
+        // 再挂一条重复的轨，sid 赋值不会。
+        if (primary != null && primary.id != 'no' && primary.id != 'auto') {
+          final now = playback.mediaPlayer?.state.track.subtitle;
+          if (now == null || now.id != primary.id) {
+            await platform.setProperty('sid', primary.id);
+          }
+        }
+        final added = await _lastExternalSubtitleSid(platform);
+        if (added == null || added.isEmpty) {
+          KazumiLogger().w('Emby player: sub-add succeeded but sid not found');
+          return;
+        }
+        sid = added;
+      }
+      await platform.setProperty('secondary-sid', sid);
+      KazumiLogger().i('Emby player: secondary subtitle sid=$sid');
+    } catch (e) {
+      KazumiLogger().w('Emby player: apply secondary subtitle failed', error: e);
+    }
+  }
+
+  /// 读回刚 `sub-add` 进来的那条外挂字幕的 sid。
+  ///
+  /// 不用 `getProperty('track-list')`：那是 node 属性，取回来是 mpv 自己的
+  /// 文本格式（键不带引号），不是 JSON，解析起来只能靠正则凑。逐项读
+  /// `track-list/N/xxx` 每个都是标量，稳得多。
+  Future<String?> _lastExternalSubtitleSid(NativePlayer platform) async {
+    try {
+      final count =
+          int.tryParse(await platform.getProperty('track-list/count')) ?? 0;
+      for (var i = count - 1; i >= 0; i--) {
+        final type = await platform.getProperty('track-list/$i/type');
+        if (type != 'sub') continue;
+        final external = await platform.getProperty('track-list/$i/external');
+        if (external != 'yes' && external != 'true') continue;
+        final id = await platform.getProperty('track-list/$i/id');
+        if (id.isNotEmpty) return id;
+      }
+    } catch (e) {
+      KazumiLogger().w('Emby player: read track-list failed', error: e);
+    }
+    return null;
+  }
+
+  Future<void> _loadAvSecondarySubtitle(SubtitleTrack track) async {
+    final cues = await _fetchSubtitleCues(track.id);
+    if (_disposed) return;
+    _avSecondaryCues = cues ?? const [];
+    _avSecondaryText = '';
+    _updateAvSubtitleText();
     _notify();
   }
 
@@ -1935,6 +2099,14 @@ class EmbyPlayerController extends ChangeNotifier {
     _autoNextTimer?.cancel();
     _cancelSubscriptions();
     _cancelAvWatchdog();
+    // 副字幕挂的是「上一集/上一条流」的轨道，换集之后那个 sid 已经失效，
+    // 留着只会让 mpv 去 secondary-sid 一个不存在的轨（表现为副字幕消失但
+    // 面板仍显示选中）。统一在这里清掉，和主字幕一样每集重新选。
+    secondarySubtitle = null;
+    _mpvSubtitleText = '';
+    _mpvSecondaryText = '';
+    _avSecondaryCues = const [];
+    _avSecondaryText = '';
     // AV 路径先退场。
     final engine = _av;
     if (engine != null) {

@@ -43,6 +43,15 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- 文件共享：让 LU 的 Documents 出现在「文件」App → 我的 iPhone → LU 里。
+	     字幕、手动拷进来的视频都能直接放进这个目录，再用「本地导入」选中。
+	     UIFileSharingEnabled 打开 iTunes/Finder 共享 + 文件 App 可见；
+	     LSSupportsOpeningDocumentsInPlace 允许原地打开（不复制一份），
+	     mpv 才能直接读到用户拖进来的那个文件。 -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

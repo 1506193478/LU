@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/services/network/metered_network_service.dart';
+import 'package:XL/services/player/cache_profile.dart';
 import 'package:XL/services/player/low_memory_mode.dart';
+import 'package:XL/services/storage/storage.dart';
 import 'package:XL/utils/async_serial_queue.dart';
 import 'package:media_kit/media_kit.dart';
 
@@ -15,21 +17,6 @@ class PlaybackCachePolicy {
        _currentPlayer = currentPlayer;
 
   static const int _lowMemoryBufferSize = 2 * 1024 * 1024;
-  static const int _defaultBufferSize = 1500 * 1024 * 1024;
-
-  /// iOS 单独一组上限。
-  ///
-  /// 原来这里对**所有平台**都用 1500MB：`demuxer-max-bytes` 和
-  /// `demuxer-max-back-bytes` 各 1500MB，等于允许 mpv 吃掉 3GB。
-  /// 桌面端无所谓，但 iPhone 上单进程内存上限通常只有 2GB 出头——
-  /// 4K HEVC 的解码帧缓冲（几十帧 × 每帧十几 MB）再叠上去，几十秒就
-  /// 被系统 jetsam 杀掉，表现就是「看不了一分钟就闪退」，而且因为是被
-  /// 系统杀的，Dart 侧连日志都留不下。
-  ///
-  /// 前向 96MB 对 HLS 和直连都够用（4K 大约能缓 20 秒），
-  /// 后向 48MB 够回拖一小段；再大纯粹是拿内存换用不上的缓冲。
-  static const int _iosForwardBufferSize = 96 * 1024 * 1024;
-  static const int _iosBackBufferSize = 48 * 1024 * 1024;
 
   final bool Function() _isLocalPlayback;
   final Player? Function() _currentPlayer;
@@ -42,6 +29,9 @@ class PlaybackCachePolicy {
       !_isLocalPlayback() &&
       MeteredNetworkService.isMetered;
 
+  /// 用户选的档位（设置 → 转码与串流 → 播放缓存）。
+  PlaybackCacheProfile get profile => PlaybackCacheProfile.current;
+
   int get bufferSize {
     if (LowMemoryMode.current.isEnabled(
       isMetered: MeteredNetworkService.isMetered,
@@ -49,24 +39,31 @@ class PlaybackCachePolicy {
     )) {
       return _lowMemoryBufferSize;
     }
-    // iOS 走独立上限，理由见 _iosForwardBufferSize 的注释。
-    if (kIsCupertinoPlatform) return _iosForwardBufferSize;
-    return _defaultBufferSize;
+    // iOS 的数值整体小一个量级，理由见 [PlaybackCacheProfile] 的注释：
+    // iPhone 单进程内存上限只有 2GB 出头，前向缓存给大了就是等系统来杀。
+    return kIsCupertinoPlatform
+        ? profile.forwardBytes
+        : DesktopCacheProfile.forwardBytes(profile);
   }
 
   /// 回拖缓存上限。iOS 上必须比前向更小——它保留的是「已经播过」的
   /// 数据，只是给往回拖用，给到和前向一样大纯属浪费内存。
   int get backBufferSize => kIsCupertinoPlatform
-      ? _iosBackBufferSize
-      : bufferSize;
+      ? profile.backBytes
+      : DesktopCacheProfile.backBytes(profile);
 
   void startWatching() {
     if (_settingsSubscription != null) {
       return;
     }
-    _settingsSubscription = LowMemoryMode.watch().listen((_) => _onChanged());
+    _settingsSubscription = GStorage.watchSettings([
+      SettingsKeys.lowMemoryPolicy,
+      SettingsKeys.lowMemoryMode,
+      SettingsKeys.playbackCacheProfile,
+    ]).listen((_) => _onChanged());
     MeteredNetworkService.listenable.addListener(_onChanged);
   }
+
 
   void stopWatching() {
     MeteredNetworkService.listenable.removeListener(_onChanged);

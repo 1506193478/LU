@@ -6,6 +6,7 @@ import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/services/player/cache_profile.dart';
 import 'package:XL/services/storage/storage.dart';
 
 /// 「转码与串流」：决定 Emby 这一条片子是原盘直连还是服务器转码。
@@ -25,6 +26,7 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
   int _bitrate = 0;
   EmbyServer? _server;
   String _kernel = 'auto';
+  PlaybackCacheProfile _cacheProfile = PlaybackCacheProfile.balanced;
 
   @override
   void initState() {
@@ -33,6 +35,12 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
     _bitrate = EmbyStreamPrefs.bitrateMbps;
     _server = EmbyService.instance.activeServer;
     _kernel = GStorage.getSetting(SettingsKeys.embyIosKernel);
+    _cacheProfile = PlaybackCacheProfile.current;
+  }
+
+  Future<void> _setCacheProfile(PlaybackCacheProfile profile) async {
+    setState(() => _cacheProfile = profile);
+    await profile.save();
   }
 
   Future<void> _setKernel(String value) async {
@@ -162,6 +170,41 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
               ),
             ),
           ],
+          const PvGroupLabel('播放缓存'),
+          PvGroup(
+            children: [
+              for (var i = 0;
+                  i < PlaybackCacheProfile.values.length;
+                  i++)
+                _RadioRow(
+                  title: PlaybackCacheProfile.values[i].label,
+                  subtitle: PlaybackCacheProfile.values[i].description,
+                  selected:
+                      _cacheProfile == PlaybackCacheProfile.values[i],
+                  showDivider:
+                      i != PlaybackCacheProfile.values.length - 1,
+                  onTap: () => _setCacheProfile(
+                    PlaybackCacheProfile.values[i],
+                  ),
+                ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 2, 32, 18),
+            child: Text(
+              '当前：${_cacheProfile.summary}。\n'
+              '这一档同时决定「已经播过的」和「还没播到的」两段缓存。'
+              '调大更抗卡，但占内存更多——iPhone 上给太大反而会被系统直接'
+              '结束进程（就是之前那种「看一分钟闪退」）。弱网、跨境线路建议'
+              '调到「流畅」，局域网直连原盘可以上「极致」。\n'
+              '改完对下一次起播生效，正在播的这一条也会在几秒内跟上。',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.6,
+                color: PvColors.ink3(context),
+              ),
+            ),
+          ),
           const PvGroupLabel('当前服务器'),
           PvGroup(
             children: [

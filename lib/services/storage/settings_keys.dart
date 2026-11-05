@@ -816,6 +816,8 @@ class SettingsKeys {
     embySubtitleLanguage,
     embySubtitleDisabledIds,
     embyIosKernel,
+    subtitleHanConvert,
+    playbackCacheProfile,
   ];
 
   /// Emby / Jellyfin 服务器列表，整份 JSON 数组存在这里。
@@ -889,6 +891,27 @@ class SettingsKeys {
     _SettingBoxKey.embySubtitleDisabledIds,
     '',
     group: SettingGroup.emby,
+  );
+
+  /// 字幕简繁转换：`off` / `s2t`（简 → 繁）/ `t2s`（繁 → 简）。
+  ///
+  /// 存字符串而不是布尔：只存「开/关」表达不了方向，而用户真要选的就是方向
+  /// ——看港剧需要繁转简，看陆剧需要简转繁。实现在 `HanConvert`。
+  static const subtitleHanConvert = SettingKey<String>(
+    _SettingBoxKey.subtitleHanConvert,
+    'off',
+    group: SettingGroup.player,
+  );
+
+  /// 播放缓存档位：`saver` / `balanced` / `smooth` / `max`。
+  ///
+  /// 见 `PlaybackCacheProfile`。默认 `balanced`，在 iOS 上等于 3.9.55 修闪退
+  /// 时定的 96/48MB，在桌面端等于历史默认的 1500/1500MB——也就是说这个设置
+  /// 页上线本身不改变任何人的现有行为，只有主动调档才会变。
+  static const playbackCacheProfile = SettingKey<String>(
+    _SettingBoxKey.playbackCacheProfile,
+    'balanced',
+    group: SettingGroup.player,
   );
 
   static List<SettingKey<Object?>> byGroup(SettingGroup group) {
@@ -1006,5 +1029,7 @@ class _SettingBoxKey {
       embyStreamBitrate = 'embyStreamBitrate',
       embySubtitleLanguage = 'embySubtitleLanguage',
       embySubtitleDisabledIds = 'embySubtitleDisabledIds',
-      embyIosKernel = 'embyIosKernel';
+      embyIosKernel = 'embyIosKernel',
+      subtitleHanConvert = 'subtitleHanConvert',
+      playbackCacheProfile = 'playbackCacheProfile';
 }
