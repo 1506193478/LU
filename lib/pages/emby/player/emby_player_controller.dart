@@ -301,15 +301,41 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 两边原因一起显示——一张截图就能看出坏在哪条路。
   String _lastAvError = '';
 
-  /// 把引擎原始错误压成一行可读的（Exception 壳、堆栈都去掉）。
+  /// 把引擎原始错误压成一行可读的（Exception 壳、堆栈、带 token 的地址都去掉）。
   String _shortError(Object e) {
     var s = e.toString().trim();
     s = s.replaceFirst(
       RegExp(r'^(Exception|PlatformException)\s*\(?.*?:\s*'),
       '',
     );
+    // 播放地址里带 api_key，直接甩错误页上既没用又泄露凭据。
+    s = s.replaceAll(RegExp(r'api_key=[^&\s]+'), 'api_key=***');
+    // 长地址对排查没帮助，压成「主机 + 最后一段路径」。
+    s = s.replaceAllMapped(
+      RegExp(r'https?://[^\s&]+'),
+      (m) {
+        final uri = Uri.tryParse(m.group(0)!);
+        if (uri == null) return m.group(0)!;
+        return '${uri.host}${uri.path}';
+      },
+    );
     if (s.length > 160) s = '${s.substring(0, 160)}…';
     return s;
+  }
+
+  /// 网络类错误的中文说法：这类错误给用户看原始 errno 没有意义。
+  static String _networkHint(String raw) {
+    final l = raw.toLowerCase();
+    if (l.contains('tls') || l.contains('ssl')) {
+      return '服务器连接中断（TLS 握手失败，可能是线路不稳）';
+    }
+    if (l.contains('ffurl_read') || l.contains('tcp:')) {
+      return '服务器连接中断（线路不稳或带宽不足）';
+    }
+    if (l.contains('socket') || l.contains('connection')) {
+      return '服务器连接中断';
+    }
+    return '';
   }
 
   /// 当前条目解析出的片头 / 片尾位置。
@@ -682,19 +708,47 @@ class EmbyPlayerController extends ChangeNotifier {
       final bool justOpened =
           openedAt != null &&
           DateTime.now().difference(openedAt) <= const Duration(seconds: 12);
-      // 直连 + 开播初期：自动降级成转码重试一次（转码出来的 H264/AAC
-      // 哪个平台都能播）。转码流失败不在这降级，走下面的错误显示。
-      if (!_mpvDowngradeTried && !_isLocalDirect && !_isHls && justOpened) {
+      // 网络层断连（tcp/tls 读失败、连接被重置、socket 错误）。
+      //
+      // 直连原盘最怕这个：一个 800MB 的静态文件，拖进度条就是向服务器
+      // 重新请求一大段，带宽不够 / 服务端限流时直接断连，mkv 那边还会
+      // 判定「文件损坏，重新同步」，画面就彻底停了。这类错误不能等
+      // 「开播 12 秒内」那套条件——用户往往是播了几分钟拖进度才踩到。
+      final lower = raw.toLowerCase();
+      final bool networkBroken =
+          lower.contains('ffurl_read') ||
+          lower.contains('tcp:') ||
+          lower.contains('tls:') ||
+          lower.contains('connection') ||
+          lower.contains('socket');
+
+      // 直连 + （开播初期 或 网络断连）：自动降级成转码重试一次。
+      // 转码出来的是 HLS 分片，能续传、seek 只请求附近分片，比硬啃
+      // 原盘文件稳得多。转码流失败不在这降级，走下面的错误显示。
+      if (!_mpvDowngradeTried &&
+          !_isLocalDirect &&
+          !_isHls &&
+          (justOpened || networkBroken)) {
         _mpvDowngradeTried = true;
         _preferTranscodeRetry = true;
-        KazumiLogger().w('EmbyPlayer: 直连打不开，自动降级转码重试 ($raw)');
+        // 中途断连的话，从当前进度接着放，别把用户拽回片头。
+        if (!justOpened && position > const Duration(seconds: 5)) {
+          _resumeOverride = position;
+        }
+        KazumiLogger().w(
+          'EmbyPlayer: ${networkBroken ? '网络断连' : '直连打不开'}，'
+          '自动降级转码重试 ($raw)',
+        );
         unawaited(_open(_index));
         return;
       }
       // 还没出流就失败：给出带内核/流类型诊断的错误视图，别让页面停在
       // 黑屏上只有一条 toast。
       if (!playing && duration <= Duration.zero) {
-        var msg = '[libmpv · ${_isHls ? '转码' : '直连'}] $raw';
+        final hint = _networkHint(raw);
+        var msg = hint.isEmpty
+            ? '[libmpv · ${_isHls ? '转码' : '直连'}] ${raw.isEmpty ? '播放失败' : raw}'
+            : '$hint\n[libmpv · ${_isHls ? '转码' : '直连'}] $raw';
         if (_lastAvError.isNotEmpty) {
           msg += '\n[此前 AVPlayer 也失败] $_lastAvError';
         }

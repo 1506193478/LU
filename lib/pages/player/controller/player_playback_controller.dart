@@ -323,7 +323,12 @@ abstract class _PlayerPlaybackController with Store {
       // media-kit 默认启用硬盘作为双重缓存，这可以维持大缓存的前提下减轻内存压力
       // media-kit 内部硬盘缓存目录按照 Linux 配置，这导致该功能在其他平台上被损坏
       // 该设置可以在所有平台上正确启用双重缓存
-      await pp.setProperty("demuxer-cache-dir", await getPlayerTempPath());
+      // iOS 的 libmpv 构建没有可用的磁盘缓存后端：设了之后每次开播都会
+      // 打一条 `Failed to create file cache`，然后退回内存缓存。既然拿
+      // 不到好处，就别设——让它直接用内存缓存，日志也干净。
+      if (!Platform.isIOS) {
+        await pp.setProperty("demuxer-cache-dir", await getPlayerTempPath());
+      }
       if (!isCurrentPlayer(player)) {
         return await _discardIfNotCurrent(candidate);
       }
@@ -444,8 +449,10 @@ abstract class _PlayerPlaybackController with Store {
             KazumiDialog.showToast(
                 message: actionableMessage, showActionButton: true);
           } else if (showPlayerError) {
+            // 不要拼 videoUrl()：地址里带 api_key / token，弹到界面上
+            // 既读不懂又泄露凭据。真需要看地址的走日志。
             KazumiDialog.showToast(
-                message: '播放器内部错误 ${event.toString()} ${videoUrl()}',
+                message: '播放器内部错误 ${event.toString()}',
                 duration: const Duration(seconds: 5),
                 showActionButton: true);
           }
