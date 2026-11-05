@@ -24,16 +24,6 @@ import app_links
     // 临时放大图层，结果退后台再回来会掉帧甚至闪退。现在自动小窗完全交给
     // 系统的 canStartPictureInPictureAutomaticallyFromInline，这里只负责
     // 恢复渲染，不碰播放状态。
-    // 离开前台（上滑回主屏 / 下拉通知中心 / 来电）前主动拉起小窗。
-    //
-    // 3.9.45 在这里失败过，但那次是「临时把 1x1 宿主放大」的 hack 导致的
-    // 双路渲染掉帧，不是钩子本身的问题。现在宿主常驻全屏、只在最底层，
-    // 这里只调 startPictureInPicture，不碰渲染管线。
-    override func applicationWillResignActive(_ application: UIApplication) {
-        super.applicationWillResignActive(application)
-        AvPlayerEnginePlugin.pipTryAutoStart()
-    }
-
     override func applicationDidBecomeActive(_ application: UIApplication) {
         super.applicationDidBecomeActive(application)
         AvPlayerEnginePlugin.appBecameActive()
@@ -237,32 +227,6 @@ import app_links
         }
     }
 
-    /// 离开前台前主动拉起小窗。
-    ///
-    /// 不能只靠 `canStartPictureInPictureAutomaticallyFromInline`：系统要在
-    /// 极短的时间窗里判定「有一层正在播放的 inline 视频」，时序稍差就静默
-    /// 不触发。resignActive 这一瞬间还没真正进后台、播放仍在继续，是主动
-    /// start 成功率最高的时机。
-    static func pipTryAutoStart() {
-        guard autoPipEnabled, let instance = shared else { return }
-        instance.tryAutoStartPip()
-    }
-
-    func tryAutoStartPip() {
-        guard let pip = pipController,
-              AvPlayerEnginePlugin.autoPipEnabled,
-              !pip.isPictureInPictureActive,
-              let player = player,
-              player.timeControlStatus != .paused else {
-            return
-        }
-        startPipIfPossible()
-    }
-
-    /// 启动小窗。
-    ///
-    /// 宿主层本身就是全屏的（见 setupPip），这里只做「等系统就绪」的轮询，
-    /// 不再临时改图层尺寸——改尺寸会让 AVPlayer 重排渲染管线，画面会闪。
     /// 进小窗前把宿主撑到全屏，并挂起纹理取帧。
     ///
     /// 系统只有在「屏幕上有一块足够大的 inline 视频」时才认
@@ -294,25 +258,10 @@ import app_links
     }
 
     private func startPipIfPossible(attempt: Int = 0) {
-        guard let pip = pipController, !pip.isPictureInPictureActive else { return }
-        // 先放大再问系统「能不能小窗」。
-        preparePipHost()
-        if pip.isPictureInPicturePossible {
-            pip.startPictureInPicture()
-            return
-        }
-        // 刚起播时系统还没把这一层算进「可画中画」，等几帧通常就好了。
-        // 这里只轮询，不动图层尺寸（放大会让 AVPlayer 多渲染一路，反而掉帧）。
-        if attempt < 8 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                self?.startPipIfPossible(attempt: attempt + 1)
-            }
-            return
-        }
-        restorePipHost()
+        // 画中画已下线：直接告诉 Dart 侧不可用，不做任何图层操作。
         eventSink?([
             "type": "pip", "active": false,
-            "message": "系统还没准备好画中画，请稍后再试",
+            "message": "画中画功能已移除",
         ] as [String: Any])
     }
 
@@ -349,8 +298,6 @@ import app_links
     // ---- Texture ----
 
     public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
-        // 正在进小窗：纹理这一路必须让位，否则两路同时渲染会黑屏。
-        if textureSuspended { return nil }
         // 只把「取引用」放在锁里：拿到强引用后即使主线程正在 teardown，
         // 局部变量也能保证对象活到这次拷贝结束。
         bufferLock.lock()
@@ -409,7 +356,8 @@ import app_links
         case "getDuration":
             result(cachedDurationMs)
         case "isPipAvailable":
-            result(pipController != nil && AVPictureInPictureController.isPictureInPictureSupported())
+            // 画中画已下线。
+            result(false)
         case "setAutoPip":
             AvPlayerEnginePlugin.autoPipEnabled = call.arguments as? Bool ?? true
             if let pip = pipController {
@@ -522,43 +470,17 @@ import app_links
         }
     }
 
+    /// 画中画：**已整体下线**。
+    ///
+    /// 保留这个空方法只是为了不改调用点。这条链路（常驻 AVPlayerLayer +
+    /// Flutter 纹理取帧并存）的代价被反复验证过：
+    ///   · 两路同时渲染会互相拖累，4K 直接黑屏不出画；
+    ///   · 为了骗过系统的 `isPictureInPicturePossible` 又要临时放大图层，
+    ///     再把内存峰值顶高一层；
+    ///   · 直连原盘（mpv 内核）根本没有 AVPlayerLayer，永远用不了。
+    /// 收益远小于它对播放稳定性的破坏，所以整条移除，只留空壳。
     private func setupPip(player newPlayer: AVPlayer) {
         teardownPip()
-        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first else {
-            return
-        }
-        // 平时宿主保持 1x1、贴在右下角：不挡手势，也不和 Flutter 的纹理
-        // 抢渲染资源。
-        //
-        // **不能常驻全屏**。上一版把宿主做成全屏试过：AVPlayer 会同时往
-        // AVPlayerLayer 和 AVPlayerItemVideoOutput（Flutter 纹理）供帧，
-        // 两条渲染路径互相拖累，4K 片直接黑屏不出画——用户看到的就是
-        // 「什么片都播不了」。所以改成按需放大：只有真的要进小窗时才
-        // 临时撑大，并且**同步停掉纹理取帧**，绝不让两路同时跑。
-        let small = CGRect(
-            x: window.bounds.width - 1.5,
-            y: window.bounds.height - 1.5,
-            width: 1,
-            height: 1
-        )
-        let host = UIView(frame: small)
-        host.isUserInteractionEnabled = false
-        pipHostSmallFrame = small
-        window.insertSubview(host, at: 0)
-        let layer = AVPlayerLayer(player: newPlayer)
-        layer.frame = host.bounds
-        layer.videoGravity = .resizeAspect
-        host.layer.addSublayer(layer)
-        pipHost = host
-        pipLayer = layer
-        let controller = AVPictureInPictureController(playerLayer: layer)
-        // 用户按 Home / 切后台时自动进小窗——这是 iOS 播放器的标准体验。
-        controller?.canStartPictureInPictureAutomaticallyFromInline =
-            AvPlayerEnginePlugin.autoPipEnabled
-        controller?.delegate = self
-        pipController = controller
     }
 
     private func teardownPip() {

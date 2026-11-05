@@ -10,7 +10,6 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
@@ -18,7 +17,6 @@ import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
-import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -186,8 +184,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   @override
   void dispose() {
     _hudTimer?.cancel();
-    _resumeHealthTimer?.cancel();
-    _pauseByBackgroundTimer?.cancel();
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -235,47 +231,20 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   /// 只有这种才需要重建解码器——VT 会话是在进后台时被系统回收的。
   bool _wasBackgrounded = false;
 
-  /// 进后台后的「延迟暂停」。留给原生侧启动画中画的时间窗。
-  Timer? _pauseByBackgroundTimer;
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_isDesktop) return;
     if (state == AppLifecycleState.paused) {
       _wasBackgrounded = true;
       if (_pausedByBackground) return;
-      if (controller.backgroundAudio || controller.pipActive) return;
+      if (controller.backgroundAudio) return;
       if (!controller.playing) return;
-      // 关键：**不能立刻暂停**。
-      //
-      // 画中画的启动条件是「视频正在播」的那一刻。之前这里进后台就
-      // togglePlay()，系统看到的是「已暂停」，于是
-      // canStartPictureInPictureAutomaticallyFromInline 再好也不会触发——
-      // 这是「切走 App 拉不起小窗」的第二个原因。
-      //
-      // 给原生侧留 1.2 秒去 startPictureInPicture：起起来了就交给小窗
-      // 继续播，没起来再暂停省电。mpv 内核没有 AVPlayerLayer，等也没用，
-      // 直接暂停。
-      _pauseByBackgroundTimer?.cancel();
-      if (controller.isAvBackend && EmbyPipPrefs.autoEnter) {
-        _pauseByBackgroundTimer = Timer(
-          const Duration(milliseconds: 1200),
-          () {
-            if (!mounted) return;
-            if (controller.pipActive || !controller.playing) return;
-            _pausedByBackground = true;
-            unawaited(controller.togglePlay());
-          },
-        );
-      } else {
-        _pausedByBackground = true;
-        unawaited(controller.togglePlay());
-      }
+      // 直接暂停：画中画已下线，不再需要「等小窗接管」的时间窗。
+      _pausedByBackground = true;
+      unawaited(controller.togglePlay());
       return;
     }
     if (state == AppLifecycleState.resumed) {
-      _pauseByBackgroundTimer?.cancel();
-      _pauseByBackgroundTimer = null;
       final wasPaused = _pausedByBackground;
       final rebuild = _wasBackgrounded;
       _pausedByBackground = false;
@@ -292,36 +261,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         if (wasPaused && !controller.playing && controller.error.isEmpty) {
           await controller.togglePlay();
         }
-        if (rebuild) _scheduleResumeHealthCheck();
       }());
     }
   }
 
-  /// 回前台后盯几秒：进度真的一点不动，就整条流重开。
-  ///
-  /// 重建解码器能救绝大多数情况，但系统偶尔会把这个进程的 VT 解码能力
-  /// 整个废掉，只能重开流。这里只在「在播 + 不在缓冲 + 没报错」且位置
-  /// 几乎没推进时才动手，正常看片不会误触发。
-  Timer? _resumeHealthTimer;
-
-  void _scheduleResumeHealthCheck() {
-    _resumeHealthTimer?.cancel();
-    if (_isDesktop) return;
-    final before = controller.position;
-    _resumeHealthTimer = Timer(const Duration(seconds: 6), () {
-      if (!mounted) return;
-      if (!controller.playing ||
-          controller.buffering ||
-          controller.loading ||
-          controller.error.isNotEmpty) {
-        return;
-      }
-      if (controller.position - before > const Duration(milliseconds: 800)) {
-        return;
-      }
-      unawaited(controller.reloadAfterStall());
-    });
-  }
 
   Future<void> _readInitialBrightness() async {
     try {
@@ -594,27 +537,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     controller.resumeAutoHide();
   }
 
-  /// 小窗按钮：AVPlayer 内核直接进；mpv（直连）要切转码，先问一句。
-  Future<void> _requestPip() async {
-    if (controller.isAvBackend) {
-      await controller.requestPip();
-      return;
-    }
-    if (!controller.canSwitchToPip) {
-      KazumiDialog.showToast(message: '本地文件暂不支持画中画');
-      return;
-    }
-    final confirmed = await showKzConfirm(
-      context: context,
-      title: '用画中画播放？',
-      message: '当前是直连播放。画中画需要切换为服务器转码，画面会重新加载几秒，'
-          '之后自动进入小窗。',
-      confirmLabel: '切换',
-    );
-    if (confirmed && mounted) {
-      await controller.switchToPipByTranscode();
-    }
-  }
 
   /// AirPlay：弹系统的输出路由选择器（原生通道里挂一个隐藏的
   /// AVRoutePickerView 触发）。AV / mpv 内核都吃系统路由，都能用。
@@ -1100,7 +1022,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   Widget _buildCachedSurface() {
     final s = controller.subtitleSettings;
     final key = [
-      controller.pipActive,
       controller.avTextureId,
       controller.videoWidth,
       controller.videoHeight,
@@ -1120,15 +1041,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   }
 
   Widget _buildGestureSurface() {
-    // 画中画激活时画面在系统小窗里，这层只是个「还在小窗播」的提示牌，
-    // 点一下退小窗回到 app 内播放。其余手势都不用响应。
-    if (controller.pipActive) {
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => unawaited(controller.stopPip()),
-        child: _buildPipPlaceholder(),
-      );
-    }
     final surface = _buildVideoSurface();
     if (_isDesktop) {
       return GestureDetector(
@@ -1275,40 +1187,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   /// 画中画激活时的占位层：画面在系统小窗里，这里只放提示。
   /// 整层可点（见 [_buildGestureSurface]），点按即退小窗回 app。
-  Widget _buildPipPlaceholder() {
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.picture_in_picture_alt_outlined,
-              size: 42,
-              color: Colors.white38,
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              '画中画播放中',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '视频已在小窗继续播放，点按任意处回到播放器',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.55),
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildLoading() {
     return const Center(
@@ -1515,16 +1393,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                   onTap: controller.toggleLock,
                 ),
                 const SizedBox(width: 8),
-                // 画中画（iOS）：AVPlayer 内核直接进小窗；mpv 内核（直连
-                // 原盘）点了会自动切转码、以 AVPlayer 重开再进小窗。
-                if (Platform.isIOS) ...[
-                  _CircleAction(
-                    icon: Icons.picture_in_picture_alt_rounded,
-                    iconSize: 18,
-                    onTap: () => unawaited(_requestPip()),
-                  ),
-                  const SizedBox(width: 8),
-                ],
                 _CircleAction(
                   icon: Icons.more_horiz_rounded,
                   iconSize: 19,

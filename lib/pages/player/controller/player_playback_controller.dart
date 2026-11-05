@@ -326,7 +326,12 @@ abstract class _PlayerPlaybackController with Store {
       // iOS 的 libmpv 构建没有可用的磁盘缓存后端：设了之后每次开播都会
       // 打一条 `Failed to create file cache`，然后退回内存缓存。既然拿
       // 不到好处，就别设——让它直接用内存缓存，日志也干净。
-      if (!Platform.isIOS) {
+      if (Platform.isIOS) {
+        // 光不设目录还不够：mpv 自己也会按默认策略尝试落盘缓存，同样会
+        // 失败一次（失败到退回内存之间还要多等一会儿，开播更慢）。
+        // 显式关掉，走纯内存。
+        await pp.setProperty("cache-on-disk", "no");
+      } else {
         await pp.setProperty("demuxer-cache-dir", await getPlayerTempPath());
       }
       if (!isCurrentPlayer(player)) {

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:XL/theme/ios_interaction.dart';
+import 'package:XL/theme/ios_tokens.dart';
 import 'package:XL/utils/constants.dart';
 
 /// 内容沉浸型主题：深色为主、大圆角、去边框、弱化分割线。
@@ -148,9 +149,11 @@ ThemeData buildImmersiveTheme({
   );
 
   return base.copyWith(
-    scaffoldBackgroundColor: dark
-        ? immersiveDarkScaffold
-        : immersiveLightScaffold,
+    // iOS 用 systemGroupedBackground（#F2F2F7 / #000000）；
+    // 其余平台保留 Pv 的 #F3F1F2 / #151417。
+    scaffoldBackgroundColor: kIosSystemized
+        ? (dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7))
+        : (dark ? immersiveDarkScaffold : immersiveLightScaffold),
     // 卡片一律无边框、无阴影、大圆角。
     cardTheme: CardThemeData(
       elevation: 0,
@@ -158,16 +161,34 @@ ThemeData buildImmersiveTheme({
       clipBehavior: Clip.antiAlias,
       // 卡片一律用 Pv 的白卡（深色 #1F1E22），不再跟 M3 的
       // surfaceContainerLow 走 —— 后者跟页面底色差得太少，整页糊成一片。
-      color: dark ? immersiveDarkCard : immersiveLightCard,
-      shape: const RoundedRectangleBorder(borderRadius: immersiveBorderRadius),
+      color: kIosSystemized
+          ? (dark ? const Color(0xFF1C1C1E) : Colors.white)
+          : (dark ? immersiveDarkCard : immersiveLightCard),
+      // insetGrouped 的圆角是 10，不是品牌的 16。
+      shape: RoundedRectangleBorder(
+        borderRadius: kIosSystemized
+            ? BorderRadius.circular(IosMetrics.groupedRadius)
+            : immersiveBorderRadius,
+      ),
     ),
     // AppBar 融入背景，滚动时不抬升高程。
     appBarTheme: AppBarTheme(
       elevation: 0,
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
-      backgroundColor: dark ? immersiveDarkScaffold : immersiveLightScaffold,
-      centerTitle: false,
+      backgroundColor: kIosSystemized
+          ? (dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7))
+          : (dark ? immersiveDarkScaffold : immersiveLightScaffold),
+      // iOS 导航栏标题：17 semibold、居中；其余平台保持原来的左对齐大标题。
+      centerTitle: kIosSystemized,
+      titleTextStyle: kIosSystemized
+          ? TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.41,
+              color: dark ? Colors.white : Colors.black,
+            )
+          : null,
     ),
     // 分割线压到近乎不可见。
     dividerTheme: DividerThemeData(

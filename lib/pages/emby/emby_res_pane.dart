@@ -17,9 +17,7 @@ import 'package:XL/pages/emby/emby_favorites_page.dart';
 import 'package:XL/pages/emby/emby_gesture_settings_page.dart';
 import 'package:XL/pages/emby/emby_stream_settings_page.dart';
 import 'package:XL/pages/emby/emby_vault_lock_settings_page.dart';
-import 'package:XL/pages/emby/emby_pip_settings_page.dart';
 import 'package:XL/services/emby/vault_lock.dart';
-import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_server_form_page.dart';
@@ -1153,30 +1151,6 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                   if (mounted) setState(() {});
                 },
               ),
-              if (Platform.isIOS)
-                PvRow(
-                  icon: Icons.picture_in_picture_alt_rounded,
-                  iconColor: const Color(0xFF34C759),
-                  title: '画中画',
-                  value: EmbyPipPrefs.autoEnter ? '自动开启' : '手动',
-                  onTap: () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const EmbyPipSettingsPage(),
-                      ),
-                    );
-                    if (mounted) setState(() {});
-                  },
-                  showDivider: false,
-                )
-              else
-                PvRow(
-                  icon: Icons.picture_in_picture_alt_rounded,
-                  iconColor: const Color(0xFF34C759),
-                  title: '画中画',
-                  subtitle: '仅 iOS 的 AVPlayer 内核支持',
-                  showDivider: false,
-                ),
             ],
           ),
           const PvGroupLabel('播放器'),
