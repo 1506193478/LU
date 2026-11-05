@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
 import 'package:XL/modules/emby/emby_models.dart';
@@ -9,6 +10,19 @@ import 'package:XL/pages/emby/emby_server_page.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_page.dart';
 import 'package:XL/pages/route_error_page.dart';
+
+/// 全屏模态转场：从底部推入。
+///
+/// iOS 的视频播放器都是模态呈现（Apple TV / Netflix / YouTube 一致），
+/// 用普通的水平推入会让人以为它只是"又一个普通页面"。`fullscreenDialog`
+/// 同时会关掉边缘右滑返回——模态页面本来就不该有，关掉是对的。
+class _FullscreenModalTransition implements PageTransition {
+  const _FullscreenModalTransition();
+
+  @override
+  Page<void> buildPage(LocalKey key, Widget child) =>
+      CupertinoPage<void>(key: key, fullscreenDialog: true, child: child);
+}
 
 /// Emby 媒体库。
 ///
@@ -50,6 +64,9 @@ final embyModule = createModule(
       )
       ..route(
         '/player',
+        // 播放器在 iOS 上是「全屏模态」：从底部推入 + 可下拉关闭，
+        // 不是普通的水平推入。这是视频类 App 的标准转场。
+        transition: const _FullscreenModalTransition(),
         child: (context, state) {
           final args = state.arguments;
           if (args is! EmbyPlaybackLaunch) {

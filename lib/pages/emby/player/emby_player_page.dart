@@ -18,6 +18,7 @@ import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
+import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -186,6 +187,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   void dispose() {
     _hudTimer?.cancel();
     _resumeHealthTimer?.cancel();
+    _pauseByBackgroundTimer?.cancel();
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -233,6 +235,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   /// 只有这种才需要重建解码器——VT 会话是在进后台时被系统回收的。
   bool _wasBackgrounded = false;
 
+  /// 进后台后的「延迟暂停」。留给原生侧启动画中画的时间窗。
+  Timer? _pauseByBackgroundTimer;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_isDesktop) return;
@@ -241,11 +246,36 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       if (_pausedByBackground) return;
       if (controller.backgroundAudio || controller.pipActive) return;
       if (!controller.playing) return;
-      _pausedByBackground = true;
-      unawaited(controller.togglePlay());
+      // 关键：**不能立刻暂停**。
+      //
+      // 画中画的启动条件是「视频正在播」的那一刻。之前这里进后台就
+      // togglePlay()，系统看到的是「已暂停」，于是
+      // canStartPictureInPictureAutomaticallyFromInline 再好也不会触发——
+      // 这是「切走 App 拉不起小窗」的第二个原因。
+      //
+      // 给原生侧留 1.2 秒去 startPictureInPicture：起起来了就交给小窗
+      // 继续播，没起来再暂停省电。mpv 内核没有 AVPlayerLayer，等也没用，
+      // 直接暂停。
+      _pauseByBackgroundTimer?.cancel();
+      if (controller.isAvBackend && EmbyPipPrefs.autoEnter) {
+        _pauseByBackgroundTimer = Timer(
+          const Duration(milliseconds: 1200),
+          () {
+            if (!mounted) return;
+            if (controller.pipActive || !controller.playing) return;
+            _pausedByBackground = true;
+            unawaited(controller.togglePlay());
+          },
+        );
+      } else {
+        _pausedByBackground = true;
+        unawaited(controller.togglePlay());
+      }
       return;
     }
     if (state == AppLifecycleState.resumed) {
+      _pauseByBackgroundTimer?.cancel();
+      _pauseByBackgroundTimer = null;
       final wasPaused = _pausedByBackground;
       final rebuild = _wasBackgrounded;
       _pausedByBackground = false;

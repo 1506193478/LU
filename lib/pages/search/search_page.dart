@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/appbar/sys_app_bar.dart';
 import 'package:XL/bean/card/network_img_layer.dart';
 import 'package:XL/bean/dialog/adaptive_bottom_sheet.dart';

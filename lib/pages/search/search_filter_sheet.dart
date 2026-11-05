@@ -336,7 +336,7 @@ class _SearchFilterSheetState extends State<_SearchFilterSheet> {
                 initiallyExpanded:
                     _draft.scoreRange != null || _draft.rankRange != null,
                 children: [
-                  SwitchListTile(
+                  KzSwitchTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('限定评分'),
                     value: _draft.scoreRange?.isValid == true,
@@ -350,7 +350,7 @@ class _SearchFilterSheetState extends State<_SearchFilterSheet> {
                     _buildScoreRangeSlider(_draft.scoreRange!),
                     Text('评分 ${_draft.scoreRange!.toToken()}'),
                   ],
-                  SwitchListTile(
+                  KzSwitchTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('限定排名'),
                     value: _draft.rankRange?.isValid == true,
@@ -376,13 +376,13 @@ class _SearchFilterSheetState extends State<_SearchFilterSheet> {
                 ].join(' · '),
                 initiallyExpanded: _notShowWatched || _notShowAbandoned,
                 children: [
-                  SwitchListTile(
+                  KzSwitchTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('隐藏看过的番剧'),
                       value: _notShowWatched,
                       onChanged: (value) =>
                           setState(() => _notShowWatched = value)),
-                  SwitchListTile(
+                  KzSwitchTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('隐藏抛弃的番剧'),
                       value: _notShowAbandoned,

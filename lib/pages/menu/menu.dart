@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter/services.dart';
+import 'package:XL/utils/motion.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/navigation/glass_tab_bar.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
@@ -107,6 +108,8 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     if (outlet == null) return;
     outlet.navigate('/tab${menu.getPath(index)}/');
     setState(() => _selectedIndex = index);
+    // iOS 的 tab 切换有一记很轻的 selection feedback，是"跟手"的一部分。
+    KazumiHaptics.select();
   }
 
   void _openDownloads() {

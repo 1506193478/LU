@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/settings/settings_list.dart';
 import 'package:XL/bean/widget/state_presentation.dart';
@@ -228,7 +229,7 @@ class _BangumiSyncPageState extends State<BangumiSyncPage> {
                           ),
                         ),
                         const Divider(indent: 16, endIndent: 16),
-                        SwitchListTile(
+                        KzSwitchTile(
                           title: const Text('同步结果提示'),
                           subtitle: const Text('修改追番状态后显示同步结果'),
                           value: showToast,

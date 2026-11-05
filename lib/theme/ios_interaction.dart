@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:XL/utils/motion.dart';
 
 /// 是否按 iOS 原生交互渲染。
 ///
@@ -25,35 +25,6 @@ const Color kCupertinoBlue = Color(0xFF007AFF);
 
 /// iOS 系统红，破坏性操作用它。
 const Color kCupertinoRed = Color(0xFFFF3B30);
-
-// ---------------------------------------------------------------- 触感反馈
-
-/// 触感反馈统一入口。
-///
-/// iOS 的「点一下」是 selectionClick（极轻），「触发动作」是 lightImpact；
-/// Android 只有系统 haptic，两者语义不同，混用会显得"手机会抖"。
-class KzHaptics {
-  KzHaptics._();
-
-  /// 选择变化（切 tab、选菜单项）。
-  static void select() {
-    if (kIsCupertinoPlatform) {
-      unawaited(HapticFeedback.selectionClick());
-    } else {
-      unawaited(HapticFeedback.lightImpact());
-    }
-  }
-
-  /// 轻动作（开关、按钮）。
-  static void light() {
-    unawaited(HapticFeedback.lightImpact());
-  }
-
-  /// 破坏性确认（删除）。
-  static void warning() {
-    unawaited(HapticFeedback.mediumImpact());
-  }
-}
 
 // ---------------------------------------------------------------- 加载指示
 
@@ -152,7 +123,12 @@ class KzSwitch extends StatelessWidget {
         child: CupertinoSwitch(
           value: value,
           activeTrackColor: activeColor ?? kCupertinoGreen,
-          onChanged: onChanged,
+          onChanged: onChanged == null
+              ? null
+              : (v) {
+                  KazumiHaptics.select();
+                  onChanged!(v);
+                },
         ),
       ),
     );
@@ -743,6 +719,96 @@ class _KzPressableState extends State<KzPressable> {
         duration: const Duration(milliseconds: 90),
         curve: Curves.easeOut,
         child: widget.child,
+      ),
+    );
+  }
+}
+
+/// iOS 风格设置行：标题左对齐、开关右对齐、整行可点。
+///
+/// 替掉 Material 的 `SwitchListTile`——那个是「左侧密集排版 + 整行涟漪」，
+/// 而且行高和缩进跟 iOS 设置页差得远。这里保持和项目 PvRow 一致的密度。
+class KzSwitchTile extends StatelessWidget {
+  const KzSwitchTile({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+    this.contentPadding = EdgeInsets.zero,
+    this.secondary,
+  });
+
+  final Widget title;
+  final Widget? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final EdgeInsetsGeometry contentPadding;
+
+  /// 左侧图标（对应 Material 的 secondary）。
+  final Widget? secondary;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsCupertinoPlatform) {
+      return SwitchListTile(
+        contentPadding: contentPadding,
+        title: title,
+        subtitle: subtitle,
+        secondary: secondary,
+        value: value,
+        onChanged: onChanged,
+      );
+    }
+    final enabled = onChanged != null;
+    return KzPressable(
+      onTap: enabled ? () => onChanged!(!value) : null,
+      child: Padding(
+        padding: contentPadding,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(
+            children: [
+              if (secondary != null) ...[
+                secondary!,
+                const SizedBox(width: 12),
+              ],
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DefaultTextStyle.merge(
+                      style: TextStyle(
+                        fontSize: 15.5,
+                        color: enabled
+                            ? Theme.of(context).colorScheme.onSurface
+                            : Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: 0.4),
+                      ),
+                      child: title,
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      DefaultTextStyle.merge(
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.5),
+                        ),
+                        child: subtitle!,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              KzSwitch(value: value, onChanged: onChanged),
+            ],
+          ),
+        ),
       ),
     );
   }

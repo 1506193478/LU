@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/widget/loading_indicator.dart';
 import 'package:XL/pages/plugin_editor/rule_management_widgets.dart';
@@ -613,14 +614,14 @@ class _PluginEditorPageState extends State<PluginEditorPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const EditorSubheader(label: _RuleEditorText.groupBehavior),
-          SwitchListTile(
+          KzSwitchTile(
             contentPadding: EdgeInsets.zero,
             title: const Text(_RuleEditorText.legacyParser),
             subtitle: const Text(_RuleEditorText.legacyParserDesc),
             value: useLegacyParser,
             onChanged: (value) => setState(() => useLegacyParser = value),
           ),
-          SwitchListTile(
+          KzSwitchTile(
             contentPadding: EdgeInsets.zero,
             title: const Text(_RuleEditorText.adBlocker),
             subtitle: const Text(_RuleEditorText.adBlockerDesc),
@@ -641,7 +642,7 @@ class _PluginEditorPageState extends State<PluginEditorPage> {
           ),
           if (searchMode == RuleMode.xpath) ...[
             const EditorSubheader(label: _RuleEditorText.groupAntiCrawler),
-            SwitchListTile(
+            KzSwitchTile(
               contentPadding: EdgeInsets.zero,
               title: const Text(_RuleEditorText.antiCrawlerEnable),
               subtitle: const Text(_RuleEditorText.antiCrawlerEnableDesc),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 
 import 'package:XL/bean/appbar/sys_app_bar.dart';

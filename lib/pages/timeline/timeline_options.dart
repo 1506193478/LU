@@ -105,17 +105,17 @@ class _TimelineOptionsSheet extends StatelessWidget {
                 ContentSection.group(
                   title: '显示范围',
                   children: [
-                    SwitchListTile(
+                    KzSwitchTile(
                       title: const Text('隐藏看过的番剧'),
                       value: controller.notShowWatchedBangumis,
                       onChanged: controller.setNotShowWatchedBangumis,
                     ),
-                    SwitchListTile(
+                    KzSwitchTile(
                       title: const Text('隐藏抛弃的番剧'),
                       value: controller.notShowAbandonedBangumis,
                       onChanged: controller.setNotShowAbandonedBangumis,
                     ),
-                    SwitchListTile(
+                    KzSwitchTile(
                       title: const Text('只看正在追的番剧'),
                       value: controller.onlyShowWatchingBangumis,
                       onChanged: controller.setOnlyShowWatchingBangumis,

@@ -24,6 +24,16 @@ import app_links
     // 临时放大图层，结果退后台再回来会掉帧甚至闪退。现在自动小窗完全交给
     // 系统的 canStartPictureInPictureAutomaticallyFromInline，这里只负责
     // 恢复渲染，不碰播放状态。
+    // 离开前台（上滑回主屏 / 下拉通知中心 / 来电）前主动拉起小窗。
+    //
+    // 3.9.45 在这里失败过，但那次是「临时把 1x1 宿主放大」的 hack 导致的
+    // 双路渲染掉帧，不是钩子本身的问题。现在宿主常驻全屏、只在最底层，
+    // 这里只调 startPictureInPicture，不碰渲染管线。
+    override func applicationWillResignActive(_ application: UIApplication) {
+        super.applicationWillResignActive(application)
+        AvPlayerEnginePlugin.pipTryAutoStart()
+    }
+
     override func applicationDidBecomeActive(_ application: UIApplication) {
         super.applicationDidBecomeActive(application)
         AvPlayerEnginePlugin.appBecameActive()
@@ -221,6 +231,17 @@ import app_links
         }
     }
 
+    /// 离开前台前主动拉起小窗。
+    ///
+    /// 不能只靠 `canStartPictureInPictureAutomaticallyFromInline`：系统要在
+    /// 极短的时间窗里判定「有一层正在播放的 inline 视频」，时序稍差就静默
+    /// 不触发。resignActive 这一瞬间还没真正进后台、播放仍在继续，是主动
+    /// start 成功率最高的时机。
+    static func pipTryAutoStart() {
+        guard autoPipEnabled, let instance = shared else { return }
+        instance.tryAutoStartPip()
+    }
+
     func tryAutoStartPip() {
         guard let pip = pipController,
               AvPlayerEnginePlugin.autoPipEnabled,
@@ -234,10 +255,8 @@ import app_links
 
     /// 启动小窗。
     ///
-    /// 这里**不再**把宿主临时放大到全屏去「骗」系统判定：那一招会让
-    /// AVPlayer 同时渲染全屏图层 + Flutter 纹理，4K 片直接掉帧，退后台
-    /// 再回来还可能因为图层/纹理状态错乱崩掉。系统说不可用就是不可用，
-    /// 由调用方提示用户，不折腾渲染管线。
+    /// 宿主层本身就是全屏的（见 setupPip），这里只做「等系统就绪」的轮询，
+    /// 不再临时改图层尺寸——改尺寸会让 AVPlayer 重排渲染管线，画面会闪。
     private func startPipIfPossible(attempt: Int = 0) {
         guard let pip = pipController, !pip.isPictureInPictureActive else { return }
         if pip.isPictureInPicturePossible {
@@ -469,17 +488,21 @@ import app_links
               let window = windowScene.windows.first else {
             return
         }
-        // 1x1 pt 贴右下角落：可见、在屏幕内、不挡任何手势。
-        let host = UIView(
-            frame: CGRect(
-                x: window.bounds.width - 1.5,
-                y: window.bounds.height - 1.5,
-                width: 1,
-                height: 1
-            )
-        )
+        // 尺寸和层级是画中画能不能起来的**关键**。
+        //
+        // 之前为了不挡手势，把宿主做成贴在右下角的 1x1 pt。系统判定
+        // 「屏幕上没有一块足够大的 inline 视频」，于是
+        // `isPictureInPicturePossible` 一直是 false——手动点小窗按钮失败，
+        // 退后台自动触发更不可能。这就是前几版一直「拉不起画中画」的真正
+        // 原因，跟开关、跟 canStartPictureInPictureAutomatically 都没关系。
+        //
+        // 现在：全屏尺寸 + 插到 window 最底层。Flutter 的页面把它整个盖住，
+        // 用户完全看不见；对系统来说它就是屏幕上正在播放的一层。
+        // isUserInteractionEnabled = false 保证它不抢任何手势。
+        let host = UIView(frame: window.bounds)
         host.isUserInteractionEnabled = false
-        window.addSubview(host)
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        window.insertSubview(host, at: 0)
         let layer = AVPlayerLayer(player: newPlayer)
         layer.frame = host.bounds
         layer.videoGravity = .resizeAspect
