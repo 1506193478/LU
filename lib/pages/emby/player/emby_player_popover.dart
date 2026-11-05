@@ -9,22 +9,40 @@ import 'package:flutter/services.dart';
 /// 既挡画面又和「点哪个按钮就在哪弹」的心理预期对不上。这里的做法是：
 ///
 ///   * 从被点的按钮（anchor）长出来，右边缘对齐、落在按钮下方；
-///   * 卡片是浅色材质（圆角 14 / 发丝分隔线 / 强投影），跟 iOS 系统菜单一致；
+///   * 卡片是 iOS 深色外观的 `.systemMaterialDark`（圆角 13 / 发丝分隔线 /
+///     选中项在行尾打勾），也就是全黑播放器里 UIMenu 本来的样子；
 ///   * 展开用 spring 感（easeOutBack 轻微过冲）+ 淡入，焦点对准锚点那一角，
 ///     收起快而干脆；
 ///   * 打开、选中各给一次触觉。
 
-/// 菜单材质色。iOS 的 UIMenu 是毛玻璃，视频在下面，这里用高不透明度浅色 +
-/// 一层真实模糊（对解码画面无效，但对覆盖在上面的渐变遮罩有效），足够像。
-const Color embyMenuBg = Color(0xFFF7F7F7);
-const Color embyMenuInk = Color(0xFF101013);
-const Color embyMenuInkSecondary = Color(0xFF8A8A8E);
-const Color embyMenuHeaderBg = Color(0x14000000);
-const Color embyMenuLine = Color(0x24000000);
-const Color embyMenuPressed = Color(0x0F000000);
-const Color embyMenuChecked = Color(0x0D3C3C43);
+/// 菜单材质。
+///
+/// 这里以前是浅色卡片（#F7F7F7），理由是「浅色浮在暗画面上更容易分辨」。
+/// 实际观感正好相反：全黑的播放器画面里突然铺一块近乎纯白的板子，白得刺眼；
+/// 而 iOS 自己的 UIMenu 是**跟随系统外观**的，深色外观下就是
+/// `.systemMaterialDark` —— 一块约 95% 不透明的 #1C1C1E。浅色卡片恰恰是
+/// 最不 iOS 的那个选择。
+///
+/// 下面这几个色值直接对着 HIG 的语义色取：
+///   label / secondaryLabel / tertiaryLabel / separator / systemBlue / systemRed
+/// 的深色外观值，所以换主题不用再单独调一遍。
+const Color embyMenuBg = Color(0xF21C1C1E);
+const Color embyMenuInk = Color(0xFFFFFFFF);
+const Color embyMenuInkSecondary = Color(0x99EBEBF5);
+const Color embyMenuInkTertiary = Color(0x66EBEBF5);
+const Color embyMenuLine = Color(0x2EFFFFFF);
+const Color embyMenuPressed = Color(0x14FFFFFF);
+const Color embyMenuAccent = Color(0xFF0A84FF);
+const Color embyMenuDanger = Color(0xFFFF453A);
+
+/// 菜单卡片的圆角，和 UIMenu 一致。
+const double _menuRadius = 13;
 
 /// 一行菜单。
+///
+/// 度量对着 UIMenu：行高 44 起、左右 16、正文 16.5pt、选中项**在行尾打勾**
+/// 且不改变行底色。以前是「左边常驻勾位 + 选中整行压深 + 文字加粗」，那是
+/// Material 的 CheckboxListTile 语汇，iOS 从来不是这么选的。
 class EmbyMenuRow extends StatelessWidget {
   const EmbyMenuRow({
     super.key,
@@ -36,12 +54,21 @@ class EmbyMenuRow extends StatelessWidget {
     this.destructive = false,
     this.enabled = true,
     this.onTap,
+    this.showDivider = true,
+    this.trailing,
   });
 
   final String label;
 
   /// 副标题（编码信息、当前值这类），单独一行、字号小一号。
   final String? detail;
+
+  /// 行尾的值（章节时间、音量档位这种）。
+  ///
+  /// 和 [detail] 的区别就是 iOS 的两种排版：detail 是标题下面的灰色小字
+  /// （「解码 / 硬解码」这种主从关系），trailing 是同一行贴右边的值
+  /// （「章节 1 ───── 00:00」这种键值关系）。
+  final String? trailing;
   final IconData? icon;
   final bool checked;
 
@@ -51,40 +78,31 @@ class EmbyMenuRow extends StatelessWidget {
   final bool enabled;
   final VoidCallback? onTap;
 
+  /// 组内最后一行不画分隔线，否则会和卡片圆角切出一道缺口。
+  final bool showDivider;
+
   @override
   Widget build(BuildContext context) {
-    final Color ink = destructive
-        ? const Color(0xFFD93025)
-        : (enabled ? embyMenuInk : embyMenuInkSecondary);
+    final Color ink = !enabled
+        ? embyMenuInkSecondary
+        : (destructive ? embyMenuDanger : embyMenuInk);
     return _MenuPress(
       onTap: enabled ? onTap : null,
       child: Container(
-        constraints: const BoxConstraints(minHeight: 48),
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        // 行自带发丝线：面板内部是一个整块 Column，外层插不进分隔线，
-        // 每行自己画就不会漏。最后一行多出的那 0.5px 被卡片圆角裁掉了。
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
         decoration: BoxDecoration(
-          color: checked ? embyMenuChecked : Colors.transparent,
-          border: const Border(
-            bottom: BorderSide(color: embyMenuLine, width: 0.5),
-          ),
+          border: showDivider
+              ? const Border(
+                  bottom: BorderSide(color: embyMenuLine, width: 0.5),
+                )
+              : null,
         ),
         child: Row(
           children: [
-            // 勾位常驻，勾不勾文字都对齐在同一条竖线上，切换时不会左右跳。
-            SizedBox(
-              width: 22,
-              child: checked
-                  ? const Icon(
-                      Icons.check_rounded,
-                      size: 17,
-                      color: embyMenuInk,
-                    )
-                  : null,
-            ),
             if (icon != null) ...[
-              Icon(icon, size: 17, color: ink),
-              const SizedBox(width: 10),
+              Icon(icon, size: 18, color: ink),
+              const SizedBox(width: 12),
             ],
             Expanded(
               child: Column(
@@ -97,10 +115,11 @@ class EmbyMenuRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: ink,
-                      fontSize: 15.5,
-                      height: 1.25,
-                      fontWeight: checked ? FontWeight.w500 : FontWeight.w400,
-                      letterSpacing: -0.1,
+                      fontSize: 16.5,
+                      height: 1.2,
+                      // iOS 的正文字距是轻微收紧的，不写这一条看起来会「散」。
+                      letterSpacing: -0.2,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                   if (detail != null && detail!.trim().isNotEmpty) ...[
@@ -111,20 +130,40 @@ class EmbyMenuRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: embyMenuInkSecondary,
-                        fontSize: 12,
+                        fontSize: 12.5,
                         height: 1.3,
+                        letterSpacing: -0.1,
                       ),
                     ),
                   ],
                 ],
               ),
             ),
-            if (chevron) ...[
+            if (trailing != null && trailing!.trim().isNotEmpty) ...[
+              const SizedBox(width: 10),
+              Text(
+                trailing!,
+                style: TextStyle(
+                  color: ink.withValues(alpha: 0.55),
+                  fontSize: 14,
+                  letterSpacing: -0.1,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+            if (checked) ...[
+              const SizedBox(width: 10),
+              const Icon(
+                Icons.check_rounded,
+                size: 18,
+                color: embyMenuAccent,
+              ),
+            ] else if (chevron) ...[
               const SizedBox(width: 8),
               const Icon(
                 Icons.chevron_right_rounded,
-                size: 18,
-                color: embyMenuInkSecondary,
+                size: 16,
+                color: embyMenuInkTertiary,
               ),
             ],
           ],
@@ -134,29 +173,57 @@ class EmbyMenuRow extends StatelessWidget {
   }
 }
 
-/// 分组标题：灰底、居中的小字，和 iOS 菜单里的分组头一样。
+/// 分组标题。
+///
+/// 两种形态，对应 iOS 的两种真实用法：
+///   * 默认（页面标题）：卡片顶部一行居中的小字，下面一条发丝线 ——
+///     iOS 分享面板的头部就是这样；
+///   * [inline]（组与组之间）：**左对齐**的小字 + 上方一条发丝线。
+///
+/// 以前两种都用「整条灰底横幅」，那是 Material 的 section header，iOS 里
+/// 没有这个元素——截图里那两块灰条就是它。
 class EmbyMenuHeader extends StatelessWidget {
-  const EmbyMenuHeader(this.label, {super.key});
+  const EmbyMenuHeader(
+    this.label, {
+    super.key,
+    this.inline = false,
+    this.topLine = true,
+  });
 
   final String label;
+  final bool inline;
+
+  /// 组标题上面那条发丝线。页面第一组不画——上面已经有页面标题的分隔线了，
+  /// 两条贴在一起会变成一条粗线。
+  final bool topLine;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(minHeight: 34),
-      alignment: Alignment.center,
-      color: embyMenuHeaderBg,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      child: Text(
-        label,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: embyMenuInkSecondary,
-          fontSize: 12.5,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 0.1,
-        ),
+    const TextStyle style = TextStyle(
+      color: embyMenuInkSecondary,
+      fontSize: 13,
+      fontWeight: FontWeight.w400,
+      letterSpacing: -0.05,
+    );
+    if (inline) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (topLine) Container(height: 0.5, color: embyMenuLine),
+          Padding(
+            padding: EdgeInsets.fromLTRB(16, topLine ? 12 : 10, 16, 4),
+            child: Text(label, textAlign: TextAlign.left, style: style),
+          ),
+        ],
+      );
+    }
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+        child: Text(label, textAlign: TextAlign.center, style: style),
       ),
     );
   }
@@ -172,7 +239,7 @@ class EmbyMenuInfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
+      padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -192,8 +259,9 @@ class EmbyMenuInfoRow extends StatelessWidget {
               value,
               style: const TextStyle(
                 color: embyMenuInk,
-                fontSize: 12.5,
+                fontSize: 13,
                 height: 1.4,
+                letterSpacing: -0.1,
               ),
             ),
           ),
@@ -443,18 +511,18 @@ class _MenuCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(_menuRadius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 34,
-            spreadRadius: 2,
-            offset: const Offset(0, 14),
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 44,
+            spreadRadius: 0,
+            offset: const Offset(0, 18),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(_menuRadius),
         // 不做 BackdropFilter：视频是原生纹理，模糊对它无效，只会白掉一层
         // layer 的重绘开销。iOS 菜单的质感靠高不透明度底色 + 强投影就够。
         child: Material(
@@ -538,7 +606,7 @@ class _MenuBackRow extends StatelessWidget {
       onTap: onTap,
       child: Container(
         constraints: const BoxConstraints(minHeight: 44),
-        padding: const EdgeInsets.fromLTRB(10, 8, 14, 8),
+        padding: const EdgeInsets.fromLTRB(10, 10, 16, 10),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
         ),
@@ -547,14 +615,17 @@ class _MenuBackRow extends StatelessWidget {
             const Icon(
               Icons.chevron_left_rounded,
               size: 22,
-              color: embyMenuInkSecondary,
+              color: embyMenuAccent,
             ),
             Expanded(
               child: Text(
                 title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: embyMenuInkSecondary,
-                  fontSize: 14.5,
+                  color: embyMenuAccent,
+                  fontSize: 16.5,
+                  letterSpacing: -0.2,
                 ),
               ),
             ),

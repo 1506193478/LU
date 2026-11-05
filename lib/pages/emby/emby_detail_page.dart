@@ -131,8 +131,6 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
 
   /// 选中集的播放信息缓存：itemId -> mediaSource（可能为 null = 加载失败）。
   final Map<String, EmbyMediaSource?> _mediaCache = {};
-  final Map<String, GlobalKey> _cardKeys = {};
-  final Map<String, GlobalKey> _numKeys = {};
 
   @override
   void initState() {
@@ -209,26 +207,13 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
     if (index < 0 || index >= episodes.length) return;
     setState(() => _picked = index);
     _ensureMedia(episodes[index]);
-    // 集卡和集号圆点都滚到看得见的位置。
-    final id = episodes[index].id;
-    final cardCtx = _cardKeys[id]?.currentContext;
-    if (cardCtx != null) {
-      Scrollable.ensureVisible(
-        cardCtx,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-        alignment: 0.08,
-      );
-    }
-    final numCtx = _numKeys[id]?.currentContext;
-    if (numCtx != null) {
-      Scrollable.ensureVisible(
-        numCtx,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
-        alignment: 0.5,
-      );
-    }
+    // 集号圆点和集卡各自监听 picked 的变化，在自己的滚动视图里滚到选中项
+    // （见 `_EpisodeNums` / `_EpisodeRail`）。
+    //
+    // 这里原来用 GlobalKey + Scrollable.ensureVisible，但两个横滑列表都是
+    // 懒构建的：第 30 集那张卡还没被 build，`key.currentContext` 是 null，
+    // 于是「点集号 → 下面不跳」——功能等于没有。换成按等宽算偏移量后，
+    // 不管目标项有没有建出来都能滚过去。
   }
 
   /// 选中集变了就把它的媒体流信息拉回来（媒体信息胶囊用）。
@@ -477,8 +462,6 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
                 favorite: _favorite,
                 played: _played,
                 mediaCache: _mediaCache,
-                cardKeys: _cardKeys,
-                numKeys: _numKeys,
                 onToggleOverview: () =>
                     setState(() => _overviewExpanded = !_overviewExpanded),
                 onToggleOrder: _toggleOrder,
@@ -595,8 +578,6 @@ class _InfoColumn extends StatelessWidget {
     required this.favorite,
     required this.played,
     required this.mediaCache,
-    required this.cardKeys,
-    required this.numKeys,
     required this.onToggleOverview,
     required this.onToggleOrder,
     required this.onSwitchSeason,
@@ -621,8 +602,6 @@ class _InfoColumn extends StatelessWidget {
   final bool favorite;
   final bool played;
   final Map<String, EmbyMediaSource?> mediaCache;
-  final Map<String, GlobalKey> cardKeys;
-  final Map<String, GlobalKey> numKeys;
   final VoidCallback onToggleOverview;
   final VoidCallback onToggleOrder;
   final ValueChanged<String> onSwitchSeason;
@@ -775,7 +754,6 @@ class _InfoColumn extends StatelessWidget {
                 episodes: episodes,
                 order: _orderOf(episodes.length),
                 picked: safePicked,
-                numKeys: numKeys,
                 onPick: (i) => onPick(episodes, i),
               ),
               // —— 集卡横滑
@@ -786,7 +764,6 @@ class _InfoColumn extends StatelessWidget {
                 picked: safePicked,
                 server: server,
                 inset: inset,
-                cardKeys: cardKeys,
                 onPick: (i) => onPick(episodes, i),
               ),
             ],
@@ -1273,37 +1250,90 @@ class _SeasonBar extends StatelessWidget {
 }
 
 /// 集号圆点横滑：34px 圆钮，选中白底深字并放大 1.06。
-class _EpisodeNums extends StatelessWidget {
+class _EpisodeNums extends StatefulWidget {
   const _EpisodeNums({
     required this.episodes,
     required this.order,
     required this.picked,
-    required this.numKeys,
     required this.onPick,
   });
 
   final List<EmbyItem> episodes;
   final List<int> order;
   final int picked;
-  final Map<String, GlobalKey> numKeys;
   final ValueChanged<int> onPick;
+
+  @override
+  State<_EpisodeNums> createState() => _EpisodeNumsState();
+}
+
+class _EpisodeNumsState extends State<_EpisodeNums> {
+  /// 每个圆点占的宽度：直径 34 + 右边距 8。固定值，所以偏移量可以直接算出来，
+  /// 不需要等目标项被 build。
+  static const double _extent = 42;
+  static const double _dot = 34;
+
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    // 从播放记录进来时选中集可能在第 30 集，首帧就把它滚到中间。
+    _scrollToPicked(animate: false);
+  }
+
+  @override
+  void didUpdateWidget(covariant _EpisodeNums old) {
+    super.didUpdateWidget(old);
+    if (old.picked != widget.picked || old.order.length != widget.order.length) {
+      _scrollToPicked();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scrollToPicked({bool animate = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final int pos = widget.order.indexOf(widget.picked);
+      if (pos < 0) return;
+      final double viewport = _scroll.position.viewportDimension;
+      final double target = (pos * _extent - (viewport - _dot) / 2).clamp(
+        0.0,
+        _scroll.position.maxScrollExtent,
+      );
+      if (!animate) {
+        _scroll.jumpTo(target);
+        return;
+      }
+      _scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 34,
       child: ListView(
+        controller: _scroll,
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         children: [
-          for (final int i in order)
+          for (final int i in widget.order)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _EpNumButton(
-                key: numKeys[episodes[i].id],
                 label: '${i + 1}',
-                selected: i == picked,
-                onTap: () => onPick(i),
+                selected: i == widget.picked,
+                onTap: () => widget.onPick(i),
               ),
             ),
         ],
@@ -1314,7 +1344,6 @@ class _EpisodeNums extends StatelessWidget {
 
 class _EpNumButton extends StatelessWidget {
   const _EpNumButton({
-    super.key,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -1377,14 +1406,13 @@ class _EpNumButton extends StatelessWidget {
 }
 
 /// 集卡横滑：47% 宽露边、16:9 图、白圈选中、下面集号标题 + 三行简介。
-class _EpisodeRail extends StatelessWidget {
+class _EpisodeRail extends StatefulWidget {
   const _EpisodeRail({
     required this.episodes,
     required this.order,
     required this.picked,
     required this.server,
     required this.inset,
-    required this.cardKeys,
     required this.onPick,
   });
 
@@ -1393,8 +1421,63 @@ class _EpisodeRail extends StatelessWidget {
   final int picked;
   final EmbyServer server;
   final double inset;
-  final Map<String, GlobalKey> cardKeys;
   final ValueChanged<int> onPick;
+
+  @override
+  State<_EpisodeRail> createState() => _EpisodeRailState();
+}
+
+class _EpisodeRailState extends State<_EpisodeRail> {
+  /// 卡片间距，和下面 `Padding(right: 12)` 保持一致。
+  static const double _gap = 12;
+
+  final ScrollController _scroll = ScrollController();
+
+  /// 最近一次布局算出来的卡片宽度。滚动偏移要按它算，但它只有 LayoutBuilder
+  /// 里才知道，所以先记下来。
+  double _cardWidth = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollToPicked(animate: false);
+  }
+
+  @override
+  void didUpdateWidget(covariant _EpisodeRail old) {
+    super.didUpdateWidget(old);
+    if (old.picked != widget.picked || old.order.length != widget.order.length) {
+      _scrollToPicked();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scrollToPicked({bool animate = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients || _cardWidth <= 0) return;
+      final int pos = widget.order.indexOf(widget.picked);
+      if (pos < 0) return;
+      // 让选中那张的左边缘正好贴住列表左边距，和它平时「第一张」的位置一致。
+      final double target = (pos * (_cardWidth + _gap)).clamp(
+        0.0,
+        _scroll.position.maxScrollExtent,
+      );
+      if (!animate) {
+        _scroll.jumpTo(target);
+        return;
+      }
+      _scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1409,22 +1492,25 @@ class _EpisodeRail extends StatelessWidget {
           final double cardWidth = desktop
               ? 320
               : (constraints.maxWidth * 0.62).clamp(180.0, 300.0);
+          _cardWidth = cardWidth;
           return ListView(
+            controller: _scroll,
             scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(horizontal: inset),
+            padding: EdgeInsets.symmetric(horizontal: widget.inset),
             children: [
-              for (final int i in order)
+              for (final int i in widget.order)
                 Padding(
-                  padding: EdgeInsets.only(right: i == order.last ? 0 : 12),
+                  padding: EdgeInsets.only(
+                    right: i == widget.order.last ? 0 : _gap,
+                  ),
                   child: SizedBox(
                     width: cardWidth,
                     child: _EpisodeCard(
-                      key: cardKeys[episodes[i].id],
-                      item: episodes[i],
-                      server: server,
+                      item: widget.episodes[i],
+                      server: widget.server,
                       index: i,
-                      selected: i == picked,
-                      onPick: () => onPick(i),
+                      selected: i == widget.picked,
+                      onPick: () => widget.onPick(i),
                     ),
                   ),
                 ),
@@ -1442,7 +1528,6 @@ class _EpisodeRail extends StatelessWidget {
 /// 三行简介；整张卡有一层浅色底，和页面拉开层次。选中时描边换成强调色。
 class _EpisodeCard extends StatelessWidget {
   const _EpisodeCard({
-    super.key,
     required this.item,
     required this.server,
     required this.index,

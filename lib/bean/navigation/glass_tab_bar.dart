@@ -177,7 +177,10 @@ class KazumiTabBar extends StatelessWidget {
                                   selected: index == selectedIndex,
                                   onTap: () {
                                     if (index == selectedIndex) return;
-                                    KazumiHaptics.select();
+                                    // 触觉只在 [_selectDestination] 里发一次。
+                                    // 这里以前也发一次，于是点一下 tab 会连着
+                                    // 震两下（selectionClick 两次），手感就是
+                                    // 「点一下、抖两下」。
                                     onSelected(index);
                                   },
                                 ),

@@ -2207,6 +2207,7 @@ class _CircleAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _PressScale(
+      dim: true,
       onTap: enabled && onTap != null
           ? () {
               _recordAnchor(context);
@@ -2214,24 +2215,25 @@ class _CircleAction extends StatelessWidget {
             }
           : null,
       onLongPress: enabled ? onLongPress : null,
-      child: Container(
+      child: SizedBox(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          // 顶栏这几个小键只是辅助，底子压到 0.08 并与描边一起做「玻璃片」，
-          // 比原来的 0.14 实心圆轻得多，不抢画面。
-          color: Colors.white.withValues(alpha: 0.08),
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.14),
-            width: 0.8,
-          ),
-        ),
         child: Center(
           child: Icon(
             icon,
             size: iconSize,
             color: Colors.white.withValues(alpha: enabled ? 0.94 : 0.32),
+            // iOS 播放器的控件是**裸字形**：没有圆底板、没有描边，只靠一圈
+            // 很淡的投影压在亮画面上。这里原来画的是 8% 白底 + 白描边的
+            // 圆形「玻璃片」，那是 Material 的图标按钮语汇，系统播放器上
+            // 从来不会出现。
+            shadows: const [
+              Shadow(
+                color: Color(0x73000000),
+                blurRadius: 7,
+                offset: Offset(0, 1),
+              ),
+            ],
           ),
         ),
       ),
@@ -2527,33 +2529,46 @@ class _ToolChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.only(right: 15),
       child: _PressScale(
+        dim: true,
         onTap: () {
           _recordAnchor(context);
           onTap();
         },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: selected ? 0.18 : 0.08),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: selected ? 0.26 : 0.12),
-              width: 0.8,
-            ),
-          ),
+        child: Padding(
+          // 没有胶囊底板了，靠内边距撑出 44 高的点按区，手感不能跟着外观一起缩。
+          padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 15, color: Colors.white),
-              const SizedBox(width: 5),
+              Icon(
+                icon,
+                size: 15,
+                color: Colors.white.withValues(alpha: selected ? 1 : 0.88),
+                shadows: const [
+                  Shadow(
+                    color: Color(0x73000000),
+                    blurRadius: 6,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 6),
               Text(
                 label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: selected ? 1 : 0.88),
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w500,
+                  letterSpacing: -0.1,
+                  shadows: const [
+                    Shadow(
+                      color: Color(0x73000000),
+                      blurRadius: 6,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -2595,13 +2610,22 @@ class _StatusChip extends StatelessWidget {
 
 /// 按压缩放（Rex 的 `PressScale`）。
 class _PressScale extends StatefulWidget {
-  const _PressScale({required this.child, this.onTap, this.onLongPress});
+  const _PressScale({
+    required this.child,
+    this.onTap,
+    this.onLongPress,
+    this.dim = false,
+  });
 
   final Widget child;
   final VoidCallback? onTap;
 
   /// 长按（用来做「长按返回键退出播放器」这种二次确认的手势）。
   final VoidCallback? onLongPress;
+
+  /// 按下时把内容调暗一档。iOS 的工具栏按钮/文字按钮就是这个反馈
+  /// （系统播放器的控件没有底板，所以也没有「底变深」可以做）。
+  final bool dim;
 
   /// 按下时的缩放比例。
   static const double scale = 0.95;
@@ -2631,7 +2655,13 @@ class _PressScaleState extends State<_PressScale> {
           // 以前两头都是 100ms 线性，按下去和弹回来一样快，就显得「木」。
           duration: Duration(milliseconds: _down ? 110 : 240),
           curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
-          child: widget.child,
+          child: widget.dim
+              ? AnimatedOpacity(
+                  opacity: _down ? 0.45 : 1,
+                  duration: const Duration(milliseconds: 90),
+                  child: widget.child,
+                )
+              : widget.child,
         ),
       ),
     );

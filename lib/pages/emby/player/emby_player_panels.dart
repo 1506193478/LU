@@ -21,12 +21,12 @@ import 'package:XL/services/subtitle/han_convert.dart';
 
 /// 面板配色。
 ///
-/// 播放器是深色环境，但菜单刻意做成浅色——这是 iOS 系统菜单（UIMenu）在
-/// 视频播放器里的样子：浅色材质浮在画面上，一眼就能和「画面」分开。深色卡片
-/// 压在暗场画面里会糊成一片，反而看不清。
-const Color _ink = Color(0xFF101013);
-const Color _inkSecondary = Color(0xFF6B6B70);
-const Color _inkTertiary = Color(0xFF9A9AA0);
+/// 统一从 [emby_player_popover] 的菜单材质取：播放器是一个全黑环境，菜单必须
+/// 是 iOS 深色外观的 `.systemMaterialDark` 那一档，否则一块近白的板子糊在黑
+/// 画面上，既刺眼又不像系统控件。
+const Color _ink = embyMenuInk;
+const Color _inkSecondary = embyMenuInkSecondary;
+const Color _inkTertiary = embyMenuInkTertiary;
 
 /// 打开一个播放器面板。
 ///
@@ -55,14 +55,18 @@ Future<T?> showEmbyPlayerSheet<T>(
   );
 }
 
-/// 分组标题：灰底居中，iOS 菜单的分组头就长这样。
+/// 组内标题：和上一组之间一条发丝线 + 一行左对齐小字（iOS 分享面板的分组）。
 class _GroupTitle extends StatelessWidget {
-  const _GroupTitle(this.label);
+  const _GroupTitle(this.label, {this.first = false});
 
   final String label;
 
+  /// 页面里的第一组：不画上方发丝线，避免和页面标题下面那条叠成粗线。
+  final bool first;
+
   @override
-  Widget build(BuildContext context) => EmbyMenuHeader(label);
+  Widget build(BuildContext context) =>
+      EmbyMenuHeader(label, inline: true, topLine: !first);
 }
 
 /// 一行可选项 / 动作。
@@ -70,6 +74,7 @@ class _PanelRow extends StatelessWidget {
   const _PanelRow({
     required this.title,
     this.subtitle,
+    this.trailing,
     this.icon,
     this.selected = false,
     this.chevron = false,
@@ -79,6 +84,7 @@ class _PanelRow extends StatelessWidget {
 
   final String title;
   final String? subtitle;
+  final String? trailing;
   final IconData? icon;
   final bool selected;
   final bool destructive;
@@ -92,6 +98,7 @@ class _PanelRow extends StatelessWidget {
     return EmbyMenuRow(
       label: title,
       detail: subtitle,
+      trailing: trailing,
       icon: icon,
       checked: selected,
       chevron: chevron,
@@ -146,8 +153,8 @@ class _StepperRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 48),
-      padding: const EdgeInsets.fromLTRB(14, 8, 10, 8),
+      constraints: const BoxConstraints(minHeight: 44),
+      padding: const EdgeInsets.fromLTRB(16, 7, 10, 7),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
       ),
@@ -156,18 +163,22 @@ class _StepperRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(color: _ink, fontSize: 15),
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 16.5,
+                letterSpacing: -0.2,
+              ),
             ),
           ),
           _StepButton(icon: Icons.remove_rounded, onTap: onMinus),
           SizedBox(
-            width: 62,
+            width: 64,
             child: Text(
               value,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: _ink,
-                fontSize: 14,
+                fontSize: 15,
                 fontWeight: FontWeight.w500,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
@@ -198,7 +209,9 @@ class _StepButton extends StatelessWidget {
         width: 32,
         height: 32,
         decoration: BoxDecoration(
-          color: const Color(0x11000000),
+          // iOS 深色里的「填充按钮」是白色 12%，不是黑色 6%——黑底上的
+          // 黑色方块等于没有。
+          color: embyMenuPressed,
           borderRadius: BorderRadius.circular(9),
         ),
         child: Icon(icon, size: 17, color: _ink),
@@ -244,7 +257,7 @@ Widget buildEmbyMorePanel(BuildContext context, EmbyMorePanelActions a) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      const _GroupTitle('播放设置'),
+      const _GroupTitle('播放设置', first: true),
       _PanelRow(
         title: '解码',
         subtitle: a.decodeLabel,
@@ -329,27 +342,24 @@ class _EpisodeRow extends StatelessWidget {
       },
       child: Container(
         constraints: const BoxConstraints(minHeight: 52),
-        padding: const EdgeInsets.fromLTRB(14, 9, 14, 9),
-        decoration: BoxDecoration(
-          color: selected ? embyMenuChecked : Colors.transparent,
-          border: const Border(
-            bottom: BorderSide(color: embyMenuLine, width: 0.5),
-          ),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
         ),
         child: Row(
           children: [
+            // 序号仍留在左侧：选集列表靠它对位，比勾更像列表。
             SizedBox(
-              width: 22,
-              child: selected
-                  ? const Icon(Icons.check_rounded, size: 17, color: _ink)
-                  : Text(
-                      '${index + 1}',
-                      style: const TextStyle(
-                        color: _inkTertiary,
-                        fontSize: 12.5,
-                        fontFeatures: [FontFeature.tabularFigures()],
-                      ),
-                    ),
+              width: 26,
+              child: Text(
+                '${index + 1}',
+                style: TextStyle(
+                  color: selected ? _ink : _inkTertiary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
             ),
             const SizedBox(width: 6),
             Expanded(
@@ -363,19 +373,20 @@ class _EpisodeRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: _ink,
-                      fontSize: 15,
-                      height: 1.25,
-                      fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                      fontSize: 16.5,
+                      height: 1.2,
+                      letterSpacing: -0.2,
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                   if (ratio > 0.01) ...[
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 6),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(2),
                       child: LinearProgressIndicator(
                         value: ratio.clamp(0, 1),
                         minHeight: 2.5,
-                        backgroundColor: const Color(0x1A000000),
+                        backgroundColor: embyMenuPressed,
                         valueColor: const AlwaysStoppedAnimation<Color>(_ink),
                       ),
                     ),
@@ -383,6 +394,14 @@ class _EpisodeRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (selected) ...[
+              const SizedBox(width: 10),
+              const Icon(
+                Icons.check_rounded,
+                size: 18,
+                color: embyMenuAccent,
+              ),
+            ],
           ],
         ),
       ),
@@ -687,8 +706,8 @@ class _SubExpandRow extends StatelessWidget {
         onTap();
       },
       child: Container(
-        constraints: const BoxConstraints(minHeight: 48),
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
         ),
@@ -700,7 +719,7 @@ class _SubExpandRow extends StatelessWidget {
                 open
                     ? Icons.keyboard_arrow_down_rounded
                     : Icons.keyboard_arrow_right_rounded,
-                size: 18,
+                size: 20,
                 color: _inkSecondary,
               ),
             ),
@@ -709,9 +728,9 @@ class _SubExpandRow extends StatelessWidget {
                 title,
                 style: const TextStyle(
                   color: _ink,
-                  fontSize: 15.5,
+                  fontSize: 16.5,
                   fontWeight: FontWeight.w400,
-                  letterSpacing: -0.1,
+                  letterSpacing: -0.2,
                 ),
               ),
             ),
@@ -747,33 +766,32 @@ class _SubOptionRow extends StatelessWidget {
       },
       child: Container(
         constraints: const BoxConstraints(minHeight: 44),
-        padding: const EdgeInsets.fromLTRB(38, 8, 14, 8),
-        decoration: BoxDecoration(
-          color: checked ? embyMenuChecked : Colors.transparent,
-          border: const Border(
-            bottom: BorderSide(color: embyMenuLine, width: 0.5),
-          ),
+        padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: embyMenuLine, width: 0.5)),
         ),
         child: Row(
           children: [
-            SizedBox(
-              width: 20,
-              child: checked
-                  ? const Icon(Icons.check_rounded, size: 16, color: _ink)
-                  : null,
-            ),
             Expanded(
               child: Text(
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+                style: const TextStyle(
                   color: _ink,
-                  fontSize: 15,
-                  fontWeight: checked ? FontWeight.w500 : FontWeight.w400,
+                  fontSize: 16.5,
+                  letterSpacing: -0.2,
                 ),
               ),
             ),
+            if (checked) ...[
+              const SizedBox(width: 10),
+              const Icon(
+                Icons.check_rounded,
+                size: 18,
+                color: embyMenuAccent,
+              ),
+            ],
           ],
         ),
       ),
@@ -1108,7 +1126,9 @@ Widget buildEmbyChapterPanel({
       for (final c in chapters)
         _PanelRow(
           title: c.name,
-          subtitle: _fmtDuration(c.start),
+          // 时间贴右边而不是压在标题下面：章节是「名字 → 时间」的键值关系，
+          // iOS 的章节列表就是这么排的，两行式排版读起来像表单。
+          trailing: _fmtDuration(c.start),
           selected:
               current >= c.start &&
               (chapters.last == c || current < _nextChapterStart(chapters, c)),
@@ -1160,7 +1180,7 @@ Widget buildEmbyInfoPanel({
     children: [
       for (final (label, value) in rows)
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 7, 20, 7),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1168,13 +1188,18 @@ Widget buildEmbyInfoPanel({
                 width: 64,
                 child: Text(
                   label,
-                  style: TextStyle(color: _inkTertiary, fontSize: 12.5),
+                  style: TextStyle(color: _inkSecondary, fontSize: 13),
                 ),
               ),
               Expanded(
                 child: SelectableText(
                   value,
-                  style: TextStyle(color: _ink, fontSize: 12.5, height: 1.4),
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 13,
+                    height: 1.4,
+                    letterSpacing: -0.1,
+                  ),
                 ),
               ),
             ],
