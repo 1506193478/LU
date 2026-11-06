@@ -45,7 +45,7 @@ class AppDeepLinks {
     unawaited(_open(link, session).catchError((Object error) {
       if (session.isStale) return;
       KazumiLogger().w('Deep link: failed to open', error: error);
-      KazumiDialog.showToast(message: '无法打开链接');
+      KazumiDialog.showError(message: '无法打开链接');
     }));
   }
 
@@ -67,7 +67,7 @@ class AppDeepLinks {
             action: () => BangumiApi.getBangumiInfoByID(id),
           );
           if (item == null) {
-            KazumiDialog.showToast(message: '无法获取番剧详情');
+            KazumiDialog.showError(message: '无法获取番剧详情');
             return;
           }
           _push(session, '/info/', arguments: item);

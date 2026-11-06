@@ -178,7 +178,7 @@ Future<void> showRuleShareDialog(BuildContext context, Plugin plugin) async {
               KazumiDialog.showToast(message: '规则链接已复制');
             } catch (_) {
               if (context.mounted) {
-                KazumiDialog.showToast(context: context, message: '复制失败，请重试');
+                KazumiDialog.showError(context: context, message: '复制失败，请重试');
               }
             }
           },
@@ -238,7 +238,7 @@ class _RuleImportDialogState extends State<_RuleImportDialog> {
       await widget.controller.updatePlugins(result.plugins);
       if (!mounted) return;
       KazumiDialog.dismiss(context: context);
-      KazumiDialog.showToast(
+      KazumiDialog.showError(
           message: '已导入 ${result.plugins.length} 条规则'
               '，跳过重复 ${result.duplicateCount} 条，失败 ${result.failureCount} 条');
     } catch (_) {

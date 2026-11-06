@@ -262,7 +262,7 @@ class _DanmakuSourceSheetState extends State<_DanmakuSourceSheet> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
-      KazumiDialog.showToast(message: '弹幕源切换失败');
+      KazumiDialog.showError(message: '弹幕源切换失败');
     }
   }
 

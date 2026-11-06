@@ -75,7 +75,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
     try {
       await collectController.addCollect(item, type: type.value);
     } catch (_) {
-      KazumiDialog.showToast(message: '修改收藏状态失败，请稍后重试');
+      KazumiDialog.showError(message: '修改收藏状态失败，请稍后重试');
     } finally {
       if (mounted) setState(() => _pendingIds.remove(item.id));
     }

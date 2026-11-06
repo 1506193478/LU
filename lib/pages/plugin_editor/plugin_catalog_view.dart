@@ -120,7 +120,7 @@ class _PluginCatalogViewState extends State<PluginCatalogView> {
           setting: SettingsKeys.rulesMirror);
       if (changed && mounted) _refresh();
     } catch (_) {
-      KazumiDialog.showToast(message: '切换规则仓库加速失败，请重试');
+      KazumiDialog.showError(message: '切换规则仓库加速失败，请重试');
     }
   }
 
@@ -192,7 +192,7 @@ class _PluginCatalogViewState extends State<PluginCatalogView> {
       }
       KazumiDialog.showToast(message: message);
     } catch (_) {
-      if (mounted) KazumiDialog.showToast(message: '安装规则失败');
+      if (mounted) KazumiDialog.showError(message: '安装规则失败');
     } finally {
       if (mounted) {
         setState(() {

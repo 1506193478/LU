@@ -749,7 +749,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   void _toast(String message) {
     if (!mounted) return;
-    KazumiDialog.showToast(message: message);
+    KazumiDialog.notify(message);
   }
 
   Future<void> _openSubtitle() async {

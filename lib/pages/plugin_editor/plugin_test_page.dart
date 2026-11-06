@@ -397,7 +397,7 @@ class _PluginTestPageState extends State<PluginTestPage> {
                       }
                     } catch (_) {
                       if (mounted) {
-                        KazumiDialog.showToast(
+                        KazumiDialog.showError(
                             context: context, message: '复制失败，请重试');
                       }
                     }

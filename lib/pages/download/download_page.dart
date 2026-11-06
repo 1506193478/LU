@@ -242,7 +242,7 @@ class _DownloadPageState extends State<DownloadPage> {
       episode.episodeNumber,
     );
     if (localPath == null) {
-      KazumiDialog.showToast(message: '本地文件不存在');
+      KazumiDialog.showError(message: '本地文件不存在');
       return;
     }
 

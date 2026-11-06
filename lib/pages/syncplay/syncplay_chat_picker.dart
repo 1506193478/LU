@@ -398,7 +398,7 @@ class _StickerImportSheetState extends State<_StickerImportSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      KazumiDialog.showToast(
+      KazumiDialog.showError(
         message: '导入失败：${e is FormatException ? e.message : e}',
       );
     }

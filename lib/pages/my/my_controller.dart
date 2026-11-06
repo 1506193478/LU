@@ -151,7 +151,7 @@ abstract class _MyController with Store {
       return true;
     } catch (e) {
       KazumiLogger().e('Danmaku: failed to save shield rule', error: e);
-      KazumiDialog.showToast(message: '屏蔽规则保存失败，请重试');
+      KazumiDialog.showError(message: '屏蔽规则保存失败，请重试');
       return false;
     }
   }
@@ -170,7 +170,7 @@ abstract class _MyController with Store {
     } catch (err) {
       KazumiLogger().e('Update: check update failed', error: err);
       if (type == 'manual') {
-        KazumiDialog.showToast(message: '检查更新失败，请稍后重试');
+        KazumiDialog.showError(message: '检查更新失败，请稍后重试');
       }
       return false;
     }

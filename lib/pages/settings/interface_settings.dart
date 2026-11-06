@@ -61,7 +61,7 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
       await GStorage.putSetting(SettingsKeys.defaultCollectLayout, layout.name);
       if (mounted) setState(() => _defaultCollectLayout = layout);
     } catch (_) {
-      if (mounted) KazumiDialog.showToast(message: '追番默认布局保存失败，请重试');
+      if (mounted) KazumiDialog.showError(message: '追番默认布局保存失败，请重试');
     } finally {
       if (mounted) setState(() => _savingCollectLayout = false);
     }

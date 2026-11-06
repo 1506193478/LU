@@ -143,7 +143,7 @@ class _LogsPageState extends State<LogsPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      KazumiDialog.showToast(message: '清空失败: $e');
+      KazumiDialog.showError(message: '清空失败: $e');
     }
   }
 
@@ -154,7 +154,7 @@ class _LogsPageState extends State<LogsPage> {
       KazumiDialog.showToast(message: '已复制到剪贴板');
     } catch (e) {
       if (!mounted) return;
-      KazumiDialog.showToast(message: '复制失败: $e');
+      KazumiDialog.showError(message: '复制失败: $e');
     }
   }
 

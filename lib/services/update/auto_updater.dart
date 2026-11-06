@@ -200,7 +200,7 @@ class AutoUpdater {
         KazumiDialog.showToast(message: '当前已经是最新版本！');
       }
     } catch (e) {
-      KazumiDialog.showToast(message: '检查更新失败');
+      KazumiDialog.showError(message: '检查更新失败');
     }
   }
 
@@ -257,7 +257,7 @@ class AutoUpdater {
 
       _downloadUpdate(downloadInfo, expectedHash);
     } catch (e) {
-      KazumiDialog.showToast(message: '下载失败: ${e.toString()}');
+      KazumiDialog.showError(message: '下载失败: ${e.toString()}');
       KazumiLogger().e('Update: download update failed', error: e);
     }
   }
@@ -464,12 +464,12 @@ class AutoUpdater {
       } else if (Platform.isAndroid) {
         final result = await OpenFilex.open(filePath);
         if (result.type != ResultType.done) {
-          KazumiDialog.showToast(message: '无法打开安装文件: ${result.message}');
+          KazumiDialog.showError(message: '无法打开安装文件: ${result.message}');
           return;
         }
       }
     } catch (e) {
-      KazumiDialog.showToast(message: '启动安装程序失败: ${e.toString()}');
+      KazumiDialog.showError(message: '启动安装程序失败: ${e.toString()}');
       KazumiLogger().e('Update: launch installer failed', error: e);
     }
   }
@@ -479,7 +479,7 @@ class AutoUpdater {
       final type = await FileSystemEntity.type(filePath);
       String targetDirOrFile;
       if (type == FileSystemEntityType.notFound) {
-        KazumiDialog.showToast(message: '文件或目录不存在');
+        KazumiDialog.showError(message: '文件或目录不存在');
         return;
       } else if (type == FileSystemEntityType.directory) {
         targetDirOrFile = filePath;
@@ -508,7 +508,7 @@ class AutoUpdater {
         KazumiDialog.showToast(message: '此平台不支持通过此方法打开文件管理器');
       }
     } catch (e) {
-      KazumiDialog.showToast(message: '无法打开文件管理器');
+      KazumiDialog.showError(message: '无法打开文件管理器');
       KazumiLogger().w('Update: reveal in file manager failed', error: e);
     }
   }

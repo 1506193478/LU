@@ -45,7 +45,7 @@ class _HistoryPageState extends State<HistoryPage> {
       }
     } catch (_) {
       if (mounted) {
-        KazumiDialog.showToast(context: context, message: '删除失败，请稍后重试');
+        KazumiDialog.showError(context: context, message: '删除失败，请稍后重试');
       }
     } finally {
       if (mounted) setState(() => _deleting.remove(history.key));
@@ -84,7 +84,7 @@ class _HistoryPageState extends State<HistoryPage> {
       if (mounted) setState(() => _editing = false);
     } catch (_) {
       if (mounted) {
-        KazumiDialog.showToast(context: context, message: '清空失败，请稍后重试');
+        KazumiDialog.showError(context: context, message: '清空失败，请稍后重试');
       }
     } finally {
       if (mounted) setState(() => _clearing = false);
@@ -214,7 +214,7 @@ class _HistoryCardState extends State<_HistoryCard> with KazumiDialogOwner {
       await _collectController.addCollect(widget.history.bangumiItem,
           type: type.value);
     } catch (_) {
-      KazumiDialog.showToast(message: '修改收藏状态失败，请稍后重试');
+      KazumiDialog.showError(message: '修改收藏状态失败，请稍后重试');
     } finally {
       if (mounted) setState(() => _updatingCollect = false);
     }

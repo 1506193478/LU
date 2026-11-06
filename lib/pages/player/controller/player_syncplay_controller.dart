@@ -731,7 +731,7 @@ abstract class _PlayerSyncPlayController with Store {
       pinnedNotice = '';
       await client.disconnect();
       final message = e is SyncplayException ? e.message : e.toString();
-      KazumiDialog.showToast(
+      KazumiDialog.showError(
         message: 'SyncPlay: 连接失败 $message',
         duration: const Duration(seconds: 5),
       );
@@ -1150,7 +1150,7 @@ abstract class _PlayerSyncPlayController with Store {
         return;
       }
       vote.value = null;
-      KazumiDialog.showToast(
+      KazumiDialog.showError(
         message: '投票超时，没通过',
         duration: const Duration(seconds: 3),
       );

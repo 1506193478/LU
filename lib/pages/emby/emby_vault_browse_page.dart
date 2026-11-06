@@ -110,7 +110,7 @@ class _EmbyVaultBrowsePageState extends State<EmbyVaultBrowsePage> {
   }
 
   void _toast(String message) {
-    KazumiDialog.showToast(message: message);
+    KazumiDialog.notify(message);
   }
 
   @override

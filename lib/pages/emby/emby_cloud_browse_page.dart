@@ -86,7 +86,7 @@ class _LuCloudBrowsePageState extends State<LuCloudBrowsePage> {
 
   void _toast(String message) {
     if (!mounted) return;
-    KazumiDialog.showToast(message: message);
+    KazumiDialog.notify(message);
   }
 
   @override

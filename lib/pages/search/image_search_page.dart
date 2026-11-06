@@ -202,7 +202,7 @@ class _ImageSearchPageState extends State<ImageSearchPage> {
       // Fall through to the shared error message.
     }
     if (!mounted) return;
-    KazumiDialog.showToast(context: context, message: '暂时无法打开链接，请稍后再试');
+    KazumiDialog.showError(context: context, message: '暂时无法打开链接，请稍后再试');
   }
 
   void _showHelp() {

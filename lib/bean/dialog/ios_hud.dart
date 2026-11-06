@@ -29,6 +29,41 @@ class KzHud {
     String? actionLabel,
     VoidCallback? onAction,
   }) {
+    _push(
+      message: message,
+      duration: duration,
+      actionLabel: actionLabel,
+      onAction: onAction,
+    );
+  }
+
+  /// 底部胶囊通知（错误播报统一走这里）。
+  ///
+  /// 和居中的 [show] 是两套：中间那块黑玻璃适合「操作已生效」这种一闪而过
+  /// 的反馈，而报错需要「我从底部升上来、停一会儿、再落下去」，而且要有
+  /// 一个能一眼看出性质的图标。样式对齐系统通知横幅：整宽减 14、圆角 14、
+  /// 浅色材质 + 铃铛 + 15pt 正文。
+  static void showNotice(
+    String message, {
+    Duration duration = const Duration(seconds: 3),
+    IconData? icon = Icons.notifications_none_rounded,
+  }) {
+    _push(
+      message: message,
+      duration: duration,
+      notice: true,
+      icon: icon,
+    );
+  }
+
+  static void _push({
+    required String message,
+    required Duration duration,
+    String? actionLabel,
+    VoidCallback? onAction,
+    bool notice = false,
+    IconData? icon,
+  }) {
     if (!kIsCupertinoPlatform) return;
     final overlay = rootNavigatorKey.currentState?.overlay;
     if (overlay == null) return;
@@ -37,12 +72,14 @@ class KzHud {
     _removeEntry();
 
     final entry = OverlayEntry(
-      builder: (_) => _HudView(
-        message: message,
-        visible: _visible,
-        actionLabel: actionLabel,
-        onAction: onAction,
-      ),
+      builder: (_) => notice
+          ? _NoticeView(message: message, visible: _visible, icon: icon)
+          : _HudView(
+              message: message,
+              visible: _visible,
+              actionLabel: actionLabel,
+              onAction: onAction,
+            ),
     );
     _entry = entry;
     overlay.insert(entry);
@@ -163,6 +200,99 @@ class _HudView extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 底部胶囊通知。
+///
+/// 位置刻意抬到底部导航之上（[bottomInset] + 安全区），否则会被胶囊导航
+/// 压住一半——这正是「错误提示看不清」最容易被忽略的原因。
+class _NoticeView extends StatelessWidget {
+  const _NoticeView({
+    required this.message,
+    required this.visible,
+    this.icon,
+  });
+
+  final String message;
+  final ValueNotifier<bool> visible;
+  final IconData? icon;
+
+  /// 底部预留：导航胶囊 + 一点呼吸。
+  static const double _reserved = 96;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final Color fill = dark ? const Color(0xF22C2C2E) : const Color(0xF7FFFFFF);
+    final Color ink = dark ? Colors.white : const Color(0xFF101013);
+    final Color sub = dark
+        ? Colors.white.withValues(alpha: 0.62)
+        : const Color(0xFF8A8A8E);
+    final double bottomInset =
+        _reserved + MediaQuery.paddingOf(context).bottom;
+
+    return IgnorePointer(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(14, 0, 14, bottomInset),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: visible,
+            builder: (context, shown, child) {
+              return AnimatedSlide(
+                offset: Offset(0, shown ? 0 : 0.35),
+                duration: const Duration(milliseconds: 260),
+                curve: shown ? Curves.easeOutCubic : Curves.easeIn,
+                child: AnimatedOpacity(
+                  opacity: shown ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: child,
+                ),
+              );
+            },
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 50),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: BoxDecoration(
+                color: fill,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: dark ? 0.36 : 0.10),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 19, color: sub),
+                    const SizedBox(width: 10),
+                  ],
+                  Expanded(
+                    child: Text(
+                      message,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: ink,
+                        fontSize: 15,
+                        height: 1.3,
+                        letterSpacing: -0.2,
+                        decoration: TextDecoration.none,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

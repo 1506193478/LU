@@ -12,7 +12,7 @@ Future<void> updateAllPluginsWithFeedback(
     );
     KazumiDialog.showToast(message: _batchUpdateMessage(result));
   } catch (_) {
-    KazumiDialog.showToast(message: '更新规则失败');
+    KazumiDialog.showError(message: '更新规则失败');
   }
 }
 
@@ -26,7 +26,7 @@ Future<PluginUpdateResult> updatePluginWithFeedback(
   try {
     result = await controller.tryUpdatePluginByName(name);
   } catch (_) {
-    KazumiDialog.showToast(message: '保存规则失败');
+    KazumiDialog.showError(message: '保存规则失败');
     return PluginUpdateResult.failed;
   }
   final message = switch (result) {

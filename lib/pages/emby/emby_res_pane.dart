@@ -61,7 +61,6 @@ class EmbyResourcePane extends StatefulWidget {
 }
 
 class _EmbyResourcePaneState extends State<EmbyResourcePane> {
-  bool _showSearch = true;
   bool _showWatchedTime = true;
   bool _showMediaStats = true;
   bool _showConnState = true;
@@ -73,13 +72,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   @override
   void initState() {
     super.initState();
-    _showSearch = GStorage.getSetting(
-      const SettingKey<bool>(
-        'pv.resShowSearch',
-        true,
-        group: SettingGroup.emby,
-      ),
-    );
     _loadCounts();
   }
 
@@ -111,7 +103,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   void _toast(String message) {
     if (!mounted) return;
-    KazumiDialog.showToast(message: message);
+    KazumiDialog.notify(message);
   }
 
   // ------------------------------------------------------------ 本地来源
@@ -395,21 +387,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
           onTap: () => setState(() => _showConnState = !_showConnState),
         ),
         PvMenuItem(
-          '搜索框',
-          checked: _showSearch,
-          onTap: () async {
-            setState(() => _showSearch = !_showSearch);
-            await GStorage.putSetting(
-              const SettingKey<bool>(
-                'pv.resShowSearch',
-                true,
-                group: SettingGroup.emby,
-              ),
-              _showSearch,
-            );
-          },
-        ),
-        PvMenuItem(
           '毛玻璃效果',
           checked: _glass,
           onTap: () => setState(() => _glass = !_glass),
@@ -446,8 +423,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
               ),
             ],
           ),
-          if (_showSearch)
-            PvSearchField(hint: '搜索', onTap: () => _toast('搜索请到「搜索」页签')),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
             child: _EntryGrid(
@@ -1045,7 +1020,7 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
 
   void _toast(String message) {
     if (!mounted) return;
-    KazumiDialog.showToast(message: message);
+    KazumiDialog.notify(message);
   }
 
   Future<void> _openCast() async {

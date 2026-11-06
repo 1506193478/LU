@@ -161,7 +161,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
 
     if (destination == DanmakuDestination.chatRoom) {
       if (playerController.syncplay.syncplayRoom.isEmpty) {
-        KazumiDialog.showToast(message: '你还没有加入一起看，无法发送聊天室弹幕');
+        KazumiDialog.showError(message: '你还没有加入一起看，无法发送聊天室弹幕');
         return;
       }
 

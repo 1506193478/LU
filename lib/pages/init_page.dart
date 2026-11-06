@@ -278,7 +278,7 @@ class _InitPageState extends State<InitPage> {
     await GStorage.putSetting(SettingsKeys.shortcutDialogShown, true);
     if (create ?? false) {
       final success = await WindowsShortcut.createDesktopShortcut();
-      KazumiDialog.showToast(message: success ? '桌面快捷方式已创建' : '桌面快捷方式创建失败');
+      KazumiDialog.showError(message: success ? '桌面快捷方式已创建' : '桌面快捷方式创建失败');
     }
   }
 

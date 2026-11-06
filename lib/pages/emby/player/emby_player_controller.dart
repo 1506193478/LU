@@ -999,7 +999,7 @@ class EmbyPlayerController extends ChangeNotifier {
     if (engine.pipError.isNotEmpty) {
       final message = engine.pipError;
       engine.resetPipError();
-      KazumiDialog.showToast(message: '画中画启动失败：$message');
+      KazumiDialog.showError(message: '画中画启动失败：$message');
     }
     // 内嵌字幕（HLS 里的 mov_text 等）AVPlayerItemVideoOutput 的像素缓冲里
     // 不带渲染结果，列出来也看不了，干脆不进面板；外挂字幕走 _loadAvSubtitle。

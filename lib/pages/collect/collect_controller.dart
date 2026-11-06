@@ -155,7 +155,7 @@ abstract class _CollectController with Store {
       await launchUrl(url, mode: LaunchMode.externalApplication);
       return;
     }
-    KazumiDialog.showToast(message: '无法打开 Bangumi 网页');
+    KazumiDialog.showError(message: '无法打开 Bangumi 网页');
   }
 
   Future<bool> _syncBangumiCollectIfEnabled(
@@ -179,7 +179,7 @@ abstract class _CollectController with Store {
         KazumiDialog.showToast(message: '已同步到 Bangumi');
         return true;
       } else if (!synced) {
-        KazumiDialog.showToast(message: '同步到 Bangumi 失败，已取消本次状态修改');
+        KazumiDialog.showError(message: '同步到 Bangumi 失败，已取消本次状态修改');
         KazumiLogger().w(
           'Bangumi: immediate collect sync did not complete. bangumiId=$bangumiId, type=$localType',
         );
@@ -187,7 +187,7 @@ abstract class _CollectController with Store {
       }
       return true;
     } catch (e, stackTrace) {
-      KazumiDialog.showToast(
+      KazumiDialog.showError(
           message:
               '同步到 Bangumi 失败，已取消本次状态修改：${BangumiSyncService.describeError(e)}');
       KazumiLogger().e(

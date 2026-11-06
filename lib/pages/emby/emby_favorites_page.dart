@@ -91,7 +91,7 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      KazumiDialog.showToast(message: '取消失败：$e');
+      KazumiDialog.showError(message: '取消失败：$e');
     }
   }
 

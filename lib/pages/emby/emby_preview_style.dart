@@ -1,7 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
-import 'package:XL/theme/ios_tokens.dart';
 import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/widget/window_drag.dart';
 
@@ -21,118 +20,86 @@ const double pvSubDockClearance = 168;
 class PvColors {
   PvColors._();
 
-  // iOS 走系统语义色（Apple HIG），其余平台保留 Pv 品牌色。
-  // 分流放在这里，是因为全项目两百多个页面都只认这几个入口——
-  // 改 token 就等于全站换肤，不用逐页动。
+  /// 页面底色：iOS `systemGroupedBackground`（浅 #F2F2F7 / 深 #000000）。
+  ///
+  /// 原来是预览稿的 #F3F1F2 —— 偏暖的灰，配白卡会显「灰里发粉」。系统色是
+  /// 冷灰，白卡压上去层次更干净，这也是所有 iOS 分组列表的底。
+  static Color page(BuildContext context) =>
+      isDark(context) ? const Color(0xFF000000) : const Color(0xFFF2F2F7);
 
-  /// `--page`：页面底色。
-  static Color page(BuildContext context) => kIosSystemized
-      ? IosPalette.groupedBackground(context)
-      : (isDark(context) ? const Color(0xFF151417) : const Color(0xFFF3F1F2));
-
-  /// `--canvas` / 卡片白。
-  static Color card(BuildContext context) => kIosSystemized
-      ? IosPalette.groupedCard(context)
-      : (isDark(context) ? const Color(0xFF1F1E22) : Colors.white);
+  /// 卡片底：iOS `secondarySystemGroupedBackground`（浅 #FFFFFF / 深 #1C1C1E）。
+  static Color card(BuildContext context) =>
+      isDark(context) ? const Color(0xFF1C1C1E) : Colors.white;
 
   /// `--ink` 主文字。
-  static Color ink(BuildContext context) => kIosSystemized
-      ? IosPalette.label(context)
-      : (isDark(context) ? const Color(0xFFF2F2F5) : const Color(0xFF0B0B0F));
+  static Color ink(BuildContext context) =>
+      isDark(context) ? const Color(0xFFF2F2F5) : const Color(0xFF0B0B0F);
 
   /// `--ink2` 次级文字。
-  static Color ink2(BuildContext context) => kIosSystemized
-      ? IosPalette.secondaryLabel(context)
-      : (isDark(context) ? const Color(0xFFA5A5AC) : const Color(0xFF6B6B70));
+  static Color ink2(BuildContext context) =>
+      isDark(context) ? const Color(0xFFA5A5AC) : const Color(0xFF6B6B70);
 
   /// `--ink3` 弱文字。
-  static Color ink3(BuildContext context) => kIosSystemized
-      ? IosPalette.tertiaryLabel(context)
-      : (isDark(context) ? const Color(0xFF74747C) : const Color(0xFF9A9AA0));
+  static Color ink3(BuildContext context) =>
+      isDark(context) ? const Color(0xFF74747C) : const Color(0xFF9A9AA0);
 
-  /// `--hair` 分隔线。
-  static Color hair(BuildContext context) {
-    if (kIosSystemized) return IosPalette.separator(context);
-    return isDark(context)
-        ? Colors.white.withValues(alpha: 0.08)
-        : const Color(0x13000000);
-  }
+  /// 分隔线：iOS `separator`（浅 #C6C6C8 / 深 #38383A）。
+  ///
+  /// 原来浅色是 7% 的黑，压在白卡上几乎看不见——一张卡里七八行会糊成一块。
+  /// 系统色是实打实的 #C6C6C8，画 0.5px 才有那条「发丝」。
+  static Color hair(BuildContext context) =>
+      isDark(context) ? const Color(0xFF38383A) : const Color(0xFFC6C6C8);
 
-  /// `--blue` 系统蓝。
-  static Color blueOf(BuildContext context) => kIosSystemized
-      ? IosPalette.tint(context)
-      : const Color(0xFF007AFF);
-
-  /// 静态快捷方式（不支持深浅切换的调用点用）。
+  /// `--blue` #007AFF。
   static const blue = Color(0xFF007AFF);
 
-  /// `--green`：iOS 用系统绿 #34C759。
-  static Color greenOf(BuildContext context) => kIosSystemized
-      ? IosPalette.green(context)
-      : const Color(0xFF2FBF5C);
-
+  /// `--green` #2FBF5C。
   static const green = Color(0xFF2FBF5C);
 
-  /// `--red`：系统红。
-  static Color redOf(BuildContext context) =>
-      kIosSystemized ? IosPalette.red(context) : const Color(0xFFFF3B30);
-
+  /// `--red` #FF3B30。
   static const red = Color(0xFFFF3B30);
 
-  /// 琥珀强调色：置顶公告、置顶入口这类「提醒」语义。
-  /// 这是品牌位，iOS 上也保留（系统没有对应的语义色）。
+  /// 琥珀强调色：置顶公告、置顶入口这类「提醒」语义，浅底深字 / 深底浅字。
   static Color amberInk(BuildContext context) =>
       isDark(context) ? const Color(0xFFF0C878) : const Color(0xFF854F0B);
 
+  /// 琥珀底色，跟 [amberInk] 配对使用。
   static Color amberFill(BuildContext context) =>
       isDark(context) ? const Color(0xFF3A2E14) : const Color(0xFFFAEEDA);
 
-  /// 底栏选中色：iOS 是系统蓝，不再是 #3A5680。
-  static Color dockInk(BuildContext context) => kIosSystemized
-      ? IosPalette.tint(context)
-      : (isDark(context) ? const Color(0xFF9DB4D8) : const Color(0xFF3A5680));
+  /// `--dockink` 底栏选中文字 #3A5680。
+  static Color dockInk(BuildContext context) =>
+      isDark(context) ? const Color(0xFF9DB4D8) : const Color(0xFF3A5680);
 
-  /// 底栏选中背景：iOS Tab bar 没有胶囊，只有图标/文字变色。
-  static Color capsule(BuildContext context) => kIosSystemized
-      ? Colors.transparent
-      : (isDark(context)
-            ? Colors.white.withValues(alpha: 0.12)
-            : const Color(0x21385480));
+  /// 底栏选中胶囊 `--capsule` rgba(56,84,128,.13)。
+  static Color capsule(BuildContext context) => isDark(context)
+      ? Colors.white.withValues(alpha: 0.12)
+      : const Color(0x21385480);
 
-  /// 二级导航选中背景。
-  static Color subCap(BuildContext context) => kIosSystemized
-      ? IosPalette.fill(context)
-      : (isDark(context)
-            ? Colors.white.withValues(alpha: 0.14)
-            : const Color(0x26385480));
+  /// 二级导航选中背景 rgba(56,84,128,.15)。
+  static Color subCap(BuildContext context) => isDark(context)
+      ? Colors.white.withValues(alpha: 0.14)
+      : const Color(0x26385480);
 
-  /// 二级导航选中文字。
-  static Color subInk(BuildContext context) => kIosSystemized
-      ? IosPalette.tint(context)
-      : (isDark(context) ? const Color(0xFFA9C0E4) : const Color(0xFF2F4E7A));
+  /// 二级导航选中文字 #2F4E7A。
+  static Color subInk(BuildContext context) =>
+      isDark(context) ? const Color(0xFFA9C0E4) : const Color(0xFF2F4E7A);
 
-  /// 底栏未选中：iOS 用 secondaryLabel。
-  static Color dockIdleOf(BuildContext context) =>
-      kIosSystemized ? IosPalette.secondaryLabel(context) : dockIdle;
-
+  /// 底栏未选中 #8E8E93。
   static const dockIdle = Color(0xFF8E8E93);
 
-  /// 箭头。
-  static Color chev(BuildContext context) => kIosSystemized
-      ? IosPalette.tertiaryLabel(context)
-      : (isDark(context) ? const Color(0xFF55555C) : const Color(0xFFC4C4C9));
+  /// 箭头 #C4C4C9。
+  static Color chev(BuildContext context) =>
+      isDark(context) ? const Color(0xFF55555C) : const Color(0xFFC4C4C9);
 
-  /// 搜索条底：iOS 用 fill。
-  static Color searchFill(BuildContext context) => kIosSystemized
-      ? IosPalette.fill(context)
-      : (isDark(context)
-            ? Colors.white.withValues(alpha: 0.08)
-            : const Color(0xFFEFEFF3));
+  /// 搜索条底 #EFEFF3。
+  static Color searchFill(BuildContext context) => isDark(context)
+      ? Colors.white.withValues(alpha: 0.08)
+      : const Color(0xFFEFEFF3);
 
-  /// 搜索占位字。
-  static Color searchHint(BuildContext context) => kIosSystemized
-      ? IosPalette.secondaryLabel(context)
-      : (isDark(context) ? const Color(0xFF77777E) : const Color(0xFF8A8A8E));
+  /// 搜索占位字 #8A8A8E。
+  static Color searchHint(BuildContext context) =>
+      isDark(context) ? const Color(0xFF77777E) : const Color(0xFF8A8A8E);
 
   static bool isDark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
@@ -142,106 +109,95 @@ class PvColors {
 class PvText {
   PvText._();
 
-  // 字号全部对齐 UIFont.TextStyle。关键差别是**字重**：
-  // 原来大标题 w800、行标题 w500，iOS 是 bold(700) / regular(400)。
-  // SF Pro 本就比中文字体细，再叠高字重就明显不像系统 UI。
+  /// 大标题：iOS largeTitle 34pt / Bold / 轻微收紧。
+  ///
+  /// 原来 w800 + ls-1.1，比系统粗一档、挤一档，看起来像设计稿上的字而不是
+  /// 系统标题。
+  static TextStyle pageTitle(BuildContext context) => TextStyle(
+    fontSize: 34,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.6,
+    height: 1.15,
+    color: PvColors.ink(context),
+  );
 
-  /// 页面大标题：iOS largeTitle 34 bold。
-  static TextStyle pageTitle(BuildContext context) => kIosSystemized
-      ? IosText.largeTitle(context)
-      : TextStyle(
-          fontSize: 34,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -1.1,
-          height: 1.1,
-          color: PvColors.ink(context),
-        );
+  /// 区块标题：iOS title3 20pt / Semibold。
+  ///
+  /// 原来 17 和正文一样大，只靠字重区分，结果区块之间没有层级。
+  static TextStyle section(BuildContext context) => TextStyle(
+    fontSize: 20,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.3,
+    color: PvColors.ink(context),
+  );
 
-  /// 区块标题：iOS headline 17 semibold。
-  static TextStyle section(BuildContext context) => kIosSystemized
-      ? IosText.headline(context)
-      : TextStyle(
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.4,
-          color: PvColors.ink(context),
-        );
+  /// `.sect .cnt` 12.5 灰。
+  static TextStyle count(BuildContext context) => TextStyle(
+    fontSize: 12.5,
+    fontWeight: FontWeight.w500,
+    color: PvColors.ink3(context),
+  );
 
-  /// 计数 / 次要信息：iOS footnote 13。
-  static TextStyle count(BuildContext context) => kIosSystemized
-      ? IosText.footnote(context, color: IosPalette.secondaryLabel(context))
-      : TextStyle(
-          fontSize: 12.5,
-          fontWeight: FontWeight.w500,
-          color: PvColors.ink3(context),
-        );
+  /// 列表行标题：iOS body 17pt / Regular。
+  ///
+  /// 15pt + w500 是最「像画的」的那个值：系统设置里所有行都是 17pt 常规字重，
+  /// 15 会显得整页被缩小打印过。
+  static TextStyle rowTitle(BuildContext context) => TextStyle(
+    fontSize: 17,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -0.2,
+    color: PvColors.ink(context),
+  );
 
-  /// 列表行主标题：iOS body 17 regular。
-  static TextStyle rowTitle(BuildContext context) => kIosSystemized
-      ? IosText.body(context)
-      : TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-          letterSpacing: -0.15,
-          color: PvColors.ink(context),
-        );
+  /// 行副标题：iOS footnote 13pt / secondaryLabel。
+  static TextStyle rowSub(BuildContext context) => TextStyle(
+    fontSize: 13,
+    letterSpacing: -0.05,
+    height: 1.25,
+    color: PvColors.ink2(context),
+  );
 
-  /// 列表行副标题：iOS footnote 13。
-  static TextStyle rowSub(BuildContext context) => kIosSystemized
-      ? IosText.footnote(context, color: IosPalette.secondaryLabel(context))
-      : TextStyle(fontSize: 13, color: PvColors.ink3(context));
+  /// 分组小标题：iOS section header 13pt / secondaryLabel。
+  ///
+  /// 原来 11.5 + w600 + 正字距，是网页里的小标签排版；系统是 13pt 常规。
+  static TextStyle groupLabel(BuildContext context) => TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w400,
+    letterSpacing: -0.05,
+    color: PvColors.ink2(context),
+  );
 
-  /// 分组标题：iOS footnote 13 regular、灰（不是加粗表头）。
-  static TextStyle groupLabel(BuildContext context) => kIosSystemized
-      ? IosText.footnote(context, color: IosPalette.secondaryLabel(context))
-      : TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-          color: PvColors.ink3(context),
-        );
-
-  /// 统计数字：iOS title2 22 bold。
-  static TextStyle statNumOfWork(BuildContext context) => kIosSystemized
-      ? IosText.title2(context)
-      : const TextStyle(
-          fontSize: 21,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.6,
-        );
-
+  /// `.statcard b` 21 w800 ls-0.6。
   static const statNum = TextStyle(
     fontSize: 21,
     fontWeight: FontWeight.w800,
     letterSpacing: -0.6,
   );
 
-  /// 统计标签：iOS caption1。
-  static TextStyle statLabel(BuildContext context) => kIosSystemized
-      ? IosText.caption1(context, color: IosPalette.secondaryLabel(context))
-      : TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w500,
-          color: PvColors.ink3(context),
-        );
+  /// `.statcard span` 11.5 灰。
+  static TextStyle statLabel(BuildContext context) => TextStyle(
+    fontSize: 11.5,
+    fontWeight: FontWeight.w500,
+    color: PvColors.ink3(context),
+  );
 
-  /// 媒体库卡片标题。
-  static TextStyle libName(BuildContext context) => kIosSystemized
-      ? IosText.headline(context)
-      : TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.4,
-          height: 1.2,
-          color: const Color(0xFF17171B),
-        );
+  /// `.libcard .nm` 16 w700 ls-0.4。
+  static TextStyle libName(BuildContext context) => TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.4,
+    height: 1.2,
+    color: const Color(0xFF17171B),
+  );
 
+  /// `.libcard .stats` 12.5。
   static const libStat = TextStyle(
     fontSize: 12.5,
     fontWeight: FontWeight.w500,
     color: Color(0xFF5E5E64),
   );
 
+  /// `.libcard .foot` 12 灰。
   static const libFoot = TextStyle(fontSize: 12, color: Color(0xFF8A8A8E));
 }
 
@@ -257,20 +213,11 @@ class PvGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      // iOS insetGrouped：左右 16，组间 26；圆角 10（不是品牌的大圆角）。
-      margin: kIosSystemized
-          ? const EdgeInsets.fromLTRB(
-              IosMetrics.groupedInset,
-              0,
-              IosMetrics.groupedInset,
-              IosMetrics.sectionSpacing - 4,
-            )
-          : (margin ?? const EdgeInsets.fromLTRB(20, 0, 20, 14)),
+      margin: margin ?? const EdgeInsets.fromLTRB(16, 0, 16, 16),
       decoration: BoxDecoration(
         color: PvColors.card(context),
-        borderRadius: BorderRadius.circular(
-          kIosSystemized ? IosMetrics.groupedRadius : 16,
-        ),
+        // iOS inset grouped 的圆角是 10（不是网页卡的 16）。
+        borderRadius: BorderRadius.circular(12),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(children: children),
@@ -287,15 +234,7 @@ class PvGroupLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: kIosSystemized
-          // iOS 分组标题和卡片内容左边缘对齐（16 边距 + 16 内边距）。
-          ? const EdgeInsets.fromLTRB(
-              IosMetrics.groupedInset + IosMetrics.rowInset,
-              IosMetrics.groupLabelTop,
-              IosMetrics.groupedInset + IosMetrics.rowInset,
-              IosMetrics.groupLabelBottom,
-            )
-          : const EdgeInsets.fromLTRB(20, 16, 20, 7),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(text, style: PvText.groupLabel(context)),
@@ -339,33 +278,23 @@ class PvRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final row = Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: kIosSystemized ? IosMetrics.rowInset : 15,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: ConstrainedBox(
-        // HIG 的最小触控目标是 44pt；原来是 50。
-        constraints: BoxConstraints(
-          minHeight: kIosSystemized ? IosMetrics.rowHeight : 50,
-        ),
+        constraints: const BoxConstraints(minHeight: 44),
         child: Row(
           children: [
             Container(
-              width: kIosSystemized ? IosMetrics.iconSize : 28,
-              height: kIosSystemized ? IosMetrics.iconSize : 28,
+              // iOS 设置里的行图标是 29pt 圆角 7，不是 28/8。
+              width: 29,
+              height: 29,
               decoration: BoxDecoration(
                 color: iconColor,
-                borderRadius: BorderRadius.circular(
-                  kIosSystemized ? IosMetrics.iconRadius : 8,
-                ),
+                borderRadius: BorderRadius.circular(7),
               ),
               alignment: Alignment.center,
-              child: Icon(
-                icon,
-                size: kIosSystemized ? 17 : 15,
-                color: Colors.white,
-              ),
+              child: Icon(icon, size: 17, color: Colors.white),
             ),
-            SizedBox(width: kIosSystemized ? IosMetrics.iconGap : 12),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -424,13 +353,8 @@ class PvRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          // iOS 的分隔线从文字左边缘起，不是从卡片最左。
-          height: kIosSystemized ? 0.5 : 0.8,
-          margin: EdgeInsets.only(
-            left: kIosSystemized
-                ? IosMetrics.separatorInset()
-                : 15,
-          ),
+          height: 0.5,
+          margin: const EdgeInsets.only(left: 16),
           color: PvColors.hair(context),
         ),
         body,
@@ -575,22 +499,14 @@ class PvIconBtn extends StatelessWidget {
     final Widget btn = GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: circled
-          ? Container(
-              width: 27,
-              height: 27,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: PvColors.blue, width: 1.6),
-              ),
-              alignment: Alignment.center,
-              child: Icon(icon, size: 15, color: PvColors.blue),
-            )
-          : SizedBox(
-              width: 30,
-              height: 30,
-              child: Icon(icon, size: 22, color: PvColors.blue),
-            ),
+      // 系统导航栏的按钮是**裸字形**，没有圆圈也没有描边。
+      // 原来 [circled] 会画一圈 1.6px 的蓝边，和 iOS 工具栏完全不是一回事；
+      // 这里保留参数只为了让调用点不用改，但两种形态都画成裸图标。
+      child: SizedBox(
+        width: 30,
+        height: 30,
+        child: Icon(icon, size: circled ? 21 : 22, color: PvColors.blue),
+      ),
     );
     if (tooltip == null) return btn;
     return Tooltip(message: tooltip!, child: btn);

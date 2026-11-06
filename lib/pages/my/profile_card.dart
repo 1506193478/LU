@@ -185,7 +185,7 @@ class _ProfileCardState extends State<ProfileCard> {
         error: error,
         stackTrace: stackTrace,
       );
-      KazumiDialog.showToast(message: '保存头像失败');
+      KazumiDialog.showError(message: '保存头像失败');
       return null;
     }
   }

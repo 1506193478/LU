@@ -30,7 +30,7 @@ class _VaultLockSettingsPageState extends State<VaultLockSettingsPage> {
   }
 
   void _toast(String message) {
-    KazumiDialog.showToast(message: message);
+    KazumiDialog.notify(message);
   }
 
   /// 验证旧密码：复用锁页的解锁模式，返回 true 表示验证通过。

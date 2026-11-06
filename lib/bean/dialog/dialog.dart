@@ -146,6 +146,61 @@ class KazumiDialog {
     }
   }
 
+  /// 错误播报的统一入口。
+  ///
+  /// 「所有报错长得一样」这件事以前做不到：一部分走 showToast（居中黑玻璃）、
+  /// 一部分走 showDialog（系统弹窗）、一部分干脆只写进日志。现在报错统一走
+  /// 底部胶囊通知：整宽减 14、圆角 14、铃铛图标、3 秒自动落下，和系统通知
+  /// 横幅一个形态。
+  ///
+  /// 成功/提示类仍然用 [showToast]——「已收藏」不该和「播放失败」长得一样。
+  static void showError({
+    required String message,
+    BuildContext? context,
+    Duration duration = const Duration(seconds: 3),
+  }) {
+    if (message.trim().isEmpty) return;
+    if (kIsCupertinoPlatform) {
+      KzHud.showNotice(message, duration: duration);
+      return;
+    }
+    showToast(message: message, context: context, duration: duration);
+  }
+
+  /// 按文案自动分流：看着像报错的走 [showError]，其余走 [showToast]。
+  ///
+  /// 存在的理由：页面里普遍有一个 `void _toast(msg)` 包装，几十个调用点混着
+  /// 「已收藏」和「保存失败」。逐个改调用点做不到不漏，所以在这一层按关键词
+  /// 判一次——这是启发式，不是精确语义；新写的代码请直接调
+  /// [showError] / [showToast]，别依赖它。
+  static void notify(String message) {
+    if (message.trim().isEmpty) return;
+    const List<String> hints = [
+      '失败',
+      '错误',
+      '无法',
+      '不能',
+      '超时',
+      '异常',
+      '不可用',
+      '未连接',
+      '拒绝',
+      'forbidden',
+      'error',
+      'failed',
+      'timeout',
+    ];
+    final String lower = message.toLowerCase();
+    final bool isError = hints.any(
+      (h) => message.contains(h) || lower.contains(h),
+    );
+    if (isError) {
+      showError(message: message);
+    } else {
+      showToast(message: message);
+    }
+  }
+
   static void dismiss<T>({BuildContext? context, T? popWith}) {
     if (context != null && !context.mounted) return;
     final route =

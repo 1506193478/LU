@@ -19,7 +19,7 @@ class ExternalPlaybackLauncher {
       )) {
         KazumiDialog.showToast(message: '尝试唤起外部播放器');
       } else {
-        KazumiDialog.showToast(message: '唤起外部播放器失败');
+        KazumiDialog.showError(message: '唤起外部播放器失败');
       }
     } else if (Platform.isMacOS || Platform.isIOS) {
       if (await ExternalPlayer.launchUrlWithReferer(
@@ -28,7 +28,7 @@ class ExternalPlaybackLauncher {
       )) {
         KazumiDialog.showToast(message: '尝试唤起外部播放器');
       } else {
-        KazumiDialog.showToast(message: '唤起外部播放器失败');
+        KazumiDialog.showError(message: '唤起外部播放器失败');
       }
     } else if (Platform.isLinux && currentReferer.isEmpty) {
       final result = await ExternalPlayer.launchLinuxDesktopPlayer(
@@ -42,7 +42,7 @@ class ExternalPlaybackLauncher {
         case LinuxExternalPlayerResult.unavailable:
           KazumiDialog.showToast(message: '系统应用选择器不可用');
         case LinuxExternalPlayerResult.failed:
-          KazumiDialog.showToast(message: '唤起外部播放器失败');
+          KazumiDialog.showError(message: '唤起外部播放器失败');
       }
     } else {
       if (currentReferer.isEmpty) {

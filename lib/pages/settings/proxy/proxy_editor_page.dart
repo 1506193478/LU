@@ -81,7 +81,7 @@ class _ProxyEditorPageState extends State<ProxyEditorPage> {
     } catch (e) {
       await GStorage.putSetting(SettingsKeys.proxyEnable, false);
       ProxyManager.clearProxy();
-      KazumiDialog.showToast(message: '代理连接失败');
+      KazumiDialog.showError(message: '代理连接失败');
     }
   }
 

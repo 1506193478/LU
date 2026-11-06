@@ -503,9 +503,30 @@ class RexIconButton extends StatelessWidget {
         height: size,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: glass ? p.pill : Colors.transparent,
+            // 玻璃按钮：渐变填充 + 极淡投影，**不描边**。
+            //
+            // 原来这里是 `pill` 实底 + 1px `pillBorder` 描边，画出来是一个
+            // 「描了线的圆」——真实材质靠的是内部光衰和一层投影，一旦描边
+            // 就变成贴图上的图形。深色下也不能用纯色，压在海报上会显平。
+            gradient: glass
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: p.isDark
+                        ? const [Color(0x40FFFFFF), Color(0x14FFFFFF)]
+                        : const [Color(0xF2FFFFFF), Color(0xD9FFFFFF)],
+                  )
+                : null,
             shape: BoxShape.circle,
-            border: glass ? Border.all(color: p.pillBorder, width: 1) : null,
+            boxShadow: glass
+                ? const [
+                    BoxShadow(
+                      color: Color(0x14141E32),
+                      blurRadius: 10,
+                      offset: Offset(0, 3),
+                    ),
+                  ]
+                : null,
           ),
           child: Center(
             child: Icon(icon, size: iconSize, color: color ?? p.inkPrimary),

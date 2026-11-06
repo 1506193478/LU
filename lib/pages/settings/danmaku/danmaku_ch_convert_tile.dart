@@ -32,7 +32,7 @@ class _DanmakuChConvertTileState extends State<DanmakuChConvertTile> {
       await GStorage.putSetting(SettingsKeys.danmakuChConvert, mode.value);
     } catch (_) {
       if (mounted) {
-        KazumiDialog.showToast(context: context, message: '简繁转换设置保存失败，请重试');
+        KazumiDialog.showError(context: context, message: '简繁转换设置保存失败，请重试');
       }
     } finally {
       if (mounted) setState(() => _saving = false);

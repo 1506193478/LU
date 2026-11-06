@@ -562,25 +562,6 @@ class _HomeBody extends StatefulWidget {
 }
 
 class _HomeBodyState extends State<_HomeBody> {
-  /// 顶栏毛玻璃的「进度」：滚多少，玻璃吃多少背景。
-  ///
-  /// 用 ValueNotifier 而不是 setState——滚动是每帧都在变的事件，整页跟着
-  /// rebuild 就本末倒置了（首页本来就有一堆网络图）。
-  final ValueNotifier<double> _scroll = ValueNotifier<double>(0);
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  bool _onScroll(ScrollNotification n) {
-    if (n.metrics.axis == Axis.vertical) {
-      _scroll.value = n.metrics.pixels;
-    }
-    return false;
-  }
-
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
@@ -598,9 +579,7 @@ class _HomeBodyState extends State<_HomeBody> {
         // 内容整条滑到顶栏下面，顶栏不再跟着滚走。
         KzRefreshIndicator(
           onRefresh: () async => widget.onRetry(),
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScroll,
-            child: CustomScrollView(
+          child: CustomScrollView(
               slivers: [
                 // 通栏大图：图片顶到状态栏底下，服务器胶囊浮在左上、爱心在右上。
                 SliverToBoxAdapter(
@@ -661,7 +640,6 @@ class _HomeBodyState extends State<_HomeBody> {
                 ),
               ],
             ),
-          ),
         ),
         // 常驻顶栏：液态玻璃胶囊，滚到哪都在，背景从下面透出来。
         Positioned(
@@ -670,7 +648,6 @@ class _HomeBodyState extends State<_HomeBody> {
           top: 0,
           child: _GlassTopBar(
             server: server,
-            scroll: _scroll,
             onManage: widget.onOpenServers,
             onSearch: () => widget.onSearchServer(server),
             onFavorite: () =>
@@ -867,88 +844,57 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
 
 /// 常驻顶栏：服务器胶囊 + 服务器内搜索 + 收藏。
 ///
-/// 之前这排按钮挂在通栏大图的 `topOverlay` 上，跟着大图一起滚走——滑到
-/// 「继续观看」就没有入口了。现在钉在页面顶部，滚动时背景从玻璃后面透
-/// 出来（液态玻璃：磨砂 + 淡色调 + 高光描边），滚得越多雾面越实。
+/// 这里**不做任何背景**：既不铺色也不做 `BackdropFilter` 磨砂。
+///
+/// 原来滚动到一定距离会在顶栏后面垫一层 18px 模糊 + 88% 页面色，理由是
+/// 「滚到海报墙上要兜住文字」。实际观感是：一滚动就出现一条灰白色的雾带，
+/// 把大图切成两半，而且每帧一次全宽模糊，是中低端机上最贵的一笔开销。
+///
+/// 现在顶栏始终透明，可读性交给两颗胶囊自己（它们本身就是毛玻璃）——
+/// 这也是系统播放器/相册的做法：导航栏透明，靠按钮自身的材质压住内容。
 class _GlassTopBar extends StatelessWidget {
   const _GlassTopBar({
     required this.server,
-    required this.scroll,
     required this.onManage,
     required this.onSearch,
     required this.onFavorite,
   });
 
   final EmbyServer server;
-  final ValueListenable<double> scroll;
   final VoidCallback onManage;
   final VoidCallback onSearch;
   final VoidCallback onFavorite;
 
   @override
   Widget build(BuildContext context) {
-    final Color page = PvColors.page(context);
-    return ValueListenableBuilder<double>(
-      valueListenable: scroll,
-      builder: (context, offset, _) {
-        // 0 = 还压在大图上（几乎全透），1 = 已经滑到海报墙上（雾面兜住）。
-        final double t = (offset / 120).clamp(0.0, 1.0);
-        return Stack(
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          embyPagePadding(context) - 6,
+          10,
+          embyPagePadding(context),
+          10,
+        ),
+        child: Row(
           children: [
-            if (t > 0.02)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: ClipRect(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              page.withValues(alpha: 0.88 * t),
-                              page.withValues(alpha: 0.62 * t),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  embyPagePadding(context) - 6,
-                  10,
-                  embyPagePadding(context),
-                  10,
-                ),
-                child: Row(
-                  children: [
-                    _ServerChipWithDrop(server: server, onManage: onManage),
-                    const Spacer(),
-                    _GlassIconButton(
-                      icon: Icons.search_rounded,
-                      hint: '搜索这台服务器的影片',
-                      onTap: onSearch,
-                    ),
-                    const SizedBox(width: 8),
-                    _GlassIconButton(
-                      icon: Icons.favorite_rounded,
-                      color: PvColors.red,
-                      hint: '收藏',
-                      onTap: onFavorite,
-                    ),
-                  ],
-                ),
-              ),
+            _ServerChipWithDrop(server: server, onManage: onManage),
+            const Spacer(),
+            _GlassIconButton(
+              icon: Icons.search_rounded,
+              hint: '搜索这台服务器的影片',
+              onTap: onSearch,
+            ),
+            const SizedBox(width: 8),
+            _GlassIconButton(
+              icon: Icons.favorite_rounded,
+              color: PvColors.red,
+              hint: '收藏',
+              onTap: onFavorite,
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -984,21 +930,24 @@ class _GlassPlate extends StatelessWidget {
           height: height,
           padding: padding,
           decoration: BoxDecoration(
-            // 深色主题用黑玻璃、浅色用白玻璃；两边都留一点底色保证文字
-            // 压在任何封面上都读得清。
-            color: (dark ? Colors.black : Colors.white).withValues(
-              alpha: dark ? 0.44 : 0.58,
+            // 渐变玻璃：左上亮、右下暗，模拟材质的入射光衰减。
+            //
+            // 这里是**没有描边**的。原来那圈 0.8px 白边是「像画的」最直接的
+            // 来源——真实材质靠的是内部渐变 + 极淡的外投影，一旦描一圈实边，
+            // 立刻变成贴图上的一个框。
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: dark
+                  ? const [Color(0x38FFFFFF), Color(0x12FFFFFF)]
+                  : const [Color(0xE6FFFFFF), Color(0xA8FFFFFF)],
             ),
             borderRadius: BorderRadius.circular(radius),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: dark ? 0.14 : 0.72),
-              width: 0.8,
-            ),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x1A141E32),
-                blurRadius: 14,
-                offset: Offset(0, 4),
+                color: Color(0x14141E32),
+                blurRadius: 12,
+                offset: Offset(0, 3),
               ),
             ],
           ),

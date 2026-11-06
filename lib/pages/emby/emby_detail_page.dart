@@ -1070,15 +1070,16 @@ class _ActionRow extends StatelessWidget {
             height: 34,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(
-                color: on ? const Color(0xFF0A84FF) : const Color(0x38000000),
-                width: 1.4,
-              ),
+              // 不描边：系统里这种「已看 / 收藏」是图标本身变色，
+              // 不是一个空心圈。开启时给一层很淡的蓝色底把状态说清楚。
+              color: on
+                  ? const Color(0xFF0A84FF).withValues(alpha: 0.12)
+                  : const Color(0x0D000000),
             ),
             child: Icon(
               icon,
-              size: 16,
-              color: on ? const Color(0xFF0A84FF) : const Color(0xFF2A2A30),
+              size: 17,
+              color: on ? const Color(0xFF0A84FF) : const Color(0xFF3A3A3C),
             ),
           ),
         ),
@@ -1571,11 +1572,24 @@ class _EpisodeCard extends StatelessWidget {
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: p.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? p.accent : p.hairline,
-            width: selected ? 2 : 1,
-          ),
+          borderRadius: BorderRadius.circular(14),
+          // 不描边：原来那圈 1px 灰边（选中变 2px 蓝边）在浅色底上像贴了个
+          // 相框，而且每张卡都有一圈，整排看过去全是格子。
+          // 现在改用「投影 + 选中时的蓝色柔光」表达层级与选中——
+          // 这也是系统卡片的分法：用明暗和光晕，不用轮廓线。
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+            if (selected)
+              BoxShadow(
+                color: p.accent.withValues(alpha: 0.45),
+                blurRadius: 0,
+                spreadRadius: 2,
+              ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1901,10 +1915,7 @@ class _CircleCheck extends StatelessWidget {
         height: 34,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(
-            color: p.inkPrimary.withValues(alpha: 0.28),
-            width: 1.6,
-          ),
+          color: p.inkPrimary.withValues(alpha: 0.07),
         ),
         child: Icon(Icons.check_rounded, size: 17, color: p.inkPrimary),
       ),

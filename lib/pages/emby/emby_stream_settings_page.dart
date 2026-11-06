@@ -278,9 +278,9 @@ class _RadioRow extends StatelessWidget {
     final row = InkWell(
       onTap: enabled ? onTap : null,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(15, 11, 15, 11),
+        padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 32),
+          constraints: const BoxConstraints(minHeight: 44),
           child: Row(
             children: [
               Expanded(
@@ -291,11 +291,11 @@ class _RadioRow extends StatelessWidget {
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: selected
-                            ? FontWeight.w600
-                            : FontWeight.w500,
-                        letterSpacing: -0.15,
+                        // iOS 设置行：17pt 常规字重，选中只靠右侧对勾表示，
+                        // 不加粗——原来选中加粗会让整行「跳」一下。
+                        fontSize: 17,
+                        fontWeight: FontWeight.w400,
+                        letterSpacing: -0.2,
                         color: ink,
                       ),
                     ),
@@ -303,9 +303,10 @@ class _RadioRow extends StatelessWidget {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        fontSize: 12.5,
-                        height: 1.35,
-                        color: PvColors.ink3(context),
+                        fontSize: 13,
+                        height: 1.3,
+                        letterSpacing: -0.05,
+                        color: PvColors.ink2(context),
                       ),
                     ),
                   ],
@@ -313,7 +314,11 @@ class _RadioRow extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               if (selected)
-                const Icon(Icons.check_rounded, size: 19, color: PvColors.blue),
+                const Icon(
+                  Icons.check_rounded,
+                  size: 18,
+                  color: PvColors.blue,
+                ),
             ],
           ),
         ),
@@ -325,8 +330,8 @@ class _RadioRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          height: 0.8,
-          margin: const EdgeInsets.only(left: 15),
+          height: 0.5,
+          margin: const EdgeInsets.only(left: 16),
           color: PvColors.hair(context),
         ),
         row,

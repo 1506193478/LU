@@ -99,7 +99,7 @@ class _SyncPlaySourceSheetState extends State<SyncPlaySourceSheet>
       KazumiLogger().w('SyncPlaySourceSheet: failed to open browser',
           error: error);
     }
-    if (mounted) KazumiDialog.showToast(message: '无法打开浏览器，请稍后重试');
+    if (mounted) KazumiDialog.showError(message: '无法打开浏览器，请稍后重试');
   }
 
   Future<void> _play(String name, SearchItem searchItem) async {

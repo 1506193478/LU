@@ -329,7 +329,7 @@ class _PlayerItemState extends State<PlayerItem>
     if (entered || !mounted) {
       return;
     }
-    KazumiDialog.showToast(message: '进入画中画失败');
+    KazumiDialog.showError(message: '进入画中画失败');
     setState(() {
       _pipEnterRequested = false;
     });
@@ -812,7 +812,7 @@ class _PlayerItemState extends State<PlayerItem>
       final screenshot = await playerController.screenshotPng();
       if (!mounted) return;
       if (screenshot == null || screenshot.isEmpty) {
-        KazumiDialog.showToast(message: '截图失败：未获取到图像');
+        KazumiDialog.showError(message: '截图失败：未获取到图像');
         return;
       }
       final result = await SaverGallery.saveImage(
@@ -822,10 +822,10 @@ class _PlayerItemState extends State<PlayerItem>
         skipIfExists: false,
       );
       if (mounted && !result.isSuccess) {
-        KazumiDialog.showToast(message: '截图保存失败：${result.errorMessage}');
+        KazumiDialog.showError(message: '截图保存失败：${result.errorMessage}');
       }
     } catch (e) {
-      if (mounted) KazumiDialog.showToast(message: '截图失败：$e');
+      if (mounted) KazumiDialog.showError(message: '截图失败：$e');
     }
   }
 

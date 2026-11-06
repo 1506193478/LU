@@ -47,7 +47,7 @@ class _LowMemoryModeDialogState extends State<_LowMemoryModeDialog> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
-      KazumiDialog.showToast(context: context, message: '设置保存失败，请重试');
+      KazumiDialog.showError(context: context, message: '设置保存失败，请重试');
     }
   }
 

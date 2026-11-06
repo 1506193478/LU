@@ -112,7 +112,7 @@ class _SourceSheetState extends State<SourceSheet> with KazumiDialogOwner {
     } catch (error) {
       KazumiLogger().w('SourceSheet: failed to open browser', error: error);
     }
-    if (mounted) KazumiDialog.showToast(message: '无法打开浏览器，请稍后重试');
+    if (mounted) KazumiDialog.showError(message: '无法打开浏览器，请稍后重试');
   }
 
   Future<void> _openSearchItem(String name, SearchItem searchItem) async {

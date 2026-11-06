@@ -119,13 +119,13 @@ class _PluginViewPageState extends State<PluginViewPage> {
         return;
       }
       await _controller.updatePlugins(parsed.plugins);
-      KazumiDialog.showToast(
+      KazumiDialog.showError(
           message: '已导入 ${parsed.plugins.length} 条规则，'
               '跳过重复 ${parsed.duplicateCount} 条，失败 ${parsed.failureCount} 条');
     } catch (error, stackTrace) {
       KazumiLogger().e('Plugin: failed to import rules from file',
           error: error, stackTrace: stackTrace);
-      KazumiDialog.showToast(message: '导入规则文件失败：$error');
+      KazumiDialog.showError(message: '导入规则文件失败：$error');
     }
   }
 
@@ -152,7 +152,7 @@ class _PluginViewPageState extends State<PluginViewPage> {
       if (mounted) _leaveSelection();
       KazumiDialog.showToast(message: '已删除 ${names.length} 条规则');
     } catch (_) {
-      KazumiDialog.showToast(message: '删除规则失败，请重试');
+      KazumiDialog.showError(message: '删除规则失败，请重试');
     } finally {
       if (mounted) setState(() => _deleting = false);
     }
@@ -162,7 +162,7 @@ class _PluginViewPageState extends State<PluginViewPage> {
     try {
       await _controller.onReorder(oldIndex, newIndex);
     } catch (_) {
-      KazumiDialog.showToast(message: '保存规则顺序失败');
+      KazumiDialog.showError(message: '保存规则顺序失败');
     }
   }
 
@@ -182,7 +182,7 @@ class _PluginViewPageState extends State<PluginViewPage> {
                 : '规则已是最新');
       }
     } catch (_) {
-      KazumiDialog.showToast(message: '检查规则更新失败');
+      KazumiDialog.showError(message: '检查规则更新失败');
     } finally {
       if (mounted) setState(() => _updatingNames.remove(plugin.name));
     }

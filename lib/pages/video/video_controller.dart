@@ -817,14 +817,14 @@ abstract class _VideoPageController with Store implements Disposable {
         } else {
           playerController.danmaku.applyUnavailableDanmakuLoad(result);
           if (result.isFailed) {
-            KazumiDialog.showToast(message: '弹幕加载失败，可手动检索');
+            KazumiDialog.showError(message: '弹幕加载失败，可手动检索');
           }
         }
       }
     } catch (e) {
       if (session.isActive && danmakuSession.isActive) {
         playerController.danmaku.finishDanmakuLoad(disableDanmaku: true);
-        KazumiDialog.showToast(message: '弹幕加载失败，可手动检索');
+        KazumiDialog.showError(message: '弹幕加载失败，可手动检索');
       }
       KazumiLogger().w('VideoPageController: failed to load danmaku', error: e);
     }

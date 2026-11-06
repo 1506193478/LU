@@ -974,7 +974,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
     } catch (error) {
       KazumiLogger().w('SyncPlay: follow remote play failed', error: error);
       if (mounted) {
-        KazumiDialog.showToast(message: '跟播失败，请手动选择番剧', context: context);
+        KazumiDialog.showError(message: '跟播失败，请手动选择番剧', context: context);
       }
     } finally {
       _isFollowingRemotePlay = false;

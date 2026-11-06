@@ -65,9 +65,9 @@ class _DownloadSettingsPageState extends State<DownloadSettingsPage> {
     } on DownloadDirectoryException catch (e) {
       KazumiDialog.showToast(message: e.message);
     } on FileSystemException catch (e) {
-      KazumiDialog.showToast(message: '无法写入该目录: ${e.message}');
+      KazumiDialog.showError(message: '无法写入该目录: ${e.message}');
     } catch (e) {
-      KazumiDialog.showToast(message: '选择下载位置失败: $e');
+      KazumiDialog.showError(message: '选择下载位置失败: $e');
     } finally {
       if (mounted) {
         setState(() => isSelectingDirectory = false);
