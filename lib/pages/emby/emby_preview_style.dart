@@ -220,10 +220,14 @@ class PvGroup extends StatelessWidget {
     // 缓冲只是白白让滚动掉帧。透色靠的是半透明本身。
     return Padding(
       padding: margin ?? const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: LuGlass.box(
-        context: context,
-        radius: BorderRadius.circular(12),
-        child: Column(mainAxisSize: MainAxisSize.min, children: children),
+      // 每块玻璃单独一层合成缓存：滚动时只要内容没变，这层不用重绘。
+      // 不隔离的话，列表每滚一帧都要把整屏的渐变 + 高光 + 阴影重新合成一遍。
+      child: RepaintBoundary(
+        child: LuGlass.box(
+          context: context,
+          radius: BorderRadius.circular(12),
+          child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        ),
       ),
     );
   }

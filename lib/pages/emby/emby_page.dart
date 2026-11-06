@@ -269,17 +269,14 @@ class _EmbyPageState extends State<EmbyPage> {
   Widget build(BuildContext context) {
     // 背景交给 [LuBackdrop]：底色渐变 + 光球。Scaffold 必须透明，否则
     // 主题的 scaffoldBackgroundColor 会把背景整块盖掉。
-    // 背景交给 [LuBackdrop]：底色渐变 + 光球。Scaffold 必须透明，否则
-    // 主题的 scaffoldBackgroundColor 会把背景整块盖掉。背景作为 Stack 的
-    // 第一层铺满，而不是包住整棵树——包住的话后面每个页面都要重算一次
-    // 布局，容易把 Sliver 的滚动上下文弄乱。
+    // Scaffold 透明：背景由壳层（MaterialApp.builder 里的 LuBackdrop）
+    // 统一提供。这里**不能再画一层**——3.9.59 曾在这里铺过背景，提到壳层
+    // 之后忘了删，于是 Emby 模块实际叠了三层全屏渐变（壳层 + 菜单 + 这里），
+    // 滚动时每帧合成三次，这就是「媒体库/我的滑动掉帧」的直接原因。
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          const Positioned.fill(
-            child: LuBackdrop(child: SizedBox.shrink()),
-          ),
           // IndexedStack 保三个页签的状态：切走再回来不用重新拉数据，
           // 滚动位置也还在。空服务器时三个页签都给引导。
           IndexedStack(

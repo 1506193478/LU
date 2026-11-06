@@ -6,7 +6,6 @@ import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_setting_rows.dart';
 import 'package:XL/services/platform/cast_service.dart';
 import 'package:XL/theme/ios_interaction.dart';
-import 'package:XL/theme/lu_glass.dart';
 
 /// 「播放行为」：把原来散落在「我的 → 播放器」里的七个开关收成一处。
 ///
@@ -37,110 +36,109 @@ class EmbyPlayBehaviorPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: LuBackdrop(
-        child: SafeArea(
-          bottom: false,
-          child: Column(
-            children: <Widget>[
-              const _PvNavBar(title: '播放行为'),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.only(bottom: 40),
-                  children: <Widget>[
-                    const PvGroupLabel('字幕'),
-                    PvGroup(
-                      children: const <Widget>[
-                        PvSwitchRow(
-                          icon: Icons.subtitles_rounded,
-                          iconColor: Color(0xFF5E5CE6),
-                          title: '双字幕',
-                          subtitle: '主字幕 + 第二路同时显示',
-                          prefKey: 'pv.doubleSubtitle',
-                          defaultValue: true,
-                        ),
-                        PvSwitchRow(
-                          icon: Icons.translate_rounded,
-                          iconColor: Color(0xFFFF375F),
-                          title: '字幕翻译',
-                          subtitle: '简繁转换 · 跟随字幕设置',
-                          prefKey: 'pv.subtitleTranslate',
-                          defaultValue: false,
-                          showDivider: false,
-                        ),
-                      ],
-                    ),
-                    const PvGroupLabel('弹幕'),
-                    PvGroup(
-                      children: const <Widget>[
-                        PvSwitchRow(
-                          icon: Icons.emoji_emotions_outlined,
-                          iconColor: Color(0xFF30B0C7),
-                          title: '弹幕',
-                          subtitle: 'Emby 源默认关闭',
-                          prefKey: 'pv.danmaku',
-                          defaultValue: true,
-                          showDivider: false,
-                        ),
-                      ],
-                    ),
-                    const PvGroupLabel('播放'),
-                    PvGroup(
-                      children: const <Widget>[
-                        PvSwitchRow(
-                          icon: Icons.skip_next_rounded,
-                          iconColor: Color(0xFF8E8E93),
-                          title: '片头片尾跳过',
-                          subtitle: '按剧集记忆标记',
-                          prefKey: 'pv.introOutroSkip',
-                          defaultValue: true,
-                        ),
-                        PvSwitchRow(
-                          icon: Icons.screen_lock_portrait_rounded,
-                          iconColor: Color(0xFFFF9F0A),
-                          title: '上滑锁定屏幕',
-                          subtitle: '播放中上滑进入锁定',
-                          prefKey: 'pv.swipeLock',
-                          defaultValue: true,
-                        ),
-                        PvSwitchRow(
-                          icon: Icons.desktop_access_disabled_rounded,
-                          iconColor: Color(0xFF34C759),
-                          title: '关屏后返回首页',
-                          subtitle: '息屏即退出播放器',
-                          prefKey: 'pv.backOnScreenOff',
-                          defaultValue: false,
-                          showDivider: false,
-                        ),
-                      ],
-                    ),
-                    const PvGroupLabel('输出'),
-                    PvGroup(
-                      children: <Widget>[
-                        Builder(
-                          builder: (ctx) => PvRow(
-                            icon: Icons.cast_rounded,
-                            iconColor: const Color(0xFF0A84FF),
-                            title: '投屏',
-                            subtitle: 'AirPlay / DLNA',
-                            value: CastService.supported ? '未连接' : '不支持',
-                            onTap: () => _openCast(ctx),
-                            showDivider: false,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                      child: Text(
-                        '这七项只换了位置，键名和默认值都没变。',
-                        style: PvText.rowSub(context),
+      // 背景由壳层提供，这里不再重复铺一层。
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: <Widget>[
+            const _PvNavBar(title: '播放行为'),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: 40),
+                children: <Widget>[
+                  const PvGroupLabel('字幕'),
+                  PvGroup(
+                    children: const <Widget>[
+                      PvSwitchRow(
+                        icon: Icons.subtitles_rounded,
+                        iconColor: Color(0xFF5E5CE6),
+                        title: '双字幕',
+                        subtitle: '主字幕 + 第二路同时显示',
+                        prefKey: 'pv.doubleSubtitle',
+                        defaultValue: true,
                       ),
+                      PvSwitchRow(
+                        icon: Icons.translate_rounded,
+                        iconColor: Color(0xFFFF375F),
+                        title: '字幕翻译',
+                        subtitle: '简繁转换 · 跟随字幕设置',
+                        prefKey: 'pv.subtitleTranslate',
+                        defaultValue: false,
+                        showDivider: false,
+                      ),
+                    ],
+                  ),
+                  const PvGroupLabel('弹幕'),
+                  PvGroup(
+                    children: const <Widget>[
+                      PvSwitchRow(
+                        icon: Icons.emoji_emotions_outlined,
+                        iconColor: Color(0xFF30B0C7),
+                        title: '弹幕',
+                        subtitle: 'Emby 源默认关闭',
+                        prefKey: 'pv.danmaku',
+                        defaultValue: true,
+                        showDivider: false,
+                      ),
+                    ],
+                  ),
+                  const PvGroupLabel('播放'),
+                  PvGroup(
+                    children: const <Widget>[
+                      PvSwitchRow(
+                        icon: Icons.skip_next_rounded,
+                        iconColor: Color(0xFF8E8E93),
+                        title: '片头片尾跳过',
+                        subtitle: '按剧集记忆标记',
+                        prefKey: 'pv.introOutroSkip',
+                        defaultValue: true,
+                      ),
+                      PvSwitchRow(
+                        icon: Icons.screen_lock_portrait_rounded,
+                        iconColor: Color(0xFFFF9F0A),
+                        title: '上滑锁定屏幕',
+                        subtitle: '播放中上滑进入锁定',
+                        prefKey: 'pv.swipeLock',
+                        defaultValue: true,
+                      ),
+                      PvSwitchRow(
+                        icon: Icons.desktop_access_disabled_rounded,
+                        iconColor: Color(0xFF34C759),
+                        title: '关屏后返回首页',
+                        subtitle: '息屏即退出播放器',
+                        prefKey: 'pv.backOnScreenOff',
+                        defaultValue: false,
+                        showDivider: false,
+                      ),
+                    ],
+                  ),
+                  const PvGroupLabel('输出'),
+                  PvGroup(
+                    children: <Widget>[
+                      Builder(
+                        builder: (ctx) => PvRow(
+                          icon: Icons.cast_rounded,
+                          iconColor: const Color(0xFF0A84FF),
+                          title: '投屏',
+                          subtitle: 'AirPlay / DLNA',
+                          value: CastService.supported ? '未连接' : '不支持',
+                          onTap: () => _openCast(ctx),
+                          showDivider: false,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                    child: Text(
+                      '这七项只换了位置，键名和默认值都没变。',
+                      style: PvText.rowSub(context),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

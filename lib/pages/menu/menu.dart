@@ -196,16 +196,9 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
       backgroundColor: Colors.transparent,
       extendBody: true,
       // 内容容器的底也要跟着拟态走，否则切页时会闪一下 primaryContainer 色带。
-      // 背景统一由 [LuBackdrop] 画（底色渐变 + 光球），出口容器透明，
-      // 这样五个 tab 页共用同一套背景，切页时不会闪一下底色。
-      body: Stack(
-        children: <Widget>[
-          const Positioned.fill(child: LuBackdrop(child: SizedBox.shrink())),
-          Positioned.fill(
-            child: _outlet(context, background: Colors.transparent),
-          ),
-        ],
-      ),
+      // 背景由壳层统一画（MaterialApp.builder 里的 LuBackdrop）。
+      // 这里只管透明出口，不要再叠一层——叠了就是两份全屏渐变。
+      body: _outlet(context, background: Colors.transparent),
       // 底部导航统一走「胶囊玻璃条」。
       //
       // 原来手机端一律用拟态那条（`isNeuLayout` 在手机上恒为 true），

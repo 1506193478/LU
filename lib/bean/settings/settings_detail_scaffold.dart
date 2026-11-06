@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/bean/appbar/sys_app_bar.dart';
-import 'package:XL/theme/lu_glass.dart';
 
 class SettingsPaneScope extends InheritedWidget {
   const SettingsPaneScope({
@@ -78,7 +77,8 @@ class SettingsDetailScaffold extends StatelessWidget {
     //     否则左侧导航本来就摆在那儿。
     final bool canPop = Navigator.of(context).canPop();
     final bool embedded = scope?.embedded ?? false;
-    final bool showBack = leading != null ||
+    final bool showBack =
+        leading != null ||
         (scope?.showBackButton ?? false) ||
         canPop ||
         (route?.impliesAppBarDismissal ?? false) ||
@@ -89,7 +89,8 @@ class SettingsDetailScaffold extends StatelessWidget {
       actions: actions,
       // 透明：底色交给 [LuBackdrop] 的渐变，AppBar 只负责放按钮和标题。
       backgroundColor: Colors.transparent,
-      leading: leading ??
+      leading:
+          leading ??
           (showBack
               ? IconButton(
                   tooltip: '返回',
@@ -99,18 +100,15 @@ class SettingsDetailScaffold extends StatelessWidget {
               : null),
     );
 
-    // 背景包在 Scaffold 外面，而不是只包 body：
-    // 这样透明的 AppBar 后面也是同一层渐变，不会在顶部露出一条底色。
-    // 注意这不影响「路由页面在转场时要保持不透明」——LuBackdrop 的第一层
-    // 就是满屏渐变，本身是不透明的。
-    return LuBackdrop(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: appBar,
-        body: body,
-        floatingActionButton: floatingActionButton,
-        bottomNavigationBar: bottomNavigationBar,
-      ),
+    // 背景只由壳层（MaterialApp.builder 里的 LuBackdrop）提供一次。
+    // 这里以前又包了一层，结果设置页是两份全屏渐变叠着画。
+    // Keep routed panes opaque during transitions.
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: appBar,
+      body: body,
+      floatingActionButton: floatingActionButton,
+      bottomNavigationBar: bottomNavigationBar,
     );
   }
 }
