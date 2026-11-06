@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 
 import 'package:XL/services/theme/lu_background.dart';
-
 
 /// 玻璃拟态的材质层与背景层。
 ///
@@ -292,7 +292,9 @@ class LuBackdrop extends StatelessWidget {
                       ),
                     ),
                     Positioned.fill(
-                      child: CustomPaint(painter: _OrbPainter(orbs: preset.orbs)),
+                      child: CustomPaint(
+                        painter: _OrbPainter(orbs: preset.orbs),
+                      ),
                     ),
                   ],
                 ),
@@ -368,10 +370,7 @@ class _OrbPainter extends CustomPainter {
     final double unit = size.shortestSide;
 
     for (final LuBgOrb o in orbs) {
-      final Offset center = Offset(
-        size.width * o.dx,
-        size.height * o.dy,
-      );
+      final Offset center = Offset(size.width * o.dx, size.height * o.dy);
       final double radius = unit * o.radius;
       final Color c = o.color.withValues(alpha: o.strength);
       final Paint paint = Paint()
@@ -385,4 +384,58 @@ class _OrbPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_OrbPainter old) => old.orbs != orbs;
+}
+
+/// 页面转场构建器：给每条路由**自己**垫一层不透明的 [LuBackdrop]。
+///
+/// 为什么背景要在这里垫，而不是靠壳层那一份：
+///
+/// 3.9.60 把页面底色改透明、背景统一交给 `MaterialApp.builder` 里的
+/// 壳层 LuBackdrop 之后，出现「打开任何页面重影一下」——Cupertino 转场
+/// 期间新旧两个路由**同时**绘制，新页面是透明的，旧页内容就从半透明的
+/// 玻璃卡后面透出来。壳层背景救不了场：它在 Navigator 下面，而旧路由
+/// 在壳层背景**上面**，新页面能透过去的正是旧路由这一层。
+///
+/// 所以把不透明背景下沉到每条路由：路由内容外面包一层 LuBackdrop
+/// （渐变 + 光球，全部不透明），转场期间旧页再也透不出来。
+///
+/// 三件顺带的事：
+///   * 转场完成后 Flutter 会跳过被不透明路由盖住的下层，壳层那份背景
+///     在有路由盖着时根本不绘制，没有常驻双重绘制的开销；
+///   * 背景是静态的（见 [LuBackdrop] 注释），每条路由只画一次并缓存；
+///   * 弹窗 / 底部弹层不走 pageTransitionsTheme，不受影响。
+///
+/// `useCupertino` 与 `constants.dart` 里的平台分工一致：手机端保留
+/// Cupertino 转场的边缘返回手势，桌面端用 FadeForwards。
+class LuBackdropTransitionsBuilder extends PageTransitionsBuilder {
+  const LuBackdropTransitionsBuilder({this.useCupertino = true});
+
+  final bool useCupertino;
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final Widget opaque = LuBackdrop(child: child);
+    if (useCupertino) {
+      return const CupertinoPageTransitionsBuilder().buildTransitions(
+        route,
+        context,
+        animation,
+        secondaryAnimation,
+        opaque,
+      );
+    }
+    return const FadeForwardsPageTransitionsBuilder().buildTransitions(
+      route,
+      context,
+      animation,
+      secondaryAnimation,
+      opaque,
+    );
+  }
 }

@@ -65,9 +65,8 @@ class PlayerController implements Disposable {
     isScrubbing: () => seeking.hasActiveInteractiveSeek,
     playbackSpeed: () => playback.playerSpeed,
     setPlaybackSpeed: setPlaybackSpeed,
-    followRemoteSeek: () => GStorage.getSetting<bool>(
-      SettingsKeys.syncPlayFollowRemoteSeek,
-    ),
+    followRemoteSeek: () =>
+        GStorage.getSetting<bool>(SettingsKeys.syncPlayFollowRemoteSeek),
   );
   late final PlayerSeekController seeking = PlayerSeekController(
     playback: playback,
@@ -81,9 +80,9 @@ class PlayerController implements Disposable {
   );
   late final ExternalPlaybackLauncher externalPlayback =
       ExternalPlaybackLauncher(
-    videoUrl: () => videoUrl,
-    referer: () => referer,
-  );
+        videoUrl: () => videoUrl,
+        referer: () => referer,
+      );
 
   late int bangumiId;
   late int currentEpisode;
@@ -92,7 +91,21 @@ class PlayerController implements Disposable {
   late String referer;
   String? coverUrl;
   String videoUrl = '';
+
+  /// 投屏元数据用：电视端标题栏显示「番剧名 · 第 N 集」。
+  String _bangumiName = '';
+  String _episodeTitle = '';
+
   bool isLocalPlayback = false;
+
+  /// 描述 [videoUrl]（不是页面可能还没解析完的那一集）。
+  String get mediaTitle {
+    final episode = _episodeTitle.isNotEmpty
+        ? _episodeTitle
+        : '第 $currentEpisode 集';
+    return _bangumiName.isEmpty ? episode : '$_bangumiName · $episode';
+  }
+
   Timer? _volumeGestureSyncTimer;
   Timer? _persistVolumeTimer;
   double? _pendingGestureVolume;
@@ -185,6 +198,8 @@ class PlayerController implements Disposable {
     final initialization = _initializations.begin();
 
     videoUrl = params.videoUrl;
+    _bangumiName = params.bangumiName ?? '';
+    _episodeTitle = params.episodeTitle.trim();
     isLocalPlayback = params.isLocalPlayback;
     bangumiId = params.bangumiId;
     currentEpisode = params.episode;
@@ -193,7 +208,8 @@ class PlayerController implements Disposable {
     referer = params.referer;
 
     KazumiLogger().i(
-        'PlayerController: ${params.isLocalPlayback ? "local" : "online"} playback, url: ${params.videoUrl}');
+      'PlayerController: ${params.isLocalPlayback ? "local" : "online"} playback, url: ${params.videoUrl}',
+    );
 
     playback.resetForInit();
     debug.playerLogLevel = GStorage.getSetting(SettingsKeys.playerLogLevel);
@@ -203,8 +219,9 @@ class PlayerController implements Disposable {
     );
 
     playback.buttonSkipTime = GStorage.getSetting(SettingsKeys.buttonSkipTime);
-    playback.arrowKeySkipTime =
-        GStorage.getSetting(SettingsKeys.arrowKeySkipTime);
+    playback.arrowKeySkipTime = GStorage.getSetting(
+      SettingsKeys.arrowKeySkipTime,
+    );
     try {
       await _releasePlaybackResources();
     } catch (_) {}
@@ -226,8 +243,10 @@ class PlayerController implements Disposable {
         return false;
       }
       playback.loading = false;
-      KazumiLogger()
-          .e('PlayerController: failed to initialize video', error: e);
+      KazumiLogger().e(
+        'PlayerController: failed to initialize video',
+        error: e,
+      );
       return false;
     }
     if (player == null || !_ownsInitialization(initialization, player)) {
@@ -263,7 +282,9 @@ class PlayerController implements Disposable {
       if (syncplay.syncplayController!.currentFileName !=
           "$bangumiId[$currentEpisode]") {
         setSyncPlayPlayingBangumi(
-            forceSyncPlaying: true, forceSyncPosition: 0.0);
+          forceSyncPlaying: true,
+          forceSyncPosition: 0.0,
+        );
       }
     }
     return true;
@@ -274,10 +295,7 @@ class PlayerController implements Disposable {
   }
 
   Future<void> setShader(SuperResolutionMode mode, {Player? player}) async {
-    await playback.setShader(
-      mode,
-      player: player,
-    );
+    await playback.setShader(mode, player: player);
   }
 
   Future<void> setPlaybackSpeed(double playerSpeed) async {
@@ -386,20 +404,14 @@ class PlayerController implements Disposable {
   }
 
   Future<void> _shutdownResources() async {
-    await Future.wait([
-      _releasePlaybackResources(),
-      syncplay.dispose(),
-    ]);
+    await Future.wait([_releasePlaybackResources(), syncplay.dispose()]);
   }
 
   Future<void> _releasePlaybackResources() async {
     _volumeGestureSyncTimer?.cancel();
     _persistVolumeTimer?.cancel();
     _persistVolumeTimer = null;
-    await Future.wait([
-      audioController.deactivate(),
-      playback.stop(),
-    ]);
+    await Future.wait([audioController.deactivate(), playback.stop()]);
   }
 
   Future<void> stop() async {
@@ -424,27 +436,28 @@ class PlayerController implements Disposable {
   }
 
   Future<void> createSyncPlayRoom(
-      String room,
-      String username,
-      Future<void> Function(int episode, {int currentRoad, int offset})
-          changeEpisode) async {
-    await syncplay.createRoom(
-      room,
-      username,
-      changeEpisode,
-    );
+    String room,
+    String username,
+    Future<void> Function(int episode, {int currentRoad, int offset})
+    changeEpisode,
+  ) async {
+    await syncplay.createRoom(room, username, changeEpisode);
   }
 
-  void setSyncPlayCurrentPosition(
-      {bool? forceSyncPlaying, double? forceSyncPosition}) {
+  void setSyncPlayCurrentPosition({
+    bool? forceSyncPlaying,
+    double? forceSyncPosition,
+  }) {
     syncplay.setCurrentPosition(
       forceSyncPlaying: forceSyncPlaying,
       forceSyncPosition: forceSyncPosition,
     );
   }
 
-  Future<void> setSyncPlayPlayingBangumi(
-      {bool? forceSyncPlaying, double? forceSyncPosition}) async {
+  Future<void> setSyncPlayPlayingBangumi({
+    bool? forceSyncPlaying,
+    double? forceSyncPosition,
+  }) async {
     await syncplay.setPlayingBangumi(
       forceSyncPlaying: forceSyncPlaying,
       forceSyncPosition: forceSyncPosition,
@@ -468,8 +481,7 @@ class PlayerController implements Disposable {
 
   Future<void> requestSyncPlayStall([
     int seconds = SyncPlayStall.defaultSeconds,
-  ]) =>
-      syncplay.requestStall(seconds);
+  ]) => syncplay.requestStall(seconds);
 
   Future<void> startSyncPlayVote(SyncPlayVoteKind kind, {int episode = 0}) =>
       syncplay.startVote(kind, episode: episode);
@@ -481,12 +493,11 @@ class PlayerController implements Disposable {
     required String pluginName,
     required int road,
     required String roadName,
-  }) =>
-      syncplay.updateSource(
-        pluginName: pluginName,
-        road: road,
-        roadName: roadName,
-      );
+  }) => syncplay.updateSource(
+    pluginName: pluginName,
+    road: road,
+    roadName: roadName,
+  );
 
   Future<void> sendSyncPlayChatMessage(String message) async {
     await syncplay.sendChatMessage(message);

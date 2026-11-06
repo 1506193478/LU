@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:XL/request/config/api_endpoints.dart';
+import 'package:XL/theme/lu_glass.dart';
 
 class StyleString {
   static const double cardSpace = 8;
@@ -39,16 +40,20 @@ const SliderThemeData sliderTheme2024 = SliderThemeData(
 ///
 /// 桌面端（Windows / Linux）保持 FadeForwards：鼠标没有边缘返回的习惯，
 /// 换成横向滑入反而突兀。
+// 全部走 [LuBackdropTransitionsBuilder]：它在原转场外给路由垫一层
+// 不透明背景，修「打开页面重影一下」（详见该类注释）。手机端保留
+// Cupertino 的边缘返回手势，桌面端维持 FadeForwards。
 const _pageTransitionBuilders = <TargetPlatform, PageTransitionsBuilder>{
-  TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-  TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-  TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
-  TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
-  TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+  TargetPlatform.android: LuBackdropTransitionsBuilder(),
+  TargetPlatform.iOS: LuBackdropTransitionsBuilder(),
+  TargetPlatform.linux: LuBackdropTransitionsBuilder(useCupertino: false),
+  TargetPlatform.macOS: LuBackdropTransitionsBuilder(),
+  TargetPlatform.windows: LuBackdropTransitionsBuilder(useCupertino: false),
 };
 
-const PageTransitionsTheme pageTransitionsTheme2024 =
-    PageTransitionsTheme(builders: _pageTransitionBuilders);
+const PageTransitionsTheme pageTransitionsTheme2024 = PageTransitionsTheme(
+  builders: _pageTransitionBuilders,
+);
 
 // Applied only to the settings navigator; fullscreen routes use the app theme.
 final PageTransitionsTheme settingsPageTransitionsTheme = PageTransitionsTheme(
@@ -102,7 +107,7 @@ Map<String, String> bangumiHTTPHeader = {
   'user-agent':
       'Predidit/Kazumi/${ApiEndpoints.version} (Android) (https://github.com/Predidit/Kazumi)',
   'referer': '',
-  'content-type': 'application/json'
+  'content-type': 'application/json',
 };
 
 /// 可选硬件解码器
@@ -149,7 +154,7 @@ const List<String> mpvAnime4KShaders = [
   'Anime4K_Upscale_CNN_x2_VL.glsl',
   'Anime4K_AutoDownscalePre_x2.glsl',
   'Anime4K_AutoDownscalePre_x4.glsl',
-  'Anime4K_Upscale_CNN_x2_M.glsl'
+  'Anime4K_Upscale_CNN_x2_M.glsl',
 ];
 
 /// 超分辨率滤镜 (轻量)
@@ -160,7 +165,7 @@ const List<String> mpvAnime4KShadersLite = [
   'Anime4K_Upscale_CNN_x2_M.glsl',
   'Anime4K_AutoDownscalePre_x2.glsl',
   'Anime4K_AutoDownscalePre_x4.glsl',
-  'Anime4K_Upscale_CNN_x2_S.glsl'
+  'Anime4K_Upscale_CNN_x2_S.glsl',
 ];
 
 /// 可选播放倍速

@@ -408,10 +408,10 @@ packages:
     dependency: "direct main"
     description:
       name: dlna_dart
-      sha256: "18192521b4c744fc68451a03f4452a58965d0a0fd2a59c8384600e265c6758fe"
+      sha256: "9518eb36fa6b24eb1c237baa98c4c6d1a39e5a100b1a9d47651271ea7311413f"
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "0.0.9"
+    version: "0.1.2"
   dynamic_color:
     dependency: "direct main"
     description:

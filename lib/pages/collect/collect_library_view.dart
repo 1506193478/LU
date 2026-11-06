@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:XL/bean/card/network_img_layer.dart';
@@ -59,10 +60,21 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     for (final type in _collectCategories) type: ScrollController(),
   };
   PageStorageBucket _resultsStorage = PageStorageBucket();
-  CollectType? _selectedType = CollectType.watching;
+
+  /// TabController 在动画结束时会多通知一次，这里只在真正换类时发值；
+  /// 换类只重建监听它的小部件（结果区/计数），不再 setState 整页。
+  final ValueNotifier<CollectType?> _selectedType = ValueNotifier<CollectType?>(
+    CollectType.watching,
+  );
   CollectSort _sort = CollectSort.recentlyChanged;
   String _query = '';
   bool _searchExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedType.addListener(_libraryFocus.requestFocus);
+  }
 
   @override
   void didChangeDependencies() {
@@ -73,12 +85,15 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
       _tabController.dispose();
     }
     _disableAnimations = disableAnimations;
-    _tabController = TabController(
-      length: _collectCategories.length,
-      initialIndex: _collectCategories.indexOf(_selectedType),
-      animationDuration: disableAnimations ? Duration.zero : null,
-      vsync: this,
-    )..addListener(_onCategoryChanged);
+    _tabController =
+        TabController(
+            length: _collectCategories.length,
+            initialIndex: _collectCategories.indexOf(_selectedType.value),
+            animationDuration: disableAnimations ? Duration.zero : null,
+            vsync: this,
+          )
+          ..addListener(_syncSelectedType)
+          ..animation!.addListener(_syncSelectedType);
   }
 
   @override
@@ -90,6 +105,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   @override
   void dispose() {
     _tabController.dispose();
+    _selectedType.dispose();
     _searchController.dispose();
     _searchFocus.dispose();
     _libraryFocus.dispose();
@@ -108,7 +124,7 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   }
 
   void _focusSearch() {
-    final controller = _scrollControllers[_selectedType]!;
+    final controller = _scrollControllers[_selectedType.value]!;
     if (controller.hasClients) controller.jumpTo(0);
     setState(() => _searchExpanded = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -133,11 +149,15 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
     });
   }
 
-  void _onCategoryChanged() {
-    final type = _collectCategories[_tabController.index];
-    if (type == _selectedType) return;
-    _libraryFocus.requestFocus();
-    setState(() => _selectedType = type);
+  /// 点按期间取目标页，滑动期间取主导页 —— 手势还没结束，内容就跟手切。
+  void _syncSelectedType() {
+    final index = _tabController.indexIsChanging
+        ? _tabController.index
+        : _tabController.animation!.value.round().clamp(
+            0,
+            _collectCategories.length - 1,
+          );
+    _selectedType.value = _collectCategories[index];
   }
 
   @override
@@ -158,41 +178,57 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
       child: Focus(
         focusNode: _libraryFocus,
         autofocus: true,
-        child: LayoutBuilder(builder: (context, constraints) {
-          final compact = constraints.maxWidth < 600;
-          final paged = mobile &&
-              MediaQuery.orientationOf(context) == Orientation.portrait &&
-              constraints.maxHeight > 320;
-          final width = constraints.maxWidth.clamp(0.0, 1560.0);
-          final inset =
-              (constraints.maxWidth - width) / 2 + (compact ? 16.0 : 32.0);
-          final header = _header(query, compact: compact);
-          return PageStorage(
-            bucket: _resultsStorage,
-            child: paged
-                ? Column(
-                    children: [
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: inset),
-                        child: header,
-                      ),
-                      Expanded(
-                        child: TabBarView(
-                          controller: _tabController,
-                          children: [
-                            for (final type in _collectCategories)
-                              HeroMode(
-                                enabled: type == _selectedType,
-                                child: _results(query, type, inset: inset),
-                              ),
-                          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 600;
+            final paged =
+                mobile &&
+                MediaQuery.orientationOf(context) == Orientation.portrait &&
+                constraints.maxHeight > 320;
+            final width = constraints.maxWidth.clamp(0.0, 1560.0);
+            final inset =
+                (constraints.maxWidth - width) / 2 + (compact ? 16.0 : 32.0);
+            final header = _header(query, compact: compact);
+            return PageStorage(
+              bucket: _resultsStorage,
+              child: paged
+                  ? Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: inset),
+                          child: header,
                         ),
+                        Expanded(
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              for (final type in _collectCategories)
+                                ValueListenableBuilder<CollectType?>(
+                                  valueListenable: _selectedType,
+                                  builder: (context, selected, child) =>
+                                      HeroMode(
+                                        enabled: type == selected,
+                                        child: child!,
+                                      ),
+                                  child: _results(query, type, inset: inset),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : ValueListenableBuilder<CollectType?>(
+                      valueListenable: _selectedType,
+                      builder: (context, selected, _) => _results(
+                        query,
+                        selected,
+                        inset: inset,
+                        header: header,
                       ),
-                    ],
-                  )
-                : _results(query, _selectedType, inset: inset, header: header),
-          );
-        }),
+                    ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -207,17 +243,21 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
               child: _CollectCategories(
                 key: _categoriesKey,
                 controller: _tabController,
+                selected: _selectedType,
                 count: query.count,
               ),
             ),
             if (!compact)
               Padding(
                 padding: const EdgeInsetsDirectional.only(start: 16),
-                child: Text(
-                  '${query.count(_selectedType)} 部',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                child: ValueListenableBuilder<CollectType?>(
+                  valueListenable: _selectedType,
+                  builder: (context, selected, _) => Text(
+                    '${query.count(selected)} 部',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ),
           ],
@@ -237,13 +277,16 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
               )
             else
               Expanded(
-                child: Text(
-                  '${query.count(_selectedType)} 部',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                child: ValueListenableBuilder<CollectType?>(
+                  valueListenable: _selectedType,
+                  builder: (context, selected, _) => Text(
+                    '${query.count(selected)} 部',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ),
             const SizedBox(width: 12),
@@ -280,95 +323,110 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
   }
 
   Widget _searchBar() => Semantics(
-        label: '搜索收藏',
-        child: SearchBar(
-          controller: _searchController,
-          focusNode: _searchFocus,
-          leading: const Icon(Icons.search_rounded, size: 22),
-          trailing: [
-            if (_query.isNotEmpty)
-              IconButton(
-                tooltip: '清除搜索',
-                onPressed: () {
-                  _searchController.clear();
-                  _search('');
-                },
-                icon: const Icon(Icons.close_rounded),
-              ),
-          ],
-          elevation: const WidgetStatePropertyAll(0),
-          backgroundColor: WidgetStatePropertyAll(
-              Theme.of(context).colorScheme.surfaceContainerLow),
-          padding: const WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 16)),
-          constraints: const BoxConstraints(minHeight: 48),
-          onChanged: _search,
-          onSubmitted: (_) => _libraryFocus.requestFocus(),
-        ),
-      );
+    label: '搜索收藏',
+    child: SearchBar(
+      controller: _searchController,
+      focusNode: _searchFocus,
+      leading: const Icon(Icons.search_rounded, size: 22),
+      trailing: [
+        if (_query.isNotEmpty)
+          IconButton(
+            tooltip: '清除搜索',
+            onPressed: () {
+              _searchController.clear();
+              _search('');
+            },
+            icon: const Icon(Icons.close_rounded),
+          ),
+      ],
+      elevation: const WidgetStatePropertyAll(0),
+      backgroundColor: WidgetStatePropertyAll(
+        Theme.of(context).colorScheme.surfaceContainerLow,
+      ),
+      padding: const WidgetStatePropertyAll(
+        EdgeInsets.symmetric(horizontal: 16),
+      ),
+      constraints: const BoxConstraints(minHeight: 48),
+      onChanged: _search,
+      onSubmitted: (_) => _libraryFocus.requestFocus(),
+    ),
+  );
 
-  Widget _results(CollectLibraryQuery query, CollectType? type,
-      {required double inset, Widget? header}) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final entries = query.results(type, _sort);
-      final contentWidth = constraints.maxWidth - inset * 2;
-      return ScrollbarTheme(
-        data: ScrollbarTheme.of(context).copyWith(crossAxisMargin: 0),
-        child: CustomScrollView(
-          key: PageStorageKey('collect-results-${type?.value ?? 'all'}'),
-          controller: _scrollControllers[type],
-          semanticChildCount: entries.length,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          slivers: [
-            if (header != null)
-              SliverPadding(
-                padding: EdgeInsets.symmetric(horizontal: inset),
-                sliver: SliverToBoxAdapter(child: header),
-              ),
-            if (entries.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Padding(
+  Widget _results(
+    CollectLibraryQuery query,
+    CollectType? type, {
+    required double inset,
+    Widget? header,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final entries = query.results(type, _sort);
+        final contentWidth = constraints.maxWidth - inset * 2;
+        return ScrollbarTheme(
+          data: ScrollbarTheme.of(context).copyWith(crossAxisMargin: 0),
+          child: CustomScrollView(
+            key: PageStorageKey('collect-results-${type?.value ?? 'all'}'),
+            controller: _scrollControllers[type],
+            semanticChildCount: entries.length,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            slivers: [
+              if (header != null)
+                SliverPadding(
                   padding: EdgeInsets.symmetric(horizontal: inset),
-                  child: _emptyState(query.count(null), type: type),
+                  sliver: SliverToBoxAdapter(child: header),
                 ),
-              )
-            else
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                    inset, 0, inset, 24 + immersiveTabBarInset(context)),
-                sliver: widget.layout == CollectLayout.cards
-                    ? _grid(entries, contentWidth, type: type)
-                    : _list(entries, contentWidth),
-              ),
-          ],
-        ),
-      );
-    });
+              if (entries.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: inset),
+                    child: _emptyState(query.count(null), type: type),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    inset,
+                    0,
+                    inset,
+                    24 + immersiveTabBarInset(context),
+                  ),
+                  sliver: widget.layout == CollectLayout.cards
+                      ? _grid(entries, contentWidth, type: type)
+                      : _list(entries, contentWidth),
+                ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _list(List<CollectedBangumi> entries, double contentWidth) {
     const spacing = 12.0;
-    final textScale = (MediaQuery.textScalerOf(context).scale(14) / 14)
-        .clamp(1.0, double.infinity);
+    final textScale = (MediaQuery.textScalerOf(context).scale(14) / 14).clamp(
+      1.0,
+      double.infinity,
+    );
     final minWidth = 300 + 160 * (textScale - 1);
     final preferredWidth = 400 + 160 * (textScale - 1);
-    final maxColumns =
-        ((contentWidth + spacing) / (minWidth + spacing)).floor().clamp(1, 12);
+    final maxColumns = ((contentWidth + spacing) / (minWidth + spacing))
+        .floor()
+        .clamp(1, 12);
     final columns = ((contentWidth + spacing) / (preferredWidth + spacing))
         .ceil()
         .clamp(1, maxColumns);
 
     Widget tile(int index) => IndexedSemantics(
-          index: index,
-          child: _CollectListTile(
-            key: ValueKey('collect-${entries[index].bangumiItem.id}'),
-            entry: entries[index],
-            showRating: widget.showRating,
-            onOpen: () => widget.onOpen(entries[index].bangumiItem),
-            onChangeType: _changeTypeFor(entries[index]),
-          ),
-        );
+      index: index,
+      child: _CollectListTile(
+        key: ValueKey('collect-${entries[index].bangumiItem.id}'),
+        entry: entries[index],
+        showRating: widget.showRating,
+        onOpen: () => widget.onOpen(entries[index].bangumiItem),
+        onChangeType: _changeTypeFor(entries[index]),
+      ),
+    );
 
     return SliverList.builder(
       itemCount: (entries.length + columns - 1) ~/ columns,
@@ -400,11 +458,14 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
 
   ValueChanged<CollectType>? _changeTypeFor(CollectedBangumi entry) =>
       widget.canEdit(entry.bangumiItem)
-          ? (type) => widget.onChangeType(entry.bangumiItem, type)
-          : null;
+      ? (type) => widget.onChangeType(entry.bangumiItem, type)
+      : null;
 
-  Widget _grid(List<CollectedBangumi> entries, double contentWidth,
-      {required CollectType? type}) {
+  Widget _grid(
+    List<CollectedBangumi> entries,
+    double contentWidth, {
+    required CollectType? type,
+  }) {
     final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
     final spacing = portrait ? (contentWidth < 600 ? 8.0 : 12.0) : 16.0;
     final scaler = MediaQuery.textScalerOf(context);
@@ -420,8 +481,12 @@ class _CollectLibraryViewState extends State<CollectLibraryView>
         crossAxisCount: columns,
         crossAxisSpacing: spacing,
         mainAxisSpacing: portrait ? 12 : spacing,
-        mainAxisExtent: _CollectPosterCard.extent(width, scaler,
-            showRating: widget.showRating, showStatus: type == null),
+        mainAxisExtent: _CollectPosterCard.extent(
+          width,
+          scaler,
+          showRating: widget.showRating,
+          showStatus: type == null,
+        ),
       ),
       itemCount: entries.length,
       itemBuilder: (context, index) => _CollectPosterCard(
