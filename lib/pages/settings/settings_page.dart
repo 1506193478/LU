@@ -285,7 +285,7 @@ class SettingsIndexPage extends StatelessWidget {
       return const PlayerSettingsPage();
     }
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       appBar: SysAppBar(
         title: const Text('设置'),
         leading: BackButton(onPressed: () {

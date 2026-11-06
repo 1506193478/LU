@@ -145,7 +145,9 @@ class _SysAppBarState extends State<SysAppBar> {
             : null,
         // 页面底色统一是 Pv 的 #F3F1F2 / 深色 #151417，AppBar 直接融进去，
         // 不再用拟态那个中灰。
-        backgroundColor: widget.backgroundColor ?? PvColors.page(context),
+        // 默认透明：页面底色由壳层的 [LuBackdrop] 统一提供，
+        // AppBar 再铺一层实色就会在顶部切出一条色带。
+        backgroundColor: widget.backgroundColor ?? Colors.transparent,
         automaticallyImplyLeading: false,
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,

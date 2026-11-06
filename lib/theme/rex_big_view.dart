@@ -53,7 +53,6 @@ class RexBigViewCarousel extends StatefulWidget {
   const RexBigViewCarousel({
     super.key,
     required this.items,
-    required this.fadeColor,
     this.height,
     this.topOverlay,
     this.onPageChanged,
@@ -61,9 +60,6 @@ class RexBigViewCarousel extends StatefulWidget {
   });
 
   final List<RexBigViewItem> items;
-
-  /// 页面底色，用于图片底部的渐隐。
-  final Color fadeColor;
 
   /// 固定高度；不传时按屏幕高度自适应（手机约 0.55 屏，桌面 380）。
   final double? height;
@@ -140,19 +136,45 @@ class _RexBigViewCarouselState extends State<RexBigViewCarousel> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          _image(context, item),
-          // 底部渐隐：从透明到页面底色，标题区坐在渐隐带上。
+          // 图片底部用 alpha mask 渐隐到透明，直接融进页面背景。
+          //
+          // 原来是在图片上盖一层「渐隐到页面底色」的实色渐变。底色一旦不是
+          // 纯色（3.9.59 换成了渐变背景），这层就变成一条实色带——深色下
+          // 页面底色是 #000，于是图片底部出现一道黑色横线，正是截图里
+          // 圈出来的那条。
+          //
+          // mask 只跟 alpha 有关，不依赖任何具体颜色，背景怎么变都不会有色带。
+          ShaderMask(
+            shaderCallback: (Rect rect) => const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: <double>[0.56, 1.0],
+              colors: <Color>[Color(0xFFFFFFFF), Color(0x00FFFFFF)],
+            ).createShader(rect),
+            blendMode: BlendMode.dstIn,
+            child: _image(context, item),
+          ),
+          // 文字衬底：不是"页面底色"，而是一层从底部往上收的压暗。
+          // 图片已经渐隐，这层叠上去只是让白字在任何背景上都读得清，
+          // 视觉上就是海报底部常见的自然压暗，不会出现硬边。
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                stops: const [0.30, 0.62, 0.88, 1.0],
-                colors: [
+                stops: const <double>[0.40, 0.72, 1.0],
+                colors: <Color>[
                   Colors.transparent,
-                  widget.fadeColor.withValues(alpha: 0.22),
-                  widget.fadeColor.withValues(alpha: 0.88),
-                  widget.fadeColor,
+                  Colors.black.withValues(
+                    alpha: Theme.of(context).brightness == Brightness.dark
+                        ? 0.16
+                        : 0.24,
+                  ),
+                  Colors.black.withValues(
+                    alpha: Theme.of(context).brightness == Brightness.dark
+                        ? 0.40
+                        : 0.50,
+                  ),
                 ],
               ),
             ),

@@ -109,7 +109,7 @@ class _CollectPageState extends State<CollectPage> with KazumiDialogOwner {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       appBar: SysAppBar(
         needTopOffset: false,
         toolbarHeight: 72,

@@ -213,7 +213,7 @@ class _TimelinePageState extends State<TimelinePage> {
           ],
         );
         return Scaffold(
-          backgroundColor: PvColors.page(context),
+          backgroundColor: Colors.transparent,
           appBar: appBar,
           body: SafeArea(
             top: false,

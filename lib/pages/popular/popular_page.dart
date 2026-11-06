@@ -79,7 +79,7 @@ class _PopularPageState extends State<PopularPage> {
     // 桌面宽屏维持「标题栏 + 卡片横幅」，通栏图在宽窗口会把标题拉得太长。
     final bool mobileBigView = !isDesktopWideLayout(context);
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       body: CustomScrollView(
         controller: scrollController,
         slivers: [
@@ -381,7 +381,6 @@ class _PopularPageState extends State<PopularPage> {
           : (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark),
       child: RexBigViewCarousel(
         items: items,
-        fadeColor: p.canvas,
         topOverlay: _BigViewTopBar(actions: buildActions()),
       ),
     );

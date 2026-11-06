@@ -62,9 +62,9 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
   Widget build(BuildContext context) {
     final server = _server;
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: PvColors.page(context),
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(

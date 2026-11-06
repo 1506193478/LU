@@ -1040,7 +1040,7 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           CircularRevealOverlay(origin: _revealOrigin),

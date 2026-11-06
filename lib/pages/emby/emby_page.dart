@@ -595,7 +595,6 @@ class _HomeBodyState extends State<_HomeBody> {
                 SliverToBoxAdapter(
                   child: RexBigViewCarousel(
                     items: heroItems,
-                    fadeColor: Colors.transparent,
                     height: heroHeight,
                     emptyBuilder: _EmptyHero(
                       onOpenServers: widget.onOpenServers,

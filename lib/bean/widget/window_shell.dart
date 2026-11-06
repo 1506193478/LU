@@ -92,7 +92,13 @@ class _WindowShellState extends State<WindowShell> with WindowListener {
     if (!WindowShell.supported) return widget.child;
 
     final bool flush = _maximized || _fullScreen;
-    final Color backdrop = Theme.of(context).scaffoldBackgroundColor;
+    // scaffoldBackgroundColor 现在按设计是透明的（页面背景由壳层的
+    // LuBackdrop 统一画），但这一块要涂满窗口四周的边距，必须是实色，
+    // 否则桌面端拖窗口时那圈会闪白/露桌面。
+    // 取背景渐变的起始色，和页面接得上。
+    final bool shellDark = Theme.of(context).brightness == Brightness.dark;
+    final Color backdrop =
+        shellDark ? const Color(0xFF0D1017) : const Color(0xFFD6E0FF);
 
     // 整窗先铺实色底：窗口本身已经不透明了，这块负责把 [gutter] 那圈边距
     // 涂成主题底色，否则那块区域没人绘制，缩放时会闪白。

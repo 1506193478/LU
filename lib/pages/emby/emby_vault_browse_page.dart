@@ -117,9 +117,9 @@ class _EmbyVaultBrowsePageState extends State<EmbyVaultBrowsePage> {
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: PvColors.page(context),
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),

@@ -106,9 +106,9 @@ class _EmbyFavoritesPageState extends State<EmbyFavoritesPage> {
   Widget build(BuildContext context) {
     final server = EmbyService.instance.activeServer;
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: PvColors.page(context),
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(

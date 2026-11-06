@@ -1,7 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:XL/theme/ios_interaction.dart';
-import 'package:XL/theme/ios_tokens.dart';
 import 'package:XL/utils/constants.dart';
 
 /// 内容沉浸型主题：深色为主、大圆角、去边框、弱化分割线。
@@ -11,12 +10,15 @@ import 'package:XL/utils/constants.dart';
 // Pv 作为唯一设计语言之后，全局页面底色就是 Pv 的 `--page`：
 // 浅色 #F3F1F2 / 深色 #151417。原来这里是 #F5F6F8 / #0B0C0F，
 // 和 Pv 卡片一对比就分得出两套底，切页时尤其明显。
-const Color immersiveDarkScaffold = Color(0xFF151417);
-const Color immersiveLightScaffold = Color(0xFFF3F1F2);
+/// 页面底色交给壳层的 [LuBackdrop]，这里只能是透明。
+const Color immersiveDarkScaffold = Color(0x00000000);
+const Color immersiveLightScaffold = Color(0x00000000);
 
 /// Pv 卡片底色（`--canvas`），跟 [PvColors.card] 是同一组值。
-const Color immersiveDarkCard = Color(0xFF1F1E22);
-const Color immersiveLightCard = Color(0xFFFFFFFF);
+/// 卡片改成半透明玻璃：背景是柔和渐变，卡片透一点上来就有材质感。
+/// 深色要垫足够的暗底，否则光球透过来会变成彩色玻璃片。
+const Color immersiveDarkCard = Color(0xB31C1E24);
+const Color immersiveLightCard = Color(0xBFFFFFFF);
 
 /// 默认强调色。
 ///
@@ -149,11 +151,9 @@ ThemeData buildImmersiveTheme({
   );
 
   return base.copyWith(
-    // iOS 用 systemGroupedBackground（#F2F2F7 / #000000）；
-    // 其余平台保留 Pv 的 #F3F1F2 / #151417。
-    scaffoldBackgroundColor: kIosSystemized
-        ? (dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7))
-        : (dark ? immersiveDarkScaffold : immersiveLightScaffold),
+    scaffoldBackgroundColor: dark
+        ? immersiveDarkScaffold
+        : immersiveLightScaffold,
     // 卡片一律无边框、无阴影、大圆角。
     cardTheme: CardThemeData(
       elevation: 0,
@@ -161,34 +161,17 @@ ThemeData buildImmersiveTheme({
       clipBehavior: Clip.antiAlias,
       // 卡片一律用 Pv 的白卡（深色 #1F1E22），不再跟 M3 的
       // surfaceContainerLow 走 —— 后者跟页面底色差得太少，整页糊成一片。
-      color: kIosSystemized
-          ? (dark ? const Color(0xFF1C1C1E) : Colors.white)
-          : (dark ? immersiveDarkCard : immersiveLightCard),
-      // insetGrouped 的圆角是 10，不是品牌的 16。
-      shape: RoundedRectangleBorder(
-        borderRadius: kIosSystemized
-            ? BorderRadius.circular(IosMetrics.groupedRadius)
-            : immersiveBorderRadius,
-      ),
+      color: dark ? immersiveDarkCard : immersiveLightCard,
+      shape: const RoundedRectangleBorder(borderRadius: immersiveBorderRadius),
     ),
     // AppBar 融入背景，滚动时不抬升高程。
     appBarTheme: AppBarTheme(
       elevation: 0,
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
-      backgroundColor: kIosSystemized
-          ? (dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7))
-          : (dark ? immersiveDarkScaffold : immersiveLightScaffold),
-      // iOS 导航栏标题：17 semibold、居中；其余平台保持原来的左对齐大标题。
-      centerTitle: kIosSystemized,
-      titleTextStyle: kIosSystemized
-          ? TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -0.41,
-              color: dark ? Colors.white : Colors.black,
-            )
-          : null,
+      // AppBar 也透明：页面底色已经是渐变，再铺一层实色会在顶部切一条带。
+      backgroundColor: Colors.transparent,
+      centerTitle: false,
     ),
     // 分割线压到近乎不可见。
     dividerTheme: DividerThemeData(

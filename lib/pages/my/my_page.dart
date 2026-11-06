@@ -86,7 +86,7 @@ class _MyPageState extends State<MyPage> {
     // 预览稿「我的」页是页内 34px 大标题（.page-title），不走 AppBar。
     return Scaffold(
       // 内容层早就是 Pv 了，外壳还留着拟态底色，一页里两套材质最扎眼。
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         top: true,
         bottom: false,

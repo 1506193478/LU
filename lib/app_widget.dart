@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+
+import 'package:XL/theme/lu_glass.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:dynamic_color/dynamic_color.dart';
@@ -312,8 +314,15 @@ class _AppWidgetState extends State<AppWidget>
           // 无边框模式下套一层圆角外壳（透明窗口 + 自绘圆角 + 缩放热区）。
           // 开屏视频动画已移除：原生 launch 画面直接交棒给首页首帧，
           // 首页本身用淡入完成"丝滑过渡"。
+          // 背景在这里统一画，页面自己不再铺底色。
+          //
+          // 3.9.59 第一版只给 5 个主 tab 加了渐变背景，结果一进设置、搜索、
+          // 收藏这些二级页就掉回一块死灰——13 个页面的底色是各自写死的。
+          // 与其一页页补，不如把背景提到壳层：页面全部透明，背景只有一份。
           builder: (context, child) => WindowShell(
-            child: _HomeFadeIn(child: child ?? const SizedBox.shrink()),
+            child: _HomeFadeIn(
+              child: LuBackdrop(child: child ?? const SizedBox.shrink()),
+            ),
           ),
         );
       },

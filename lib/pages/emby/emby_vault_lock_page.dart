@@ -217,7 +217,7 @@ class _EmbyVaultLockPageState extends State<EmbyVaultLockPage> {
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Column(
           children: [

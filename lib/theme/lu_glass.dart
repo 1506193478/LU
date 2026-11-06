@@ -1,9 +1,7 @@
-import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
-import 'package:XL/theme/ios_interaction.dart' show kIsCupertinoPlatform;
 
 /// 玻璃拟态的材质层与背景层。
 ///
@@ -265,11 +263,11 @@ class _Orb {
 /// 模糊完还是白，再怎么调卡片透明度都只会得到一张白卡。这是上一版失败的
 /// 根本原因，不是配色偏好。
 const List<_Orb> _lightOrbs = <_Orb>[
-  _Orb(0.24, 0.10, 0.52, Color(0xFF688CFF), 0.72),
-  _Orb(0.86, 0.32, 0.50, Color(0xFFC67CFF), 0.63),
-  _Orb(0.10, 0.66, 0.54, Color(0xFFFF8CB6), 0.55),
-  _Orb(0.90, 0.84, 0.52, Color(0xFF4AE0F6), 0.50),
-  _Orb(0.52, 0.44, 0.46, Color(0xFFFFFFFF), 0.34),
+  _Orb(0.24, 0.10, 0.52, Color(0xFF688CFF), 0.52),
+  _Orb(0.86, 0.32, 0.50, Color(0xFFC67CFF), 0.44),
+  _Orb(0.10, 0.66, 0.54, Color(0xFFFF8CB6), 0.38),
+  _Orb(0.90, 0.84, 0.52, Color(0xFF4AE0F6), 0.34),
+  _Orb(0.52, 0.44, 0.46, Color(0xFFFFFFFF), 0.26),
 ];
 
 /// 深色一套：刻意降饱和。
@@ -284,62 +282,21 @@ const List<_Orb> _darkOrbs = <_Orb>[
   _Orb(0.52, 0.44, 0.46, Color(0xFFC8D2EB), 0.10),
 ];
 
-/// 页面背景：底色渐变 + 五颗缓慢漂移的光球。
+/// 页面背景：底色渐变 + 五颗光球。
 ///
-/// 整个背景只用一次 `CustomPaint`，并且包在 `RepaintBoundary` 里——
-/// 列表滚动时不会每帧重画背景。漂移用 34 秒的往复动画，只有 iOS 且没有
-/// 开启「减弱动态效果」时才跑，安卓上静止（省电，视觉上几乎看不出差别）。
-class LuBackdrop extends StatefulWidget {
-  const LuBackdrop({super.key, required this.child, this.animate = true});
+/// **背景是静态的，不做动画。**
+///
+/// 3.9.59 第一版给光球加了 34 秒的往复漂移，结果 Emby 模块整体滑动掉帧：
+/// 那层是满屏的 `CustomPaint`，五颗光球都是 radial gradient shader，
+/// 动画期间每帧都要重新生成 shader 并重绘整块画布——`RepaintBoundary`
+/// 只保证「内容变化时背景不重绘」，挡不住「背景自己在动」。
+///
+/// 静态之后整块背景只在首次布局时画一次，之后合成器直接缓存，
+/// 滚动零成本；视觉上少了一个几乎察觉不到的缓慢移动，换来的是稳帧。
+class LuBackdrop extends StatelessWidget {
+  const LuBackdrop({super.key, required this.child});
 
   final Widget child;
-
-  /// 关掉漂移（播放器、全屏页这类不需要到处都在动的场景）。
-  final bool animate;
-
-  @override
-  State<LuBackdrop> createState() => _LuBackdropState();
-}
-
-class _LuBackdropState extends State<LuBackdrop>
-    with SingleTickerProviderStateMixin {
-  AnimationController? _drift;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.animate && kIsCupertinoPlatform) {
-      _drift = AnimationController(
-        vsync: this,
-        duration: const Duration(seconds: 34),
-      );
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final AnimationController? c = _drift;
-    if (c == null) {
-      return;
-    }
-    // 系统开了「减弱动态效果」就不要动。
-    final bool reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (reduce) {
-      if (c.isAnimating) {
-        c.stop();
-      }
-      c.value = 0.5;
-    } else if (!c.isAnimating) {
-      c.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void dispose() {
-    _drift?.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -352,52 +309,47 @@ class _LuBackdropState extends State<LuBackdrop>
             Color(0xFF0A0D13),
           ]
         : const <Color>[
-            Color(0xFFBFD0FF),
-            Color(0xFFDCC2F8),
-            Color(0xFFFFC8DC),
-            Color(0xFFB6E6F5),
+            Color(0xFFD6E0FF),
+            Color(0xFFE7DAF9),
+            Color(0xFFFFDFE8),
+            Color(0xFFD6EEF7),
           ];
 
     return Stack(
       children: <Widget>[
         Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: const Alignment(-0.35, -1),
-                end: const Alignment(0.35, 1),
-                colors: base,
-                stops: const <double>[0, 0.34, 0.66, 1],
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(
           child: RepaintBoundary(
-            child: _drift == null
-                ? CustomPaint(painter: _OrbPainter(dark: dark, progress: 0.5))
-                : AnimatedBuilder(
-                    animation: _drift!,
-                    builder: (_, _) => CustomPaint(
-                      painter: _OrbPainter(
-                        dark: dark,
-                        progress: Curves.easeInOut.transform(_drift!.value),
+            child: Stack(
+              children: <Widget>[
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: const Alignment(-0.35, -1),
+                        end: const Alignment(0.35, 1),
+                        colors: base,
+                        stops: const <double>[0, 0.34, 0.66, 1],
                       ),
                     ),
                   ),
+                ),
+                Positioned.fill(
+                  child: CustomPaint(painter: _OrbPainter(dark: dark)),
+                ),
+              ],
+            ),
           ),
         ),
-        widget.child,
+        child,
       ],
     );
   }
 }
 
 class _OrbPainter extends CustomPainter {
-  const _OrbPainter({required this.dark, required this.progress});
+  const _OrbPainter({required this.dark});
 
   final bool dark;
-  final double progress;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -405,19 +357,12 @@ class _OrbPainter extends CustomPainter {
       return;
     }
     final List<_Orb> orbs = dark ? _darkOrbs : _lightOrbs;
-    // 漂移幅度压到 2%，再大就会让人注意到「背景在动」而不是「背景有光」。
-    final double t = (progress - 0.5) * 2; // -1 → 1
-    final double dx = size.width * 0.022 * t;
-    final double dy = size.height * 0.016 * -t;
     final double unit = size.shortestSide;
 
-    for (int i = 0; i < orbs.length; i++) {
-      final _Orb o = orbs[i];
-      // 每颗错开相位，不然五颗会像一整块在平移。
-      final double phase = math.sin((progress + i * 0.21) * math.pi * 1.4);
+    for (final _Orb o in orbs) {
       final Offset center = Offset(
-        size.width * o.dx + dx * (1 + i * 0.12) + phase * size.width * 0.008,
-        size.height * o.dy + dy * (1 + i * 0.08) + phase * size.height * 0.006,
+        size.width * o.dx,
+        size.height * o.dy,
       );
       final double radius = unit * o.radius;
       final Color c = o.color.withValues(alpha: o.strength);
@@ -431,6 +376,5 @@ class _OrbPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_OrbPainter old) =>
-      old.dark != dark || old.progress != progress;
+  bool shouldRepaint(_OrbPainter old) => old.dark != dark;
 }

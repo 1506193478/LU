@@ -720,11 +720,16 @@ class _EntryGrid extends StatelessWidget {
 enum _Tone { amber, gold, sky, green }
 
 /// 卡片配色：预览稿 `.tone-*` 是 135° 白 → 浅色 → 更深的浅色。
+/// 浅色卡片的三段渐变。
+///
+/// 原来第三段是 #FBE7BE / #CDEEDA 这类实打实的黄和绿，压在白底上还看得过去；
+/// 换成渐变背景之后，黄配粉紫会发脏，一排卡片像糖果盒。现在只保留一点点
+/// 色温差异（第三段和白只差 3~5%），辨识主要靠右上角那枚图标。
 const Map<_Tone, List<Color>> _toneLight = {
-  _Tone.amber: [Color(0xFFFFFFFF), Color(0xFFFEF6E6), Color(0xFFFBE7BE)],
-  _Tone.gold: [Color(0xFFFFFFFF), Color(0xFFFDF3DF), Color(0xFFF8E0B4)],
-  _Tone.sky: [Color(0xFFFFFFFF), Color(0xFFEDF3FD), Color(0xFFD8E6F8)],
-  _Tone.green: [Color(0xFFFFFFFF), Color(0xFFEAF8EE), Color(0xFFCDEEDA)],
+  _Tone.amber: [Color(0xFFFFFFFF), Color(0xFFFEFCF7), Color(0xFFFDF6E9)],
+  _Tone.gold: [Color(0xFFFFFFFF), Color(0xFFFEFCF6), Color(0xFFFCF5E6)],
+  _Tone.sky: [Color(0xFFFFFFFF), Color(0xFFFBFDFF), Color(0xFFF3F8FE)],
+  _Tone.green: [Color(0xFFFFFFFF), Color(0xFFFAFDFB), Color(0xFFF1FAF5)],
 };
 
 const Map<_Tone, Color> _toneDark = {
@@ -855,6 +860,8 @@ class _LibCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tint = _toneDark[tone]!;
+    // 浅色卡片做成 82% 白玻璃：背景的渐变透一点上来，和「我的」页那套
+    // 玻璃卡是同一个材质；留 18% 让底下的粉色/蓝色参与进来。
     final colors = dark
         ? <Color>[
             const Color(0xFF26282F),
@@ -864,7 +871,9 @@ class _LibCard extends StatelessWidget {
               const Color(0xFF23252B),
             ),
           ]
-        : _toneLight[tone]!;
+        : _toneLight[tone]!
+              .map((Color c) => c.withValues(alpha: 0.82))
+              .toList();
 
     final ink = PvColors.ink(context);
     final ink3 = dark

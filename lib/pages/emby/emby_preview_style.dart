@@ -750,7 +750,9 @@ Future<T?> showPvMenu<T>({
     position: position,
     elevation: 18,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-    color: dark ? const Color(0xFF26252A) : Colors.white,
+    // 不再是死白/死黑：留一点透明度，让背后渐变的方向透上来。
+    // 不透明度过低会透出下面的卡片文字，反而更花，所以停在 96%。
+    color: dark ? const Color(0xF026252A) : const Color(0xF7FFFFFF),
     constraints: BoxConstraints(minWidth: minWidth, maxWidth: 320),
     items: [
       for (final item in items)
