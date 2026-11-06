@@ -94,6 +94,13 @@ final embyModule = createModule(
 final embyTabModule = createModule(
   path: '/emby',
   register: (c) {
-    c.route('/', child: (context, state) => const EmbyPage());
+    c.route(
+      '/',
+      // 和 popular / timeline 等其它页签一致：页签切换不做转场。
+      // 这里以前漏了，落到主题默认的 Cupertino 推入转场上——切到 Emby
+      // 会整页侧滑 ~300ms，配合下面的重新拉数据，观感就是「卡一下」。
+      transition: TransitionType.none,
+      child: (context, state) => const EmbyPage(),
+    );
   },
 );

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
@@ -11,7 +10,6 @@ import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
-import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/emby/emby_res_pane.dart';
 import 'package:XL/pages/emby/emby_search_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
@@ -38,8 +36,39 @@ class EmbyPage extends StatefulWidget {
   State<EmbyPage> createState() => _EmbyPageState();
 }
 
+/// 首页数据的会话级缓存：key 是服务器 id。
+///
+/// 底栏是路由式页签（RouterOutlet），切走 Emby 就销毁这棵 State，切回来
+/// initState 会重新 `_load()`——libraries、resume、latest 加上 4 条滑轨，
+/// 全部网络请求完成 FutureBuilder 才有东西画。录屏里「点 Emby 白屏转圈
+/// 一秒多、第二次切还是转圈」就是它。
+///
+/// 缓存让重进**当帧**呈现上次的内容（图片也走 ImageProvider 的内存缓存），
+/// 然后在背后静默刷新，拿到新数据再无感替换。只在内存里，杀掉 app 就没，
+/// 不存在过期数据写盘的问题。
+class _HomeCacheEntry {
+  _HomeCacheEntry(this.serverId, this.data);
+
+  final String serverId;
+  final _HomeData data;
+}
+
+_HomeCacheEntry? _homeCache;
+
 class _EmbyPageState extends State<EmbyPage> {
   int _pane = 0;
+
+  /// 已经真正构建过的页签。
+  ///
+  /// `IndexedStack` 会**布局全部 children**，哪怕只显示一个。四个页签
+  /// （媒体库/资源库/搜索/我的）一次性全建出来，就是「点底栏切到 Emby
+  /// 卡一下」的主要成本——切进去的那一帧要同时完成四棵树的构建与布局，
+  /// 其中媒体库还带着大图和横向滑轨。
+  ///
+  /// 改成按需构建：第一次只建当前页签，其余等真正点过去再建。
+  /// 没建过的用 `SizedBox.shrink()` 占位——它尺寸为 0，布局成本可以忽略，
+  /// 但保持了 children 长度固定（`IndexedStack` 的 index 依赖它）。
+  final Set<int> _built = <int>{0};
   Future<_HomeData>? _future;
   bool _opening = false;
 
@@ -53,7 +82,15 @@ class _EmbyPageState extends State<EmbyPage> {
     // `load()` 里没有真正的 await，同步读一次就能拿到已保存的服务器。
     unawaited(EmbyService.instance.load());
     _server = EmbyService.instance.activeServer;
-    _future = _load();
+    final cached = _homeCache;
+    if (cached != null && cached.serverId == (_server?.id ?? '')) {
+      // 命中：先用缓存把整页画出来，再背后刷新。
+      _future = Future<_HomeData>.value(cached.data);
+      _libCount = cached.data.libraries.length;
+      unawaited(_refreshSilently());
+    } else {
+      _future = _load();
+    }
     EmbyService.instance.revision.addListener(_onRevisionChanged);
   }
 
@@ -153,7 +190,7 @@ class _EmbyPageState extends State<EmbyPage> {
       KazumiLogger().w('Emby home: failed to load counts', error: e);
     }
 
-    return _HomeData(
+    final data = _HomeData(
       server: server,
       libraries: libraries,
       resume: resume,
@@ -161,6 +198,22 @@ class _EmbyPageState extends State<EmbyPage> {
       rails: rails,
       counts: counts,
     );
+    _homeCache = _HomeCacheEntry(server.id, data);
+    return data;
+  }
+
+  /// 有缓存时的后台刷新：拿完新数据再替换 future。
+  ///
+  /// FutureBuilder 换 future 时会保留旧快照的 data（waiting 但 hasData），
+  /// 所以替换那一帧不会闪转圈，新数据到了直接换内容。
+  Future<void> _refreshSilently() async {
+    try {
+      final data = await _load();
+      if (!mounted) return;
+      setState(() => _future = Future<_HomeData>.value(data));
+    } catch (_) {
+      // 静默刷新失败就维持现状——屏幕上还有上次的数据，别打断用户。
+    }
   }
 
   Future<void> _openServers() async {
@@ -196,16 +249,11 @@ class _EmbyPageState extends State<EmbyPage> {
   Future<void> _switchServer(EmbyServer server) async {
     final current = EmbyService.instance.activeServer;
     if (current?.id == server.id) {
-      setState(() => _pane = 0);
+      _pickPane(0);
       return;
     }
     await EmbyService.instance.setActive(server.id);
-    if (mounted) setState(() => _pane = 0);
-  }
-
-  void _pickPane(int index) {
-    if (index == _pane) return;
-    setState(() => _pane = index);
+    if (mounted) _pickPane(0);
   }
 
   /// 从首页直接起播。
@@ -265,6 +313,16 @@ class _EmbyPageState extends State<EmbyPage> {
     }
   }
 
+  void _pickPane(int index) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _pane = index;
+      _built.add(index);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // 背景交给 [LuBackdrop]：底色渐变 + 光球。Scaffold 必须透明，否则
@@ -281,27 +339,39 @@ class _EmbyPageState extends State<EmbyPage> {
           // 滚动位置也还在。空服务器时三个页签都给引导。
           IndexedStack(
             index: _pane,
-            children: [
-              _LibraryPane(
-                future: _future,
-                server: _server,
-                onRetry: _onRevisionChanged,
-                onSwitchServer: _openServers,
-                onPlay: _play,
-                onOpenDetail: _openDetail,
-                onOpenLibrary: _openLibrary,
-                onSearchServer: _openServerSearch,
-              ),
-              EmbyResourcePane(
-                onSwitchServer: _switchServer,
-                onEditServer: _openServers,
-                onOpenLibrary: () => setState(() => _pane = 0),
-              ),
-              EmbySearchPane(
-                onOpenDetail: _openDetail,
-                onPlay: (item) => _play(item),
-              ),
-              EmbyMinePane(libraryCount: _libCount),
+            children: <Widget>[
+              if (_built.contains(0))
+                _LibraryPane(
+                  future: _future,
+                  server: _server,
+                  onRetry: _onRevisionChanged,
+                  onSwitchServer: _openServers,
+                  onPlay: _play,
+                  onOpenDetail: _openDetail,
+                  onOpenLibrary: _openLibrary,
+                  onSearchServer: _openServerSearch,
+                )
+              else
+                const SizedBox.shrink(),
+              if (_built.contains(1))
+                EmbyResourcePane(
+                  onSwitchServer: _switchServer,
+                  onEditServer: _openServers,
+                  onOpenLibrary: () => _pickPane(0),
+                )
+              else
+                const SizedBox.shrink(),
+              if (_built.contains(2))
+                EmbySearchPane(
+                  onOpenDetail: _openDetail,
+                  onPlay: (item) => _play(item),
+                )
+              else
+                const SizedBox.shrink(),
+              if (_built.contains(3))
+                EmbyMinePane(libraryCount: _libCount)
+              else
+                const SizedBox.shrink(),
             ],
           ),
           // 二级导航：浮在底栏上方，不占内容高度。
@@ -587,65 +657,63 @@ class _HomeBodyState extends State<_HomeBody> {
         KzRefreshIndicator(
           onRefresh: () async => widget.onRetry(),
           child: CustomScrollView(
-              slivers: [
-                // 通栏大图：图片顶到状态栏底下，服务器胶囊浮在左上、爱心在右上。
-                SliverToBoxAdapter(
-                  child: RexBigViewCarousel(
-                    items: heroItems,
-                    height: heroHeight,
-                    emptyBuilder: _EmptyHero(
-                      onOpenServers: widget.onOpenServers,
-                    ),
-                  ),
+            slivers: [
+              // 通栏大图：图片顶到状态栏底下，服务器胶囊浮在左上、爱心在右上。
+              SliverToBoxAdapter(
+                child: RexBigViewCarousel(
+                  items: heroItems,
+                  height: heroHeight,
+                  emptyBuilder: _EmptyHero(onOpenServers: widget.onOpenServers),
                 ),
-                if (data.resume.isNotEmpty) ...[
-                  PvSliverHead(
-                    title: '继续观看',
-                    count: '${data.resume.length}',
-                    onMore: () {},
-                  ),
-                  SliverToBoxAdapter(
-                    child: _ResumeRail(
-                      data: data,
-                      // 顶部状态栏压在大图上，先给顶栏留出安全区。
-                      onPlay: widget.onPlay,
-                    ),
-                  ),
-                ],
+              ),
+              if (data.resume.isNotEmpty) ...[
                 PvSliverHead(
-                  title: '我的媒体',
-                  count: '${data.libraries.length}',
+                  title: '继续观看',
+                  count: '${data.resume.length}',
                   onMore: () {},
                 ),
                 SliverToBoxAdapter(
-                  child: _MediaFolderRail(
+                  child: _ResumeRail(
                     data: data,
-                    onOpen: widget.onOpenLibrary,
+                    // 顶部状态栏压在大图上，先给顶栏留出安全区。
+                    onPlay: widget.onPlay,
                   ),
-                ),
-                for (final rail in data.rails) ...[
-                  PvSliverHead(
-                    title: rail.library.name,
-                    count: rail.count > 0 ? _formatCount(rail.count) : null,
-                    onMore: () => widget.onOpenLibrary(rail.library),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _PosterRail(
-                      server: server,
-                      items: rail.items,
-                      onTap: (item) => item.isSeries
-                          ? widget.onOpenDetail(item)
-                          : widget.onPlay(item),
-                    ),
-                  ),
-                ],
-                if (data.counts != null)
-                  SliverToBoxAdapter(child: _StatsRow(counts: data.counts!)),
-                const SliverPadding(
-                  padding: EdgeInsets.only(bottom: pvSubDockClearance),
                 ),
               ],
-            ),
+              PvSliverHead(
+                title: '我的媒体',
+                count: '${data.libraries.length}',
+                onMore: () {},
+              ),
+              SliverToBoxAdapter(
+                child: _MediaFolderRail(
+                  data: data,
+                  onOpen: widget.onOpenLibrary,
+                ),
+              ),
+              for (final rail in data.rails) ...[
+                PvSliverHead(
+                  title: rail.library.name,
+                  count: rail.count > 0 ? _formatCount(rail.count) : null,
+                  onMore: () => widget.onOpenLibrary(rail.library),
+                ),
+                SliverToBoxAdapter(
+                  child: _PosterRail(
+                    server: server,
+                    items: rail.items,
+                    onTap: (item) => item.isSeries
+                        ? widget.onOpenDetail(item)
+                        : widget.onPlay(item),
+                  ),
+                ),
+              ],
+              if (data.counts != null)
+                SliverToBoxAdapter(child: _StatsRow(counts: data.counts!)),
+              const SliverPadding(
+                padding: EdgeInsets.only(bottom: pvSubDockClearance),
+              ),
+            ],
+          ),
         ),
         // 常驻顶栏：液态玻璃胶囊，滚到哪都在，背景从下面透出来。
         Positioned(
@@ -656,8 +724,7 @@ class _HomeBodyState extends State<_HomeBody> {
             server: server,
             onManage: widget.onOpenServers,
             onSearch: () => widget.onSearchServer(server),
-            onFavorite: () =>
-                KazumiDialog.showToast(message: '已收藏这个服务器'),
+            onFavorite: () => KazumiDialog.showToast(message: '已收藏这个服务器'),
           ),
         ),
       ],
@@ -708,9 +775,8 @@ class _HomeBodyState extends State<_HomeBody> {
           desc: (item.overview ?? '').trim().isEmpty
               ? null
               : item.overview!.trim(),
-          onTap: () => item.isEpisode
-              ? widget.onPlay(item)
-              : widget.onOpenDetail(item),
+          onTap: () =>
+              item.isEpisode ? widget.onPlay(item) : widget.onOpenDetail(item),
         ),
     ];
   }
