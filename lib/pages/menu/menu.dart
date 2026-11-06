@@ -10,6 +10,7 @@ import 'package:XL/bean/widget/embedded_native_control_area.dart';
 import 'package:XL/navigation.dart';
 import 'package:XL/pages/download/download_controller.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/menu/route_visibility.dart';
 import 'package:XL/pages/router.dart';
 import 'package:XL/utils/device.dart';
@@ -192,9 +193,19 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     return Scaffold(
       // 底栏是浮起来的：内容从下面滚过去。
       // 页面底部留白统一按 immersiveTabBarInset 算。
+      backgroundColor: Colors.transparent,
       extendBody: true,
       // 内容容器的底也要跟着拟态走，否则切页时会闪一下 primaryContainer 色带。
-      body: _outlet(context, background: PvColors.page(context)),
+      // 背景统一由 [LuBackdrop] 画（底色渐变 + 光球），出口容器透明，
+      // 这样五个 tab 页共用同一套背景，切页时不会闪一下底色。
+      body: Stack(
+        children: <Widget>[
+          const Positioned.fill(child: LuBackdrop(child: SizedBox.shrink())),
+          Positioned.fill(
+            child: _outlet(context, background: Colors.transparent),
+          ),
+        ],
+      ),
       // 底部导航统一走「胶囊玻璃条」。
       //
       // 原来手机端一律用拟态那条（`isNeuLayout` 在手机上恒为 true），
@@ -355,13 +366,15 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
                         children: <Widget>[
                           Text(
                             'LU',
-                            style: PvText.section(context)
-                                .copyWith(fontSize: 15),
+                            style: PvText.section(
+                              context,
+                            ).copyWith(fontSize: 15),
                           ),
                           Text(
                             '番剧 · 桌面版',
-                            style: PvText.rowSub(context)
-                                .copyWith(fontSize: 11.5),
+                            style: PvText.rowSub(
+                              context,
+                            ).copyWith(fontSize: 11.5),
                           ),
                         ],
                       ),
@@ -381,8 +394,11 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
                     ),
                     child: Row(
                       children: <Widget>[
-                        Icon(Icons.search_rounded,
-                            size: 16, color: PvColors.searchHint(context)),
+                        Icon(
+                          Icons.search_rounded,
+                          size: 16,
+                          color: PvColors.searchHint(context),
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -498,8 +514,8 @@ class _PvRailItemState extends State<_PvRailItem> {
             color: on
                 ? PvColors.subCap(context)
                 : (hover
-                    ? PvColors.ink(context).withValues(alpha: 0.04)
-                    : Colors.transparent),
+                      ? PvColors.ink(context).withValues(alpha: 0.04)
+                      : Colors.transparent),
           ),
           child: Row(
             children: <Widget>[
@@ -524,7 +540,6 @@ class _PvRailItemState extends State<_PvRailItem> {
     );
   }
 }
-
 
 /// 底栏上方的下载活动条。
 ///
@@ -579,7 +594,9 @@ class _DownloadActivityStrip extends StatelessWidget {
                       alignment: Alignment.centerLeft,
                       widthFactor: active > 0 ? progress.clamp(0.02, 1.0) : 0,
                       child: ColoredBox(
-                        color: PvColors.blue.withValues(alpha: dark ? 0.24 : 0.14),
+                        color: PvColors.blue.withValues(
+                          alpha: dark ? 0.24 : 0.14,
+                        ),
                       ),
                     ),
                   ),
@@ -587,8 +604,11 @@ class _DownloadActivityStrip extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     child: Row(
                       children: [
-                        Icon(Icons.downloading_rounded,
-                            size: 15, color: PvColors.blue),
+                        Icon(
+                          Icons.downloading_rounded,
+                          size: 15,
+                          color: PvColors.blue,
+                        ),
                         const SizedBox(width: 7),
                         Expanded(
                           child: Text(
@@ -610,8 +630,11 @@ class _DownloadActivityStrip extends StatelessWidget {
                             color: PvColors.blue,
                           ),
                         ),
-                        Icon(Icons.chevron_right_rounded,
-                            size: 15, color: PvColors.blue),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 15,
+                          color: PvColors.blue,
+                        ),
                       ],
                     ),
                   ),

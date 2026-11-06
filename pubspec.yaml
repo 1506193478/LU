@@ -1,7 +1,7 @@
 name: XL
 description: "A new Flutter project."
 publish_to: "none"
-version: 3.9.58+30958
+version: 3.9.59+30959
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
@@ -94,6 +94,7 @@ dependencies:
     git:
       url: https://github.com/Predidit/linux_webview_window.git
       ref: b429f8ba6b8a99cd0f7eb5fe8d1621f325635c3d
+  mobile_scanner: ^7.0.1
   media_kit:
     git:
       url: https://github.com/Predidit/media-kit.git

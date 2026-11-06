@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -23,6 +25,12 @@ Future<LuVaultServer?> showEmbyServerSheet(
   BuildContext context, {
   required String type,
   LuVaultServer? existing,
+
+  /// 扫码 / 从链接导入时的预填值。
+  ///
+  /// 不能用 [existing] 来预填：那边带 id，`_save` 会当成「更新已有服务器」，
+  /// 结果扫码进来保存一次就把原来那台覆盖了。这里只取值、不取身份。
+  LuVaultServer? prefill,
 }) {
   return showModalBottomSheet<LuVaultServer>(
     context: context,
@@ -32,16 +40,17 @@ Future<LuVaultServer?> showEmbyServerSheet(
     barrierColor: Colors.black.withValues(alpha: 0.30),
     builder: (_) => FractionallySizedBox(
       heightFactor: 0.94,
-      child: _ServerSheet(type: type, existing: existing),
+      child: _ServerSheet(type: type, existing: existing, prefill: prefill),
     ),
   );
 }
 
 class _ServerSheet extends StatefulWidget {
-  const _ServerSheet({required this.type, this.existing});
+  const _ServerSheet({required this.type, this.existing, this.prefill});
 
   final String type;
   final LuVaultServer? existing;
+  final LuVaultServer? prefill;
 
   @override
   State<_ServerSheet> createState() => _ServerSheetState();
@@ -90,7 +99,8 @@ class _ServerSheetState extends State<_ServerSheet> {
   @override
   void initState() {
     super.initState();
-    final e = widget.existing;
+    // 编辑已有服务器优先，其次才是扫码预填。
+    final e = widget.existing ?? widget.prefill;
     _name = TextEditingController(text: e?.name ?? '');
     _note = TextEditingController(text: e?.note ?? '');
     _host = TextEditingController(text: e?.host ?? '');
@@ -224,167 +234,183 @@ class _ServerSheetState extends State<_ServerSheet> {
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
 
-    return Material(
-      color: PvColors.page(context),
+    // 表单页是一整块玻璃：背后是资源库（已经被遮罩压暗），透一点点上来
+    // 才像「浮在页面上的一张纸」。透明度停在 90% 左右——再透下去，输入框
+    // 后面的内容会干扰读数，而这是要打字的地方。
+    return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          SheetTopBar(
-            title: _title,
-            busy: _busy,
-            onClose: () => Navigator.of(context).maybePop(),
-            onSave: _busy ? null : _save,
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 34),
-              children: [
-                SheetGroup(
-                  dark: dark,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+        child: Material(
+          color: PvColors.isDark(context)
+              ? const Color(0xF014151B)
+              : const Color(0xE9F7F5FA),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              SheetTopBar(
+                title: _title,
+                busy: _busy,
+                onClose: () => Navigator.of(context).maybePop(),
+                onSave: _busy ? null : _save,
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 34),
                   children: [
-                    SheetFieldRow(
+                    SheetGroup(
                       dark: dark,
-                      label: '名称',
-                      hint: 'Name (可选)',
-                      controller: _name,
+                      children: [
+                        SheetFieldRow(
+                          dark: dark,
+                          label: '名称',
+                          hint: 'Name (可选)',
+                          controller: _name,
+                        ),
+                        SheetFieldRow(
+                          dark: dark,
+                          label: '备注',
+                          hint: 'Note (可选)',
+                          controller: _note,
+                        ),
+                      ],
                     ),
-                    SheetFieldRow(
+                    SheetGroupLabel(dark: dark, text: '服务器地址'),
+                    SheetGroup(
                       dark: dark,
-                      label: '备注',
-                      hint: 'Note (可选)',
-                      controller: _note,
+                      children: [
+                        SheetFieldRow(
+                          dark: dark,
+                          label: '主机',
+                          hint: 'Host (必填)',
+                          controller: _host,
+                        ),
+                        if (_hasPath)
+                          SheetFieldRow(
+                            dark: dark,
+                            label: '路径',
+                            hint: 'Path (可选)',
+                            controller: _path,
+                          ),
+                        SheetFieldRow(
+                          dark: dark,
+                          label: '端口',
+                          hint: _hasHttps || _type == 'ftp'
+                              ? 'Port (可选)'
+                              : 'Port',
+                          controller: _port,
+                          keyboard: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                        ),
+                        if (_hasHttps)
+                          SheetSwitchRow(
+                            dark: dark,
+                            label: 'https',
+                            value: _https,
+                            onChanged: (v) => setState(() => _https = v),
+                          ),
+                      ],
                     ),
-                  ],
-                ),
-                SheetGroupLabel(dark: dark, text: '服务器地址'),
-                SheetGroup(
-                  dark: dark,
-                  children: [
-                    SheetFieldRow(
+                    if (_type == 'smb')
+                      SheetHint(dark: dark, text: '支持 SMB2 和 SMB3 协议'),
+                    SheetGroupLabel(dark: dark, text: '登录信息'),
+                    SheetGroup(
                       dark: dark,
-                      label: '主机',
-                      hint: 'Host (必填)',
-                      controller: _host,
+                      children: [
+                        SheetFieldRow(
+                          dark: dark,
+                          label: '用户',
+                          hint: 'Username (可选)',
+                          controller: _user,
+                        ),
+                        SheetFieldRow(
+                          dark: dark,
+                          label: '密码',
+                          hint: 'Password (可选)',
+                          controller: _password,
+                          obscure: _obscure,
+                          // 注意别用 IconButton：它自带 48×48 的最小点击区，
+                          // 塞进 34 高的胶囊里会直接溢出。这里用裸图标 + 手势。
+                          suffix: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => setState(() => _obscure = !_obscure),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              child: Icon(
+                                _obscure
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                size: 17,
+                                color: const Color(0xFF007AFF),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    if (_hasPath)
-                      SheetFieldRow(
+                    if (_hasAdvanced)
+                      SheetGroup(
                         dark: dark,
-                        label: '路径',
-                        hint: 'Path (可选)',
-                        controller: _path,
+                        children: [
+                          SheetArrowRow(
+                            dark: dark,
+                            label: '备用线路',
+                            value: '${_lines.length}',
+                            onTap: _openLines,
+                          ),
+                          SheetArrowRow(
+                            dark: dark,
+                            label: '高级设置',
+                            expanded: _advanced,
+                            onTap: () => setState(() => _advanced = !_advanced),
+                          ),
+                          if (_advanced)
+                            SheetNestedSwitchRow(
+                              dark: dark,
+                              title: 'STRM 优先使用原始路径播放',
+                              subtitle: '如果你不清楚作用，请不要开启!',
+                              value: _strm,
+                              onChanged: (v) => setState(() => _strm = v),
+                            ),
+                        ],
                       ),
-                    SheetFieldRow(
-                      dark: dark,
-                      label: '端口',
-                      hint: _hasHttps || _type == 'ftp' ? 'Port (可选)' : 'Port',
-                      controller: _port,
-                      keyboard: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    ),
-                    if (_hasHttps)
-                      SheetSwitchRow(
+                    if (_hasPreview) ...[
+                      SheetGroup(
                         dark: dark,
-                        label: 'https',
-                        value: _https,
-                        onChanged: (v) => setState(() => _https = v),
+                        children: [
+                          SheetSwitchRow(
+                            dark: dark,
+                            label: '自动生成预览图',
+                            value: _preview,
+                            onChanged: (v) => setState(() => _preview = v),
+                          ),
+                        ],
                       ),
-                  ],
-                ),
-                if (_type == 'smb')
-                  SheetHint(dark: dark, text: '支持 SMB2 和 SMB3 协议'),
-                SheetGroupLabel(dark: dark, text: '登录信息'),
-                SheetGroup(
-                  dark: dark,
-                  children: [
-                    SheetFieldRow(
-                      dark: dark,
-                      label: '用户',
-                      hint: 'Username (可选)',
-                      controller: _user,
-                    ),
-                    SheetFieldRow(
-                      dark: dark,
-                      label: '密码',
-                      hint: 'Password (可选)',
-                      controller: _password,
-                      obscure: _obscure,
-                      // 注意别用 IconButton：它自带 48×48 的最小点击区，
-                      // 塞进 34 高的胶囊里会直接溢出。这里用裸图标 + 手势。
-                      suffix: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => setState(() => _obscure = !_obscure),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: Icon(
-                            _obscure
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
-                            size: 17,
-                            color: const Color(0xFF007AFF),
+                      SheetHint(dark: dark, text: '挂载外部网盘，推荐关闭该选项，否则可能导致风控'),
+                    ],
+                    if (_message.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(4, 14, 4, 0),
+                        child: Text(
+                          _message,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _failed
+                                ? const Color(0xFFC0392B)
+                                : const Color(0xFF2E7D32),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
-                if (_hasAdvanced)
-                  SheetGroup(
-                    dark: dark,
-                    children: [
-                      SheetArrowRow(
-                        dark: dark,
-                        label: '备用线路',
-                        value: '${_lines.length}',
-                        onTap: _openLines,
-                      ),
-                      SheetArrowRow(
-                        dark: dark,
-                        label: '高级设置',
-                        expanded: _advanced,
-                        onTap: () => setState(() => _advanced = !_advanced),
-                      ),
-                      if (_advanced)
-                        SheetNestedSwitchRow(
-                          dark: dark,
-                          title: 'STRM 优先使用原始路径播放',
-                          subtitle: '如果你不清楚作用，请不要开启!',
-                          value: _strm,
-                          onChanged: (v) => setState(() => _strm = v),
-                        ),
-                    ],
-                  ),
-                if (_hasPreview) ...[
-                  SheetGroup(
-                    dark: dark,
-                    children: [
-                      SheetSwitchRow(
-                        dark: dark,
-                        label: '自动生成预览图',
-                        value: _preview,
-                        onChanged: (v) => setState(() => _preview = v),
-                      ),
-                    ],
-                  ),
-                  SheetHint(dark: dark, text: '挂载外部网盘，推荐关闭该选项，否则可能导致风控'),
-                ],
-                if (_message.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 14, 4, 0),
-                    child: Text(
-                      _message,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: _failed
-                            ? const Color(0xFFC0392B)
-                            : const Color(0xFF2E7D32),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

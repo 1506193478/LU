@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'package:XL/theme/ios_interaction.dart';
+import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/bean/widget/window_drag.dart';
 
 /// LU_3.9.19_预览.html 的设计令牌与 iOS 风组件。
@@ -212,15 +213,18 @@ class PvGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: margin ?? const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      decoration: BoxDecoration(
-        color: PvColors.card(context),
-        // iOS inset grouped 的圆角是 10（不是网页卡的 16）。
-        borderRadius: BorderRadius.circular(12),
+    // 分组卡走玻璃材质：半透明白 + 左上亮右下滑的渐变 + 顶部高光。
+    //
+    // 这里**没有**开 BackdropFilter（[LuGlass.box] 的 blur 默认 false）：
+    // 卡片背后是 [LuBackdrop] 画的柔和光球，没有高频细节可糊，加一层离屏
+    // 缓冲只是白白让滚动掉帧。透色靠的是半透明本身。
+    return Padding(
+      padding: margin ?? const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: LuGlass.box(
+        context: context,
+        radius: BorderRadius.circular(12),
+        child: Column(mainAxisSize: MainAxisSize.min, children: children),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
     );
   }
 }
@@ -304,9 +308,7 @@ class PvRow extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: PvText.rowTitle(context).copyWith(
-                      color: titleColor,
-                    ),
+                    style: PvText.rowTitle(context).copyWith(color: titleColor),
                   ),
                   if (subtitle != null && subtitle!.isNotEmpty) ...[
                     const SizedBox(height: 2),
@@ -342,9 +344,7 @@ class PvRow extends StatelessWidget {
     // iOS 的列表行按下是「内容变淡」，不是 Material 的矩形高亮。
     // 这里换掉 InkWell：全局已关掉 splash，InkWell 的高亮又是方的，
     // 在圆角卡片里会露出四个直角。
-    final body = onTap == null
-        ? row
-        : KzPressable(onTap: onTap, child: row);
+    final body = onTap == null ? row : KzPressable(onTap: onTap, child: row);
 
     if (!showDivider) return body;
     // `.row + .row::before`：左侧 15px 起的分隔线。

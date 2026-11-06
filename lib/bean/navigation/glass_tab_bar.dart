@@ -65,19 +65,31 @@ class KazumiTabBar extends StatelessWidget {
     final bool dark = theme.brightness == Brightness.dark;
     final bool reduceMotion = KazumiMotion.reduceMotion(context);
     final double bottomInset = MediaQuery.paddingOf(context).bottom;
-    // [dockInk] 与 [indicatorFill] 在下方使用。
 
     // 底色刻意压得很淡：玻璃要能看见后面在动，太实就成了普通色带。
     // 预览稿 `.dock` 底色是 rgba(255,255,255,.62)。
+    // 底色再叠一层渐变（左上亮、右下滑）：纯色玻璃看起来是「一块板」，
+    // 有渐变才像材质。深色额外垫一层暗底，否则光球透上来会变成彩色玻璃片。
     final Color surfaceTint = dark
-        ? const Color(0xFF14161B).withValues(alpha: 0.46)
+        ? const Color(0x800A0C12)
         : const Color(0xFFFFFFFF).withValues(alpha: 0.62);
-    final Color highlight =
-        dark ? Colors.white.withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.72);
-    // 预览稿选中胶囊 rgba(56,84,128,.13) / 选中文字 #3A5680。
-    final Color dockInk =
-        dark ? const Color(0xFF9DB4D8) : const Color(0xFF3A5680);
-    final Color indicatorFill = dockInk.withValues(alpha: dark ? 0.16 : 0.13);
+    final LinearGradient surfaceGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: dark
+          ? const <Color>[Color(0x2BFFFFFF), Color(0x0DFFFFFF)]
+          : const <Color>[Color(0xC2FFFFFF), Color(0x75FFFFFF)],
+    );
+    final Color highlight = dark
+        ? Colors.white.withValues(alpha: 0.22)
+        : Colors.white.withValues(alpha: 0.92);
+    // 选中胶囊：一块更小的玻璃，不是一层半透明色块。
+    final Color indicatorFill = dark
+        ? Colors.white.withValues(alpha: 0.15)
+        : Colors.white.withValues(alpha: 0.62);
+    final Color indicatorEdge = dark
+        ? Colors.white.withValues(alpha: 0.18)
+        : Colors.white.withValues(alpha: 0.95);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -111,7 +123,9 @@ class KazumiTabBar extends StatelessWidget {
                     boxShadow: [
                       // 胶囊浮起来要有一圈"落地"的暗边，但别重到压住内容。
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: dark ? 0.46 : 0.12),
+                        color: Colors.black.withValues(
+                          alpha: dark ? 0.46 : 0.12,
+                        ),
                         blurRadius: 26,
                         offset: const Offset(0, 8),
                       ),
@@ -127,8 +141,13 @@ class KazumiTabBar extends StatelessWidget {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: surfaceTint,
+                          gradient: surfaceGradient,
                           borderRadius: BorderRadius.circular(_radius),
-                          border: Border.all(color: highlight, width: 1),
+                          // 只留顶部 1px 高光。整圈描边是「贴图上的框」，
+                          // 真实材质的边是上面受光、下面背光。
+                          border: Border(
+                            top: BorderSide(color: highlight, width: 0.8),
+                          ),
                         ),
                       ),
                     ),
@@ -165,6 +184,21 @@ class KazumiTabBar extends StatelessWidget {
                               borderRadius: BorderRadius.circular(
                                 (_radius - 6).clamp(0, double.infinity),
                               ),
+                              border: Border(
+                                top: BorderSide(
+                                  color: indicatorEdge,
+                                  width: 0.8,
+                                ),
+                              ),
+                              boxShadow: <BoxShadow>[
+                                BoxShadow(
+                                  color: Colors.black.withValues(
+                                    alpha: dark ? 0.30 : 0.06,
+                                  ),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -215,9 +249,10 @@ class _TabButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bool dark = theme.brightness == Brightness.dark;
-    // 预览稿 `.dock`：选中 #3A5680（深色模式提亮），未选中 #8E8E93。
+    // 选中态用系统蓝（iOS tab bar 的 tintColor 就是它）。
+    // 原来是偏灰的 #3A5680，在玻璃底上几乎和未选中分不开。
     final Color activeColor =
-        dark ? const Color(0xFF9DB4D8) : const Color(0xFF3A5680);
+        dark ? const Color(0xFF0A84FF) : const Color(0xFF007AFF);
     const Color inactiveColor = Color(0xFF8E8E93);
     final Duration duration = KazumiMotion.scale(context, KazumiMotion.base);
 

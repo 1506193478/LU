@@ -59,6 +59,8 @@
 	</dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>使用面容 ID 解锁本地私密内容。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>扫描服务器分享二维码时需要打开相机。画面只在本地识别，不会上传。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>读取相册里的视频，用于「相册视频」和「本地私密」两个本地入口。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/bean/appbar/sys_app_bar.dart';
-import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/theme/lu_glass.dart';
 
 class SettingsPaneScope extends InheritedWidget {
   const SettingsPaneScope({
@@ -87,6 +87,8 @@ class SettingsDetailScaffold extends StatelessWidget {
     final PreferredSizeWidget appBar = SysAppBar(
       title: title,
       actions: actions,
+      // 透明：底色交给 [LuBackdrop] 的渐变，AppBar 只负责放按钮和标题。
+      backgroundColor: Colors.transparent,
       leading: leading ??
           (showBack
               ? IconButton(
@@ -97,13 +99,18 @@ class SettingsDetailScaffold extends StatelessWidget {
               : null),
     );
 
-    // Keep routed panes opaque during transitions.
-    return Scaffold(
-      backgroundColor: PvColors.page(context),
-      appBar: appBar,
-      body: body,
-      floatingActionButton: floatingActionButton,
-      bottomNavigationBar: bottomNavigationBar,
+    // 背景包在 Scaffold 外面，而不是只包 body：
+    // 这样透明的 AppBar 后面也是同一层渐变，不会在顶部露出一条底色。
+    // 注意这不影响「路由页面在转场时要保持不透明」——LuBackdrop 的第一层
+    // 就是满屏渐变，本身是不透明的。
+    return LuBackdrop(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: appBar,
+        body: body,
+        floatingActionButton: floatingActionButton,
+        bottomNavigationBar: bottomNavigationBar,
+      ),
     );
   }
 }

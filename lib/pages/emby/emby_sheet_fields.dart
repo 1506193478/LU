@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'package:XL/theme/lu_glass.dart';
 import 'package:flutter/services.dart';
 
 import 'package:XL/theme/ios_interaction.dart';
@@ -138,11 +140,11 @@ class SheetGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: dark ? const Color(0xFF1F1E22) : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
+    // 分组卡换成玻璃：底部弹出层背后是资源库，透一点上来才有「浮起」的层次。
+    // blur 关掉——背后是已经模糊过的遮罩，再糊一层没有收益。
+    return LuGlass.box(
+      context: context,
+      radius: BorderRadius.circular(12),
       child: Column(
         children: [
           for (var i = 0; i < children.length; i++) ...[

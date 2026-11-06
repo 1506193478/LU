@@ -11,6 +11,7 @@ import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/emby/emby_res_pane.dart';
 import 'package:XL/pages/emby/emby_search_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
@@ -266,10 +267,19 @@ class _EmbyPageState extends State<EmbyPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 背景交给 [LuBackdrop]：底色渐变 + 光球。Scaffold 必须透明，否则
+    // 主题的 scaffoldBackgroundColor 会把背景整块盖掉。
+    // 背景交给 [LuBackdrop]：底色渐变 + 光球。Scaffold 必须透明，否则
+    // 主题的 scaffoldBackgroundColor 会把背景整块盖掉。背景作为 Stack 的
+    // 第一层铺满，而不是包住整棵树——包住的话后面每个页面都要重算一次
+    // 布局，容易把 Sliver 的滚动上下文弄乱。
     return Scaffold(
-      backgroundColor: PvColors.page(context),
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          const Positioned.fill(
+            child: LuBackdrop(child: SizedBox.shrink()),
+          ),
           // IndexedStack 保三个页签的状态：切走再回来不用重新拉数据，
           // 滚动位置也还在。空服务器时三个页签都给引导。
           IndexedStack(
@@ -585,7 +595,7 @@ class _HomeBodyState extends State<_HomeBody> {
                 SliverToBoxAdapter(
                   child: RexBigViewCarousel(
                     items: heroItems,
-                    fadeColor: PvColors.page(context),
+                    fadeColor: Colors.transparent,
                     height: heroHeight,
                     emptyBuilder: _EmptyHero(
                       onOpenServers: widget.onOpenServers,
