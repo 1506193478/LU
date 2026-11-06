@@ -452,7 +452,8 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             ],
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            // 标题和第一排卡片之间留一点呼吸。原来是 4，几乎贴在一起。
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
             child: _EntryGrid(
               dark: dark,
               showStats: _showMediaStats,
@@ -864,15 +865,17 @@ class _LibCard extends StatelessWidget {
     // 玻璃卡是同一个材质；留 18% 让底下的粉色/蓝色参与进来。
     final colors = dark
         ? <Color>[
-            const Color(0xFF26282F),
-            const Color(0xFF24262C),
+            const Color(0xFF26282F).withValues(alpha: 0.86),
+            const Color(0xFF24262C).withValues(alpha: 0.86),
             Color.alphaBlend(
               tint.withValues(alpha: 0.18),
               const Color(0xFF23252B),
-            ),
+            ).withValues(alpha: 0.86),
           ]
         : _toneLight[tone]!
-              .map((Color c) => c.withValues(alpha: 0.82))
+              // 58% 白：背景的粉/紫/蓝能明显透上来，卡片跟着背景变色。
+              // 再低会影响黑字对比度（背后是饱和度不低的渐变）。
+              .map((Color c) => c.withValues(alpha: 0.58))
               .toList();
 
     final ink = PvColors.ink(context);
@@ -902,11 +905,14 @@ class _LibCard extends StatelessWidget {
               width: 0.8,
             ),
           ),
+          // 阴影压到很小：一屏八到十张卡，每张一个大模糊阴影意味着
+          // 每帧十次离屏合成，滚动时全是白开销。玻璃感靠半透明和顶部
+          // 高光已经够了，阴影只负责让卡片"贴"在背景上。
           boxShadow: <BoxShadow>[
             BoxShadow(
-              color: Colors.black.withValues(alpha: dark ? 0.34 : 0.06),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+              color: Colors.black.withValues(alpha: dark ? 0.22 : 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
             ),
           ],
         ),

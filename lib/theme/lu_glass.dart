@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+
+import 'package:XL/services/theme/lu_background.dart';
 
 
 /// 玻璃拟态的材质层与背景层。
@@ -241,58 +244,18 @@ abstract final class LuGlass {
   }
 }
 
-/// 一颗光球。
-class _Orb {
-  const _Orb(this.dx, this.dy, this.radius, this.color, this.strength);
-
-  /// 圆心（相对宽高的比例）。
-  final double dx;
-  final double dy;
-
-  /// 半径（相对短边的比例）。
-  final double radius;
-  final Color color;
-
-  /// 中心不透明度。
-  final double strength;
-}
-
-/// 浅色一套：蓝 / 紫 / 粉 / 青。
+/// 页面背景。
 ///
-/// 饱和度是玻璃能不能「被看见」的前提——背景接近纯白时，玻璃后面是白、
-/// 模糊完还是白，再怎么调卡片透明度都只会得到一张白卡。这是上一版失败的
-/// 根本原因，不是配色偏好。
-const List<_Orb> _lightOrbs = <_Orb>[
-  _Orb(0.24, 0.10, 0.52, Color(0xFF688CFF), 0.52),
-  _Orb(0.86, 0.32, 0.50, Color(0xFFC67CFF), 0.44),
-  _Orb(0.10, 0.66, 0.54, Color(0xFFFF8CB6), 0.38),
-  _Orb(0.90, 0.84, 0.52, Color(0xFF4AE0F6), 0.34),
-  _Orb(0.52, 0.44, 0.46, Color(0xFFFFFFFF), 0.26),
-];
-
-/// 深色一套：刻意降饱和。
+/// 有自定义图片就用图片（压一层遮罩保证文字可读），否则用预设：
+/// 四段底色渐变 + 几颗光球。预设与图片都存在 [LuBackground] 里，
+/// 深浅模式各记一套。
 ///
-/// 用高饱和紫红 + 低不透明玻璃，会得到「彩色玻璃片」而不是深色磨砂；
-/// 这里把色相收到灰蓝/灰紫，卡片再垫 45% 暗底，才压得住文字。
-const List<_Orb> _darkOrbs = <_Orb>[
-  _Orb(0.24, 0.10, 0.52, Color(0xFF566CA8), 0.42),
-  _Orb(0.86, 0.32, 0.50, Color(0xFF685C96), 0.35),
-  _Orb(0.10, 0.66, 0.54, Color(0xFF466E8C), 0.32),
-  _Orb(0.90, 0.84, 0.52, Color(0xFF786084), 0.28),
-  _Orb(0.52, 0.44, 0.46, Color(0xFFC8D2EB), 0.10),
-];
-
-/// 页面背景：底色渐变 + 五颗光球。
+/// **背景不做动画。**
 ///
-/// **背景是静态的，不做动画。**
-///
-/// 3.9.59 第一版给光球加了 34 秒的往复漂移，结果 Emby 模块整体滑动掉帧：
-/// 那层是满屏的 `CustomPaint`，五颗光球都是 radial gradient shader，
-/// 动画期间每帧都要重新生成 shader 并重绘整块画布——`RepaintBoundary`
-/// 只保证「内容变化时背景不重绘」，挡不住「背景自己在动」。
-///
-/// 静态之后整块背景只在首次布局时画一次，之后合成器直接缓存，
-/// 滚动零成本；视觉上少了一个几乎察觉不到的缓慢移动，换来的是稳帧。
+/// 3.9.59 给光球加过 34 秒漂移，结果整模块滑动掉帧：那层是满屏
+/// `CustomPaint`，光球都是 radial gradient shader，动画期间每帧重新生成
+/// shader 并重绘整块画布——`RepaintBoundary` 只保证「内容变化时背景不重绘」，
+/// 挡不住「背景自己在动」。静态之后首次布局画一次，之后合成器直接缓存。
 class LuBackdrop extends StatelessWidget {
   const LuBackdrop({super.key, required this.child});
 
@@ -300,43 +263,89 @@ class LuBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool dark = LuGlass.isDark(context);
-    final List<Color> base = dark
-        ? const <Color>[
-            Color(0xFF0D1017),
-            Color(0xFF141824),
-            Color(0xFF171523),
-            Color(0xFF0A0D13),
-          ]
-        : const <Color>[
-            Color(0xFFD6E0FF),
-            Color(0xFFE7DAF9),
-            Color(0xFFFFDFE8),
-            Color(0xFFD6EEF7),
-          ];
+    // 背景挂在 MaterialApp.builder 上，不会随页面 setState 重建，
+    // 所以换背景必须走 notifier。
+    return ValueListenableBuilder<int>(
+      valueListenable: LuBackground.revision,
+      builder: (BuildContext context, int _, Widget? __) {
+        final bool dark = LuGlass.isDark(context);
+        if (LuBackground.usingImage) {
+          return _ImageBackdrop(dark: dark, child: child);
+        }
+        final LuBgPreset preset = LuBackground.presetFor(dark);
+        return Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: RepaintBoundary(
+                child: Stack(
+                  children: <Widget>[
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: const Alignment(-0.35, -1),
+                            end: const Alignment(0.35, 1),
+                            colors: preset.colors,
+                            stops: const <double>[0, 0.34, 0.66, 1],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: CustomPaint(painter: _OrbPainter(orbs: preset.orbs)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            child,
+          ],
+        );
+      },
+    );
+  }
+}
 
+/// 自定义图片背景。
+///
+/// 图片之上必须压一层遮罩：用户选的图可能是亮的天也可能是暗的夜，
+/// 不压的话文字对比度完全不可控。深浅两种遮罩浓度不同，但目的相同——
+/// 把背景压到「能看清字」的区间，同时留住图片的氛围。
+class _ImageBackdrop extends StatelessWidget {
+  const _ImageBackdrop({required this.dark, required this.child});
+
+  final bool dark;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final double width = MediaQuery.sizeOf(context).width;
     return Stack(
       children: <Widget>[
         Positioned.fill(
           child: RepaintBoundary(
-            child: Stack(
-              children: <Widget>[
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: const Alignment(-0.35, -1),
-                        end: const Alignment(0.35, 1),
-                        colors: base,
-                        stops: const <double>[0, 0.34, 0.66, 1],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: CustomPaint(painter: _OrbPainter(dark: dark)),
-                ),
-              ],
+            child: Image.file(
+              File(LuBackground.imagePath),
+              fit: BoxFit.cover,
+              // 原图可能是 4K，直接铺会把内存打满；按屏幕宽度的一倍半解码足够。
+              cacheWidth: (width * 1.5).round().clamp(720, 2048),
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => ColoredBox(
+                color: dark ? const Color(0xFF0D1017) : const Color(0xFFD6E0FF),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: dark
+                    ? const <Color>[Color(0x99101018), Color(0xCC0A0A10)]
+                    : const <Color>[Color(0x66FFFFFF), Color(0x99FFFFFF)],
+              ),
             ),
           ),
         ),
@@ -347,19 +356,18 @@ class LuBackdrop extends StatelessWidget {
 }
 
 class _OrbPainter extends CustomPainter {
-  const _OrbPainter({required this.dark});
+  const _OrbPainter({required this.orbs});
 
-  final bool dark;
+  final List<LuBgOrb> orbs;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) {
       return;
     }
-    final List<_Orb> orbs = dark ? _darkOrbs : _lightOrbs;
     final double unit = size.shortestSide;
 
-    for (final _Orb o in orbs) {
+    for (final LuBgOrb o in orbs) {
       final Offset center = Offset(
         size.width * o.dx,
         size.height * o.dy,
@@ -376,5 +384,5 @@ class _OrbPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_OrbPainter old) => old.dark != dark;
+  bool shouldRepaint(_OrbPainter old) => old.orbs != orbs;
 }

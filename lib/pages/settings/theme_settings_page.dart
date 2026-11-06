@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+
+import 'package:XL/pages/settings/background_settings_page.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/bean/card/palette_card.dart';
 import 'package:XL/services/storage/storage.dart';
@@ -132,6 +134,17 @@ class _ThemeSettingsPageState extends State<ThemeSettingsPage> {
                 fallbackLabel: '跟随系统',
                 options: const {'system': '跟随系统', 'light': '浅色', 'dark': '深色'},
                 onChanged: updateTheme,
+              ),
+              SettingsTile(
+                leading: Icons.wallpaper_rounded,
+                title: const Text('背景'),
+                onPressed: (_) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const BackgroundSettingsPage(),
+                    ),
+                  );
+                },
               ),
               SettingsTile(
                 leading: Icons.palette_rounded,

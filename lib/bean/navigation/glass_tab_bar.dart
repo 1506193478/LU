@@ -1,5 +1,3 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 
 import 'package:XL/utils/immersive_theme.dart';
@@ -72,13 +70,13 @@ class KazumiTabBar extends StatelessWidget {
     // 有渐变才像材质。深色额外垫一层暗底，否则光球透上来会变成彩色玻璃片。
     final Color surfaceTint = dark
         ? const Color(0x800A0C12)
-        : const Color(0xFFFFFFFF).withValues(alpha: 0.62);
+        : const Color(0xFFFFFFFF).withValues(alpha: 0.92);
     final LinearGradient surfaceGradient = LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: dark
           ? const <Color>[Color(0x2BFFFFFF), Color(0x0DFFFFFF)]
-          : const <Color>[Color(0xC2FFFFFF), Color(0x75FFFFFF)],
+          : const <Color>[Color(0xE8FFFFFF), Color(0xD9FFFFFF)],
     );
     final Color highlight = dark
         ? Colors.white.withValues(alpha: 0.22)
@@ -133,12 +131,17 @@ class KazumiTabBar extends StatelessWidget {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(_radius),
-                    child: BackdropFilter(
-                      // 预览稿是 `blur(30px) saturate(180%)`；当前 Flutter
-                      // 版本没有 colorFilter 滤镜构造，先只做 blur(30)，
-                      // 饱和度差异靠底色 alpha 补偿。
-                      filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                      child: DecoratedBox(
+                    // **不再用 BackdropFilter。**
+                    //
+                    // 这层是满宽、常驻、sigma=30 的高斯模糊。它背后是滚动
+                    // 列表——只要有东西在动，这层每帧都要重新采样一次全宽
+                    // 画面，是「滑动不跟手」最大的来源（跟手感和帧率不是
+                    // 一回事：模糊会额外引入 1~2 帧延迟）。
+                    //
+                    // 底栏本来就不需要真模糊：底色不透明度调到 92% 之后，
+                    // 背后有没有被糊过根本看不出来，而玻璃感来自半透明 +
+                    // 顶部高光 + 渐变，这三样都还在。
+                    child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: surfaceTint,
                           gradient: surfaceGradient,
@@ -149,7 +152,6 @@ class KazumiTabBar extends StatelessWidget {
                             top: BorderSide(color: highlight, width: 0.8),
                           ),
                         ),
-                      ),
                     ),
                   ),
                 ),
