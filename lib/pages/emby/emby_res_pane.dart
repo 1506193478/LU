@@ -19,6 +19,8 @@ import 'package:XL/pages/emby/emby_stream_settings_page.dart';
 import 'package:XL/pages/emby/emby_vault_lock_settings_page.dart';
 import 'package:XL/services/emby/vault_lock.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
+import 'package:XL/pages/emby/emby_play_behavior_page.dart';
+import 'package:XL/pages/emby/emby_scan_page.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_server_form_page.dart';
 import 'package:XL/pages/emby/emby_vault_browse_page.dart';
@@ -26,10 +28,9 @@ import 'package:XL/pages/emby/emby_vault_lock_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/services/player/cache_profile.dart';
 import 'package:XL/services/emby/lu_cloud_drive.dart';
 import 'package:XL/services/emby/lu_media_vault.dart';
-import 'package:XL/services/platform/cast_service.dart';
-import 'package:XL/services/storage/storage.dart';
 
 /// Emby「资源库」页签。
 ///
@@ -324,6 +325,36 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   // ------------------------------------------------------------ 添加来源
 
+  /// 扫一扫添加：解析出主机/端口/账号后，带着预填值打开表单。
+  ///
+  /// 不直接入库：扫码只负责省掉打字，类型和密码还得让人看一眼——扫错一个
+  /// 字符就会得到一台连不上的服务器，而「为什么连不上」是最难排查的问题。
+  Future<void> _openScan() async {
+    // mobile_scanner 只有 Android / iOS / macOS 的实现。桌面端点进来会抛
+    // MissingPluginException，所以在入口先挡掉，别让它变成一个崩溃。
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      KazumiDialog.showError(message: '扫码只在手机端可用');
+      return;
+    }
+    final EmbyScanResult? result = await Navigator.of(context)
+        .push<EmbyScanResult>(
+          MaterialPageRoute<EmbyScanResult>(
+            builder: (_) => const EmbyScanPage(),
+          ),
+        );
+    if (result == null || !mounted) {
+      return;
+    }
+    await showEmbyServerSheet(
+      context,
+      type: result.type,
+      prefill: result.server,
+    );
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   Future<void> _openAddMenu() async {
     // 按最新要求：只留前四项（WebDAV / SMB / FTP / Emby），
     // Jellyfin 和各路网盘都从菜单里撤掉了。
@@ -411,10 +442,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             actions: [
               PvIconBtn(icon: Icons.add_rounded, onTap: _openAddMenu),
               const SizedBox(width: 6),
-              PvIconBtn(
-                icon: Icons.qr_code_scanner_rounded,
-                onTap: () => _toast('扫码添加暂未开放'),
-              ),
+              PvIconBtn(icon: Icons.qr_code_scanner_rounded, onTap: _openScan),
               const SizedBox(width: 6),
               PvIconBtn(
                 icon: Icons.more_horiz_rounded,
@@ -855,11 +883,23 @@ class _LibCard extends StatelessWidget {
             colors: colors,
             stops: const [0, 0.42, 1],
           ),
-          border: Border.all(
-            color: dark
-                ? Colors.white.withValues(alpha: 0.07)
-                : Colors.white.withValues(alpha: 0.75),
+          // 不再整圈描边：一圈 1px 白边会让每张卡都像贴了相框，一排看过去
+          // 全是格子。改成「顶部 1px 高光 + 一点投影」，靠明暗表示材质。
+          border: Border(
+            top: BorderSide(
+              color: dark
+                  ? Colors.white.withValues(alpha: 0.22)
+                  : Colors.white.withValues(alpha: 0.92),
+              width: 0.8,
+            ),
           ),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: dark ? 0.34 : 0.06),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
         ),
         padding: const EdgeInsets.fromLTRB(14, 13, 13, 12),
         child: Column(
@@ -1023,19 +1063,6 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
     KazumiDialog.notify(message);
   }
 
-  Future<void> _openCast() async {
-    if (!CastService.supported) {
-      _toast('当前平台没有系统投屏可用');
-      return;
-    }
-    try {
-      final ok = await CastService.open();
-      if (!ok && mounted) _toast('这台设备上找不到系统投屏入口');
-    } on CastUnsupported catch (e) {
-      _toast(e.message);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final server = EmbyService.instance.activeServer;
@@ -1066,7 +1093,7 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 ),
             ],
           ),
-          const PvGroupLabel('资源模块'),
+          const PvGroupLabel('内容'),
           PvGroup(
             children: [
               PvRow(
@@ -1097,22 +1124,6 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 onTap: () => context.pushNamed('/settings/download/'),
               ),
               PvRow(
-                icon: Icons.swap_vert_rounded,
-                iconColor: const Color(0xFF8E8E93),
-                title: '转码与串流',
-                value: EmbyStreamPrefs.mode == EmbyStreamMode.auto
-                    ? null
-                    : '${EmbyStreamPrefs.mode.label}${EmbyStreamPrefs.bitrateMbps > 0 ? ' · ${EmbyStreamPrefs.bitrateMbps}M' : ''}',
-                onTap: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const EmbyStreamSettingsPage(),
-                    ),
-                  );
-                  if (mounted) setState(() {});
-                },
-              ),
-              PvRow(
                 icon: Icons.lock_rounded,
                 iconColor: const Color(0xFFFF9F0A),
                 title: '本地私密锁',
@@ -1125,10 +1136,11 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                   );
                   if (mounted) setState(() {});
                 },
+                showDivider: false,
               ),
             ],
           ),
-          const PvGroupLabel('播放器'),
+          const PvGroupLabel('播放'),
           PvGroup(
             children: [
               PvRow(
@@ -1138,7 +1150,7 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 value: '亮度 / 音量 / 倍速',
                 onTap: () async {
                   await Navigator.of(context).push(
-                    MaterialPageRoute(
+                    MaterialPageRoute<void>(
                       builder: (_) => const EmbyGestureSettingsPage(),
                     ),
                   );
@@ -1160,6 +1172,53 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 },
               ),
               PvRow(
+                icon: Icons.timelapse_rounded,
+                iconColor: const Color(0xFFFF9F0A),
+                title: '播放缓存',
+                value: PlaybackCacheProfile.current.label,
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EmbyStreamSettingsPage(),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                },
+              ),
+              PvRow(
+                icon: Icons.play_circle_outline_rounded,
+                iconColor: const Color(0xFFAF52DE),
+                title: '播放行为',
+                subtitle: '字幕 · 弹幕 · 片头片尾 · 投屏',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const EmbyPlayBehaviorPage(),
+                  ),
+                ),
+                showDivider: false,
+              ),
+            ],
+          ),
+          const PvGroupLabel('画质与性能'),
+          PvGroup(
+            children: [
+              PvRow(
+                icon: Icons.swap_vert_rounded,
+                iconColor: const Color(0xFF8E8E93),
+                title: '转码与串流',
+                value: EmbyStreamPrefs.mode == EmbyStreamMode.auto
+                    ? null
+                    : '${EmbyStreamPrefs.mode.label}${EmbyStreamPrefs.bitrateMbps > 0 ? ' · ${EmbyStreamPrefs.bitrateMbps}M' : ''}',
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EmbyStreamSettingsPage(),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                },
+              ),
+              PvRow(
                 icon: Icons.monitor_rounded,
                 iconColor: const Color(0xFF5856D6),
                 title: '渲染后端',
@@ -1172,130 +1231,31 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 title: '硬件解码',
                 value: '自动',
                 onTap: () => context.pushNamed('/settings/player'),
+                showDivider: false,
+              ),
+            ],
+          ),
+          const PvGroupLabel('其他'),
+          PvGroup(
+            children: [
+              PvRow(
+                icon: Icons.add_circle_outline_rounded,
+                iconColor: const Color(0xFF3ED177),
+                title: '添加服务器',
+                subtitle: '连接 Emby / Jellyfin',
+                onTap: () => context.pushNamed('/emby/servers'),
               ),
               PvRow(
-                icon: Icons.timelapse_rounded,
-                iconColor: const Color(0xFFFF9F0A),
-                title: '播放缓存',
-                value: '30 秒',
-                onTap: () => context.pushNamed('/settings/player'),
-              ),
-              PvSwitchRow(
-                icon: Icons.subtitles_rounded,
-                iconColor: const Color(0xFF5E5CE6),
-                title: '双字幕',
-                prefKey: 'pv.doubleSubtitle',
-                defaultValue: true,
-              ),
-              PvSwitchRow(
-                icon: Icons.translate_rounded,
-                iconColor: const Color(0xFFFF375F),
-                title: '字幕翻译',
-                prefKey: 'pv.subtitleTranslate',
-                defaultValue: false,
-              ),
-              PvSwitchRow(
-                icon: Icons.emoji_emotions_outlined,
-                iconColor: const Color(0xFF30B0C7),
-                title: '弹幕',
-                prefKey: 'pv.danmaku',
-                defaultValue: true,
-              ),
-              PvSwitchRow(
-                icon: Icons.skip_next_rounded,
+                icon: Icons.settings_rounded,
                 iconColor: const Color(0xFF8E8E93),
-                title: '片头片尾跳过',
-                prefKey: 'pv.introOutroSkip',
-                defaultValue: true,
-              ),
-              PvSwitchRow(
-                icon: Icons.screen_lock_portrait_rounded,
-                iconColor: const Color(0xFFFF9F0A),
-                title: '上滑锁定屏幕',
-                prefKey: 'pv.swipeLock',
-                defaultValue: true,
-              ),
-              PvSwitchRow(
-                icon: Icons.desktop_access_disabled_rounded,
-                iconColor: const Color(0xFF34C759),
-                title: '关屏后返回首页',
-                prefKey: 'pv.backOnScreenOff',
-                defaultValue: false,
-              ),
-              PvRow(
-                icon: Icons.cast_rounded,
-                iconColor: const Color(0xFF0A84FF),
-                title: '投屏',
-                value: CastService.supported ? '未连接' : '不支持',
-                onTap: _openCast,
+                title: '设置',
+                onTap: () => context.pushNamed('/settings/'),
                 showDivider: false,
               ),
             ],
           ),
         ],
       ),
-    );
-  }
-}
-
-/// 「我的」页签里的开关行：状态持久化到设置盒。
-class PvSwitchRow extends StatefulWidget {
-  const PvSwitchRow({
-    super.key,
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.prefKey,
-    required this.defaultValue,
-  });
-
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String prefKey;
-  final bool defaultValue;
-
-  @override
-  State<PvSwitchRow> createState() => _PvSwitchRowState();
-}
-
-class _PvSwitchRowState extends State<PvSwitchRow> {
-  bool? _value;
-
-  @override
-  void initState() {
-    super.initState();
-    _value = GStorage.getSetting(
-      SettingKey<bool>(
-        widget.prefKey,
-        widget.defaultValue,
-        group: SettingGroup.player,
-      ),
-    );
-  }
-
-  Future<void> _toggle(bool next) async {
-    setState(() => _value = next);
-    await GStorage.putSetting(
-      SettingKey<bool>(
-        widget.prefKey,
-        widget.defaultValue,
-        group: SettingGroup.player,
-      ),
-      next,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final value = _value ?? widget.defaultValue;
-    return PvRow(
-      icon: widget.icon,
-      iconColor: widget.iconColor,
-      title: widget.title,
-      trailing: PvRowTrailing.widget,
-      trailingWidget: PvSwitch(value: value, onChanged: _toggle),
-      showDivider: false,
     );
   }
 }
