@@ -9,18 +9,11 @@ class ApiEndpoints {
   /// 规则API级别
   static const int apiLevel = 9;
 
-  /// 项目主页（上游）
-  static const String projectUrl = "https://kazumi.app/";
-
-  /// 本仓库：Kazumi 的二改自用版。
   static const String repoOwner = '1506193478';
   static const String repoName = 'LU';
 
-  /// Github 仓库主页（本仓库，不是上游）
+  /// Github 仓库主页。
   static const String sourceUrl = 'https://github.com/$repoOwner/$repoName';
-
-  /// 上游项目。二改说明、致谢都指向它。
-  static const String upstreamUrl = 'https://github.com/Predidit/Kazumi';
 
   /// 当前版本对应的发布页。
   ///

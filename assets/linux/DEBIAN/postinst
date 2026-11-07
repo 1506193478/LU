@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
-ln -sf /opt/Kazumi/kazumi /usr/bin/kazumi
-chmod +x /usr/bin/kazumi
+ln -sf /opt/LU/lu /usr/bin/lu
+chmod +x /usr/bin/lu
 update-mime-database /usr/share/mime || true
 update-desktop-database /usr/share/applications || true
 exit 0
