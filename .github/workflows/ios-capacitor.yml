@@ -1,0 +1,87 @@
+name: iOS IPA (Capacitor)
+
+# 手动触发，与 Flutter 版 ios.yml 并存互不影响。
+# 产物：capacitor 版未签名 IPA（v4 玻璃拟态 UI + 原生 Face ID/Haptics/相册/扫码）。
+# 用 Sideloadly / AltStore / TrollStore 自签安装。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build unsigned IPA (Capacitor)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: capacitor
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 生产依赖即可（devDependencies 里的 electron 是 Windows 端用的，CI 不需要）
+      - name: Install deps
+        run: npm ci --omit=dev
+
+      # 同步 web 资源到 iOS 工程，并自动执行 pod/spm 安装
+      - name: Cap sync iOS
+        run: npx cap sync ios
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # 无签名构建：没有开发者证书也能出 .app，后续用 Sideloadly 自签
+      - name: Build iOS
+        run: |
+          set -e
+          xcodebuild -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/LU.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          set -e
+          VERSION=1.0.0
+          APP_PATH=$(find build/LU.xcarchive/Products/Applications -maxdepth 1 -name "*.app" | head -1)
+          echo "APP_PATH=$APP_PATH"
+          mkdir -p build/ipa/Payload
+          cp -R "$APP_PATH" build/ipa/Payload/
+          cd build/ipa
+          zip -qry "LU_capacitor_${VERSION}_ios.ipa" Payload
+          ls -lh "LU_capacitor_${VERSION}_ios.ipa"
+          echo "IPA_NAME=LU_capacitor_${VERSION}_ios.ipa" >> "$GITHUB_ENV"
+
+      # 沿用 Flutter 版策略：IPA 尽量挂 Release，发版页即 iOS 更新入口
+      - name: Attach IPA to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          if ! gh release view capacitor-1.0.0 >/dev/null 2>&1; then
+            echo "::warning::Release capacitor-1.0.0 不存在，IPA 只留 artifact"
+            exit 0
+          fi
+          gh release upload capacitor-1.0.0 "build/ipa/$IPA_NAME" --clobber
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LU-ios-ipa-capacitor
+          path: capacitor/build/ipa/*.ipa
+          retention-days: 30
+          if-no-files-found: error

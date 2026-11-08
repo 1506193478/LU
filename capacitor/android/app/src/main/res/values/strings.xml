@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LU</string>
+    <string name="title_activity_main">LU</string>
+    <string name="package_name">com.lu.media</string>
+    <string name="custom_url_scheme">com.lu.media</string>
+</resources>

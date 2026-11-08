@@ -1,0 +1,21 @@
+{
+  "appId": "com.lu.media",
+  "appName": "LU",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "BiometricAuthNative": {
+      "allowDeviceCredential": true
+    },
+    "StatusBar": {
+      "style": "DEFAULT",
+      "overlaysWebView": true
+    }
+  }
+}
