@@ -10,6 +10,7 @@ import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_records_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/services/emby/emby_service.dart';
+import 'package:XL/services/emby/res_card_prefs.dart';
 import 'package:XL/services/storage/storage.dart';
 
 /// Emby「搜索」页签。
@@ -129,8 +130,11 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
 
     final service = EmbyService.instance;
     // 聚合搜索 = 所有已添加的服务器都搜一遍；否则只搜选中的那台。
+    // 「禁用聚合」的卡不进聚合范围（只影响聚合，单选它仍然能搜）。
     final targets = _serverId == null
         ? service.servers
+              .where((s) => ResCardPrefs.instance.aggregated('emby:${s.id}'))
+              .toList()
         : service.servers.where((s) => s.id == _serverId).toList();
     if (targets.isEmpty) {
       if (!mounted) return;
@@ -433,11 +437,7 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
     }
     if (_loading) {
       return const Center(
-        child: SizedBox(
-          width: 22,
-          height: 22,
-          child: KzLoading(size: 18),
-        ),
+        child: SizedBox(width: 22, height: 22, child: KzLoading(size: 18)),
       );
     }
     if (_error.isNotEmpty) {

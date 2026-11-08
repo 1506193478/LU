@@ -11,6 +11,7 @@ import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_cloud_browse_page.dart';
+import 'package:XL/utils/motion.dart';
 import 'package:XL/pages/emby/emby_cloud_sheet.dart';
 import 'package:XL/pages/emby/emby_display_prefs_page.dart';
 import 'package:XL/pages/emby/emby_favorites_page.dart';
@@ -22,6 +23,8 @@ import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_play_behavior_page.dart';
 import 'package:XL/pages/emby/emby_scan_page.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/services/emby/res_card_prefs.dart';
+import 'package:XL/theme/kz_context_menu.dart';
 import 'package:XL/pages/emby/emby_server_form_page.dart';
 import 'package:XL/pages/emby/emby_vault_browse_page.dart';
 import 'package:XL/pages/emby/emby_vault_lock_page.dart';
@@ -67,6 +70,12 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   bool _showConnState = true;
   bool _glass = true;
 
+  /// 每张卡一个 GlobalKey：长按菜单要以卡片本身为锚点浮起预览。
+  final Map<String, GlobalKey> _cardKeys = <String, GlobalKey>{};
+
+  GlobalKey _cardKey(String prefKey) =>
+      _cardKeys.putIfAbsent(prefKey, () => GlobalKey());
+
   /// 每台 Emby 的（电影数, 集数），卡片上那行小字用。拉失败就不显示。
   final Map<String, (String, String)> _counts = {};
 
@@ -74,6 +83,18 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   void initState() {
     super.initState();
     _loadCounts();
+    // 隐藏/加密/图标这类卡片配置变了要刷网格和顶栏锁按钮。
+    ResCardPrefs.instance.revision.addListener(_onPrefsChanged);
+  }
+
+  @override
+  void dispose() {
+    ResCardPrefs.instance.revision.removeListener(_onPrefsChanged);
+    super.dispose();
+  }
+
+  void _onPrefsChanged() {
+    if (mounted) setState(() {});
   }
 
   /// 只给服务器卡拉一次统计，失败静默。
@@ -325,6 +346,312 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
 
   // ------------------------------------------------------------ 添加来源
 
+  // ---------------------------------------------------------------- 长按菜单
+
+  /// 服务器卡长按：iOS 上下文菜单。
+  Future<void> _serverCardMenu(_ServerEntry entry, Widget preview) async {
+    KazumiHaptics.heavy();
+    final ResCardPrefs prefs = ResCardPrefs.instance;
+    final String key = entry.prefKey;
+    final KzContextMenuController ctrl = KzContextMenuController();
+
+    List<KzContextMenuItem> buildItems() {
+      final bool isHome = prefs.defaultHome == key;
+      final bool agg = prefs.aggregated(key);
+      return <KzContextMenuItem>[
+        KzContextMenuItem(
+          label: '服务配置',
+          icon: Icons.edit_rounded,
+          onTap: () async {
+            if (entry.emby != null) {
+              widget.onEditServer();
+            } else if (entry.cloud != null) {
+              await showLuCloudSheet(
+                context,
+                type: entry.cloud!.type,
+                existing: entry.cloud!,
+              );
+            } else if (entry.vault != null) {
+              await _openForm(entry.vault!.type, existing: entry.vault!);
+            }
+            return KzMenuAfter.dismiss;
+          },
+        ),
+        if (entry.emby != null)
+          KzContextMenuItem(
+            label: agg ? '禁用聚合' : '启用聚合',
+            icon: agg ? Icons.content_paste_off_rounded : Icons.copy_rounded,
+            onTap: () async {
+              prefs.setAggregated(key, !agg);
+              ctrl.updateItems(buildItems());
+              _toast(agg ? '已停用聚合搜索' : '已启用聚合搜索');
+              return KzMenuAfter.keepOpen;
+            },
+          ),
+        KzContextMenuItem(
+          label: isHome ? '取消默认首页' : '设为默认首页',
+          icon: Icons.home_rounded,
+          onTap: () async {
+            if (isHome) {
+              prefs.setDefaultHome(null);
+              _toast('已取消默认首页');
+            } else {
+              prefs.setDefaultHome(key);
+              _toast('已设为默认首页');
+            }
+            ctrl.updateItems(buildItems());
+            return KzMenuAfter.keepOpen;
+          },
+        ),
+        if (entry.vault != null)
+          KzContextMenuItem(
+            label: '修改密码',
+            icon: Icons.key_rounded,
+            onTap: () async {
+              await _changeVaultPassword(entry.vault!);
+              return KzMenuAfter.dismiss;
+            },
+          ),
+        KzContextMenuItem(
+          label: '修改图标',
+          icon: Icons.person_rounded,
+          onTap: () async {
+            await _openIconPicker(key);
+            return KzMenuAfter.dismiss;
+          },
+        ),
+        KzContextMenuItem(
+          label: '加密',
+          icon: Icons.lock_rounded,
+          onTap: () async {
+            await _encryptCard(key);
+            return KzMenuAfter.dismiss;
+          },
+        ),
+        KzContextMenuItem(
+          label: '删除',
+          icon: Icons.delete_rounded,
+          destructive: true,
+          onTap: () async {
+            if (entry.emby != null) {
+              await EmbyService.instance.remove(entry.emby!.id);
+            } else if (entry.cloud != null) {
+              await LuCloudStore.instance.remove(entry.cloud!.id);
+            } else if (entry.vault != null) {
+              await LuMediaVault.instance.removeServer(entry.vault!.id);
+            }
+            return KzMenuAfter.dismiss;
+          },
+        ),
+      ];
+    }
+
+    ctrl.updateItems(buildItems());
+    await showKzContextMenu(
+      context: context,
+      anchorKey: _cardKey(key),
+      preview: preview,
+      items: buildItems(),
+      controller: ctrl,
+    );
+    if (mounted) setState(() {});
+  }
+
+  /// 本地卡长按：设为默认首页 / 隐藏。
+  Future<void> _localCardMenu(String prefKey, Widget preview) async {
+    KazumiHaptics.heavy();
+    final ResCardPrefs prefs = ResCardPrefs.instance;
+    final KzContextMenuController ctrl = KzContextMenuController();
+
+    List<KzContextMenuItem> buildItems() {
+      final bool isHome = prefs.defaultHome == prefKey;
+      return <KzContextMenuItem>[
+        KzContextMenuItem(
+          label: isHome ? '取消默认首页' : '设为默认首页',
+          icon: Icons.home_rounded,
+          onTap: () async {
+            if (isHome) {
+              prefs.setDefaultHome(null);
+              _toast('已取消默认首页');
+            } else {
+              prefs.setDefaultHome(prefKey);
+              _toast('已设为默认首页');
+            }
+            ctrl.updateItems(buildItems());
+            return KzMenuAfter.keepOpen;
+          },
+        ),
+        KzContextMenuItem(
+          label: '隐藏',
+          icon: Icons.visibility_off_rounded,
+          onTap: () async {
+            prefs.setHidden(prefKey, true);
+            return KzMenuAfter.dismiss;
+          },
+        ),
+      ];
+    }
+
+    ctrl.updateItems(buildItems());
+    await showKzContextMenu(
+      context: context,
+      anchorKey: _cardKey(prefKey),
+      preview: preview,
+      items: buildItems(),
+      controller: ctrl,
+    );
+    if (mounted) setState(() {});
+  }
+
+  /// 「加密」：没有私密锁先去建；建完把卡片藏起来（顶栏锁按钮负责找回）。
+  Future<void> _encryptCard(String key) async {
+    if (!VaultLock.isSet) {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const VaultLockSettingsPage()));
+      if (!VaultLock.isSet) return;
+    }
+    ResCardPrefs.instance.setLocked(key, true);
+    _toast('已加密隐藏，点顶栏锁图标可找回');
+  }
+
+  /// 顶栏锁按钮：验证通过后把隐藏的卡片全部显示回来。
+  Future<void> _revealHidden() async {
+    final ResCardPrefs prefs = ResCardPrefs.instance;
+    if (prefs.hiddenCount == 0) return;
+    if (prefs.hasLocked) {
+      bool ok = false;
+      if (await VaultLock.biometricAvailable()) {
+        ok = await VaultLock.authenticateWithBiometrics();
+      }
+      if (!ok) {
+        // 生物识别不可用/被拒：退回密码解锁页。
+        ok =
+            await Navigator.of(context).push<bool>(
+              MaterialPageRoute<bool>(
+                builder: (_) => const EmbyVaultLockPage(),
+              ),
+            ) ??
+            false;
+      }
+      if (!ok) return;
+    }
+    prefs.revealAll();
+    _toast('已显示隐藏的卡片');
+  }
+
+  /// 修改密码（仅 vault 类条目：LU 里 Emby 官方服务器只存 token，没有
+  /// 本地密码可改）。
+  Future<void> _changeVaultPassword(LuVaultServer server) async {
+    final TextEditingController p1 = TextEditingController();
+    final TextEditingController p2 = TextEditingController();
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('修改密码'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: p1,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: '新密码'),
+            ),
+            TextField(
+              controller: p2,
+              obscureText: true,
+              decoration: const InputDecoration(hintText: '再次输入新密码'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (p1.text.isEmpty || p1.text != p2.text) {
+      KazumiDialog.showError(message: '两次输入不一致或为空');
+      return;
+    }
+    await LuMediaVault.instance.saveServer(
+      LuVaultServer(
+        id: server.id,
+        type: server.type,
+        name: server.name,
+        note: server.note,
+        host: server.host,
+        path: server.path,
+        port: server.port,
+        https: server.https,
+        user: server.user,
+        password: p1.text,
+        addedAt: server.addedAt,
+        backupLines: server.backupLines,
+      ),
+    );
+    _toast('密码已更新');
+  }
+
+  /// 图标库：选一个替换卡片右上角的默认图标；第一项恢复默认。
+  Future<void> _openIconPicker(String key) async {
+    final ResCardPrefs prefs = ResCardPrefs.instance;
+    final String? current = prefs.icon(key);
+    final String? picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext ctx) {
+        final bool dark = Theme.of(ctx).brightness == Brightness.dark;
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                  child: Text('图标库', style: PvText.rowTitle(ctx)),
+                ),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: <Widget>[
+                    for (final (String name, IconData icon) in kResIconCatalog)
+                      _IconPickCell(
+                        icon: icon,
+                        selected: current == name,
+                        dark: dark,
+                        onTap: () => Navigator.of(ctx).pop(name),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(''),
+                    child: const Text('恢复默认图标'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    prefs.setIcon(key, picked.isEmpty ? null : picked);
+  }
+
   /// 扫一扫添加：解析出主机/端口/账号后，带着预填值打开表单。
   ///
   /// 不直接入库：扫码只负责省掉打字，类型和密码还得让人看一眼——扫错一个
@@ -442,6 +769,21 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             actions: [
               PvIconBtn(icon: Icons.add_rounded, onTap: _openAddMenu),
               const SizedBox(width: 6),
+              // 有隐藏/加密的卡片时才出现：点它过面容/密码，验证通过后
+              // 隐藏的卡片重新显示。
+              ValueListenableBuilder<int>(
+                valueListenable: ResCardPrefs.instance.revision,
+                builder: (BuildContext context, int _, Widget? __) {
+                  if (ResCardPrefs.instance.hiddenCount == 0) {
+                    return const SizedBox(width: 0, height: 0);
+                  }
+                  return PvIconBtn(
+                    icon: Icons.lock_open_rounded,
+                    onTap: _revealHidden,
+                  );
+                },
+              ),
+              const SizedBox(width: 6),
               PvIconBtn(icon: Icons.qr_code_scanner_rounded, onTap: _openScan),
               const SizedBox(width: 6),
               PvIconBtn(
@@ -459,19 +801,26 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
               showStats: _showMediaStats,
               showWatched: _showWatchedTime,
               servers: [
-                ...embyServers.map(
-                  (s) => _ServerEntry(
-                    title: s.name,
-                    subtitle: '主线路',
-                    kind: 'emby',
-                    online: true,
-                    emby: s,
-                    stats: _counts[s.id],
-                  ),
-                ),
+                // 隐藏/加密的卡不进网格；顶栏锁按钮负责把它们带回来。
+                ...embyServers
+                    .where((s) => !ResCardPrefs.instance.hidden('emby:${s.id}'))
+                    .map(
+                      (s) => _ServerEntry(
+                        title: s.name,
+                        subtitle: '主线路',
+                        kind: 'emby',
+                        online: true,
+                        emby: s,
+                        stats: _counts[s.id],
+                      ),
+                    ),
                 // Emby / Jellyfin 已经进 EmbyService 了，别再重复出一张卡。
                 ...vaultServers
-                    .where((v) => !v.isEmbyLike)
+                    .where(
+                      (v) =>
+                          !v.isEmbyLike &&
+                          !ResCardPrefs.instance.hidden('vault:${v.id}'),
+                    )
                     .map(
                       (v) => _ServerEntry(
                         title: v.displayName,
@@ -481,15 +830,19 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                         vault: v,
                       ),
                     ),
-                ...LuCloudStore.instance.accounts.map(
-                  (a) => _ServerEntry(
-                    title: a.label.isNotEmpty ? a.label : a.typeLabel,
-                    subtitle: a.typeLabel,
-                    kind: a.type,
-                    online: true,
-                    cloud: a,
-                  ),
-                ),
+                ...LuCloudStore.instance.accounts
+                    .where(
+                      (a) => !ResCardPrefs.instance.hidden('cloud:${a.id}'),
+                    )
+                    .map(
+                      (a) => _ServerEntry(
+                        title: a.label.isNotEmpty ? a.label : a.typeLabel,
+                        subtitle: a.typeLabel,
+                        kind: a.type,
+                        online: true,
+                        cloud: a,
+                      ),
+                    ),
               ],
               onLocalFiles: () => _importLocal('local'),
               onPrivate: _importPrivate,
@@ -526,60 +879,10 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                 }
                 _toast('${v.typeLabel} 暂不支持直连，请改用 WebDAV 方式接入');
               },
-              onServerLongPress: (entry) async {
-                final cloud = entry.cloud;
-                if (cloud != null) {
-                  await showPvMenu<Object>(
-                    context: context,
-                    position: const RelativeRect.fromLTRB(120, 200, 20, 200),
-                    minWidth: 220,
-                    items: [
-                      PvMenuItem(
-                        '编辑',
-                        onTap: () => showLuCloudSheet(
-                          context,
-                          type: cloud.type,
-                          existing: cloud,
-                        ),
-                      ),
-                      PvMenuItem(
-                        '删除',
-                        destructive: true,
-                        onTap: () async {
-                          await LuCloudStore.instance.remove(cloud.id);
-                          if (mounted) setState(() {});
-                        },
-                      ),
-                    ],
-                  );
-                  if (mounted) setState(() {});
-                  return;
-                }
-                final v = entry.vault;
-                if (v == null) {
-                  widget.onEditServer();
-                  return;
-                }
-                await showPvMenu<Object>(
-                  context: context,
-                  position: const RelativeRect.fromLTRB(120, 200, 20, 200),
-                  minWidth: 220,
-                  items: [
-                    PvMenuItem(
-                      '编辑',
-                      onTap: () => _openForm(v.type, existing: v),
-                    ),
-                    PvMenuItem(
-                      '删除',
-                      destructive: true,
-                      onTap: () async {
-                        await LuMediaVault.instance.removeServer(v.id);
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                  ],
-                );
-              },
+              onServerMenu: (entry, preview) => _serverCardMenu(entry, preview),
+              onLocalMenu: (prefKey, preview) =>
+                  _localCardMenu(prefKey, preview),
+              cardKeyFor: _cardKey,
             ),
           ),
         ],
@@ -610,6 +913,15 @@ class _ServerEntry {
 
   /// (电影数, 集数)，从 `/Items/Counts` 拿；拿不到就 null，卡片不显示这一行。
   final (String, String)? stats;
+
+  /// 卡片配置（隐藏/加密/聚合/图标/默认首页）在 [ResCardPrefs] 里的 key。
+  String get prefKey {
+    final EmbyServer? e = emby;
+    if (e != null) return 'emby:${e.id}';
+    final LuVaultServer? v = vault;
+    if (v != null) return 'vault:${v.id}';
+    return 'cloud:${cloud!.id}';
+  }
 }
 
 // ---------------------------------------------------------------- 网格
@@ -626,7 +938,9 @@ class _EntryGrid extends StatelessWidget {
     required this.onGallery,
     required this.onLink,
     required this.onServer,
-    required this.onServerLongPress,
+    required this.onServerMenu,
+    required this.onLocalMenu,
+    required this.cardKeyFor,
   });
 
   final bool dark;
@@ -634,65 +948,130 @@ class _EntryGrid extends StatelessWidget {
   final bool showStats;
   final bool showWatched;
   final VoidCallback onLocalFiles;
+
+  /// 长按菜单：回调带上卡片 widget，浮起的预览直接用它。
+  final void Function(_ServerEntry entry, Widget preview) onServerMenu;
+  final void Function(String prefKey, Widget preview) onLocalMenu;
+
+  /// 长按锚点：菜单要以卡片所在位置浮起来。
+  final GlobalKey Function(String prefKey) cardKeyFor;
   final VoidCallback onPrivate;
   final VoidCallback onGallery;
   final VoidCallback onLink;
   final ValueChanged<_ServerEntry> onServer;
-  final ValueChanged<_ServerEntry> onServerLongPress;
-
   @override
   Widget build(BuildContext context) {
-    final cards = <Widget>[
-      _LibCard(
-        title: '本地文件',
-        footLeft: '本地',
-        footRight: showWatched ? _localFoot('local') : '',
-        glyph: _Glyph.folder,
-        tone: _Tone.amber,
-        dark: dark,
-        onTap: onLocalFiles,
-      ),
-      _LibCard(
-        title: '本地私密',
-        footLeft: '私密',
-        footRight: showWatched ? _localFoot('private') : '',
-        glyph: _Glyph.folderLock,
-        tone: _Tone.amber,
-        dark: dark,
-        onTap: onPrivate,
-      ),
-      _LibCard(
-        title: '相册视频',
-        footLeft: '相册',
-        footRight: showWatched ? _localFoot('gallery') : '',
-        glyph: _Glyph.album,
-        tone: _Tone.gold,
-        dark: dark,
-        onTap: onGallery,
-      ),
-      _LibCard(
-        title: '网络链接',
-        footLeft: '链接',
-        footRight: showWatched ? _localFoot('link') : '',
-        glyph: _Glyph.link,
-        tone: _Tone.sky,
-        dark: dark,
-        onTap: onLink,
-      ),
-      for (final s in servers)
-        _LibCard(
+    Widget localCard({
+      required String prefKey,
+      required String title,
+      required String footLeft,
+      required String footRight,
+      required _Glyph glyph,
+      required _Tone tone,
+      required VoidCallback onTap,
+    }) {
+      return KeyedSubtree(
+        key: cardKeyFor(prefKey),
+        child: _LibCard(
+          title: title,
+          footLeft: footLeft,
+          footRight: footRight,
+          glyph: glyph,
+          tone: tone,
+          dark: dark,
+          customIcon: resIconByName(ResCardPrefs.instance.icon(prefKey)),
+          onTap: onTap,
+          onLongPress: () => onLocalMenu(
+            prefKey,
+            localCard(
+              prefKey: prefKey,
+              title: title,
+              footLeft: footLeft,
+              footRight: footRight,
+              glyph: glyph,
+              tone: tone,
+              onTap: onTap,
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget serverCard(_ServerEntry s) {
+      return KeyedSubtree(
+        key: cardKeyFor(s.prefKey),
+        child: _LibCard(
           title: s.title,
           footLeft: s.subtitle,
           footRight: s.online ? '刚刚' : '未连接',
           glyph: _Glyph.emby,
           tone: _Tone.green,
           dark: dark,
+          customIcon: resIconByName(ResCardPrefs.instance.icon(s.prefKey)),
           onlineDot: s.online,
           stats: showStats ? s.stats : null,
           onTap: () => onServer(s),
-          onLongPress: () => onServerLongPress(s),
+          onLongPress: () => onServerMenu(s, serverCard(s)),
         ),
-    ];
+      );
+    }
+
+    // 隐藏的本地卡不进网格（顶栏锁按钮负责显示回来）。
+    Widget? maybeLocal({
+      required String prefKey,
+      required String title,
+      required String footLeft,
+      required _Glyph glyph,
+      required _Tone tone,
+      required VoidCallback onTap,
+    }) {
+      if (ResCardPrefs.instance.hidden(prefKey)) return null;
+      return localCard(
+        prefKey: prefKey,
+        title: title,
+        footLeft: footLeft,
+        footRight: showWatched ? _localFoot(_localFootKey(prefKey)) : '',
+        glyph: glyph,
+        tone: tone,
+        onTap: onTap,
+      );
+    }
+
+    final List<Widget?> cards = <Widget?>[
+      maybeLocal(
+        prefKey: 'local:files',
+        title: '本地文件',
+        footLeft: '本地',
+        glyph: _Glyph.folder,
+        tone: _Tone.amber,
+        onTap: onLocalFiles,
+      ),
+      maybeLocal(
+        prefKey: 'local:private',
+        title: '本地私密',
+        footLeft: '私密',
+        glyph: _Glyph.folderLock,
+        tone: _Tone.amber,
+        onTap: onPrivate,
+      ),
+      maybeLocal(
+        prefKey: 'local:gallery',
+        title: '相册视频',
+        footLeft: '相册',
+        glyph: _Glyph.album,
+        tone: _Tone.gold,
+        onTap: onGallery,
+      ),
+      maybeLocal(
+        prefKey: 'local:link',
+        title: '网络链接',
+        footLeft: '链接',
+        glyph: _Glyph.link,
+        tone: _Tone.sky,
+        onTap: onLink,
+      ),
+      for (final s in servers) serverCard(s),
+    ].whereType<Widget>().toList();
 
     // 严格两列。之前用 Wrap + 手算宽度，浮点误差会让第二列挤不下去，
     // 实际渲染成一大列（用户截图里就是这个样子）。GridView 的 delegate
@@ -711,6 +1090,17 @@ class _EntryGrid extends StatelessWidget {
       itemBuilder: (context, i) => cards[i],
     );
   }
+
+  /// prefKey -> vault kind（_localFoot 的参数）。
+  static const Map<String, String> _localKindByPrefKey = <String, String>{
+    'local:files': 'local',
+    'local:private': 'private',
+    'local:gallery': 'gallery',
+    'local:link': 'link',
+  };
+
+  static String _localFootKey(String prefKey) =>
+      _localKindByPrefKey[prefKey] ?? prefKey.split(':').last;
 
   String _localFoot(String kind) {
     final n = LuMediaVault.instance.entriesOf(kind).length;
@@ -742,6 +1132,43 @@ const Map<_Tone, Color> _toneDark = {
 
 /// 右上角那枚彩色图标（预览稿里的 folder / folderlock / album / link / emby）。
 enum _Glyph { folder, folderLock, album, link, emby }
+
+/// 「修改图标」的图标库。名字进 [ResCardPrefs] 存储，别改动已有序目的
+/// 名字（老配置按名字找回图标）。
+const List<(String, IconData)> kResIconCatalog = <(String, IconData)>[
+  ('play', Icons.play_circle_fill_rounded),
+  ('movie', Icons.movie_rounded),
+  ('tv', Icons.tv_rounded),
+  ('folder', Icons.folder_rounded),
+  ('cloud', Icons.cloud_rounded),
+  ('server', Icons.dns_rounded),
+  ('link', Icons.link_rounded),
+  ('album', Icons.photo_library_rounded),
+  ('star', Icons.star_rounded),
+  ('heart', Icons.favorite_rounded),
+  ('bolt', Icons.bolt_rounded),
+  ('globe', Icons.public_rounded),
+  ('hub', Icons.hub_rounded),
+  ('rocket', Icons.rocket_launch_rounded),
+  ('music', Icons.music_note_rounded),
+  ('podcast', Icons.podcasts_rounded),
+  ('wifi', Icons.wifi_rounded),
+  ('storage', Icons.storage_rounded),
+  ('theater', Icons.theater_comedy_rounded),
+  ('shield', Icons.shield_rounded),
+  ('fire', Icons.local_fire_department_rounded),
+  ('moon', Icons.dark_mode_rounded),
+  ('sun', Icons.light_mode_rounded),
+  ('pets', Icons.pets_rounded),
+];
+
+IconData? resIconByName(String? name) {
+  if (name == null || name.isEmpty) return null;
+  for (final (String n, IconData icon) in kResIconCatalog) {
+    if (n == name) return icon;
+  }
+  return null;
+}
 
 class _LibGlyph extends StatelessWidget {
   const _LibGlyph(this.kind);
@@ -843,6 +1270,7 @@ class _LibCard extends StatelessWidget {
     this.onLongPress,
     this.stats,
     this.onlineDot = false,
+    this.customIcon,
   });
 
   final String title;
@@ -851,6 +1279,9 @@ class _LibCard extends StatelessWidget {
   final _Glyph glyph;
   final _Tone tone;
   final bool dark;
+
+  /// 「修改图标」选的自定义图标；null = 用默认 [glyph]。
+  final IconData? customIcon;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
@@ -955,7 +1386,18 @@ class _LibCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                _LibGlyph(glyph),
+                if (customIcon != null)
+                  Container(
+                    width: 31,
+                    height: 31,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0A84FF),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(customIcon, color: Colors.white, size: 19),
+                  )
+                else
+                  _LibGlyph(glyph),
               ],
             ),
             if (stats != null)
@@ -1270,6 +1712,49 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 图标库里的一格。
+class _IconPickCell extends StatelessWidget {
+  const _IconPickCell({
+    required this.icon,
+    required this.selected,
+    required this.dark,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool selected;
+  final bool dark;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bg = selected
+        ? PvColors.blue.withValues(alpha: dark ? 0.28 : 0.14)
+        : (dark
+              ? Colors.white.withValues(alpha: 0.07)
+              : Colors.black.withValues(alpha: 0.045));
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 46,
+        height: 46,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+          border: selected
+              ? Border.all(color: PvColors.blue, width: 1.4)
+              : null,
+        ),
+        child: Icon(
+          icon,
+          size: 24,
+          color: selected ? PvColors.blue : PvColors.ink(context),
+        ),
       ),
     );
   }

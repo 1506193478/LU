@@ -17,6 +17,9 @@ import 'package:XL/pages/emby/emby_detail_page.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/services/emby/emby_service.dart';
+import 'package:XL/pages/emby/emby_vault_browse_page.dart';
+import 'package:XL/pages/emby/emby_vault_lock_page.dart';
+import 'package:XL/services/emby/res_card_prefs.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/theme/rex_big_view.dart';
 
@@ -82,6 +85,16 @@ class _EmbyPageState extends State<EmbyPage> {
     // `load()` 里没有真正的 await，同步读一次就能拿到已保存的服务器。
     unawaited(EmbyService.instance.load());
     _server = EmbyService.instance.activeServer;
+    // 「设为默认首页」：进 Emby 模块直接落在那台服务器（媒体库）或
+    // 那个本地库。没有设置就保持原样（媒体库 + 上次选的服务器）。
+    final String? homeKey = ResCardPrefs.instance.defaultHome;
+    if (homeKey != null && homeKey.isNotEmpty) {
+      // initState 里还没有可用的 Navigator（inheritedWidget 尚未挂好），
+      // 落地动作必须等首帧之后再执行。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_openDefaultHome(homeKey));
+      });
+    }
     final cached = _homeCache;
     if (cached != null && cached.serverId == (_server?.id ?? '')) {
       // 命中：先用缓存把整页画出来，再背后刷新。
@@ -109,6 +122,55 @@ class _EmbyPageState extends State<EmbyPage> {
       _server = EmbyService.instance.activeServer;
       _future = _load();
     });
+  }
+
+  /// 默认首页落地。服务器 → 切换激活服务器（媒体库直接显示它）；
+  /// 本地库 → 打开对应的浏览页（私密库照常先过锁）。
+  Future<void> _openDefaultHome(String homeKey) async {
+    if (homeKey.startsWith('emby:')) {
+      final String id = homeKey.substring('emby:'.length);
+      final EmbyServer? target = EmbyService.instance.servers
+          .where((EmbyServer s) => s.id == id)
+          .firstOrNull;
+      if (target == null ||
+          target.id == EmbyService.instance.activeServer?.id) {
+        return;
+      }
+      await EmbyService.instance.setActive(target.id);
+      return;
+    }
+    if (!homeKey.startsWith('local:')) {
+      return;
+    }
+    const Map<String, String> kinds = <String, String>{
+      'local:files': 'local',
+      'local:private': 'private',
+      'local:gallery': 'gallery',
+      'local:link': 'link',
+    };
+    final String? kind = kinds[homeKey];
+    if (kind == null || !mounted) return;
+    if (kind == 'private') {
+      final bool unlocked =
+          await Navigator.of(context).push<bool>(
+            MaterialPageRoute<bool>(builder: (_) => const EmbyVaultLockPage()),
+          ) ??
+          false;
+      if (!unlocked || !mounted) return;
+    }
+    const Map<String, String> titles = <String, String>{
+      'local': '本地文件',
+      'private': '本地私密',
+      'gallery': '相册视频',
+      'link': '网络链接',
+    };
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            EmbyVaultBrowsePage(title: titles[kind] ?? kind, kind: kind),
+      ),
+    );
   }
 
   Future<_HomeData> _load() async {

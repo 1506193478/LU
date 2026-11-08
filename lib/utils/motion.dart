@@ -61,6 +61,9 @@ abstract final class KazumiHaptics {
   /// 有结果的确认动作，比如开始播放、进入房间。
   static void success() => _fire(HapticFeedback.mediumImpact);
 
+  /// 重击：iOS 上下文菜单「卡片浮起」的那一下。
+  static void heavy() => _fire(HapticFeedback.heavyImpact);
+
   static void _fire(Future<void> Function() action) {
     if (!enabled || !_supported) return;
     try {
