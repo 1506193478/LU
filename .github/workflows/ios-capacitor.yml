@@ -5,6 +5,11 @@ name: iOS IPA (Capacitor)
 # 用 Sideloadly / AltStore / TrollStore 自签安装。
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'capacitor/**'
+      - '.github/workflows/ios-capacitor.yml'
 
 permissions:
   contents: write
@@ -66,17 +71,18 @@ jobs:
           ls -lh "LU_capacitor_${VERSION}_ios.ipa"
           echo "IPA_NAME=LU_capacitor_${VERSION}_ios.ipa" >> "$GITHUB_ENV"
 
-      # 沿用 Flutter 版策略：IPA 尽量挂 Release，发版页即 iOS 更新入口
+      # Release 不存在则自动创建，IPA 永远可以从 Release 页直链下载
       - name: Attach IPA to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          if ! gh release view capacitor-1.0.0 >/dev/null 2>&1; then
-            echo "::warning::Release capacitor-1.0.0 不存在，IPA 只留 artifact"
-            exit 0
-          fi
+          gh release create capacitor-1.0.0 \
+            --title "Capacitor iOS 1.0.0（未签名）" \
+            --notes "Capacitor 版 iOS 构建：v4 玻璃拟态 UI + 原生 Face ID/Haptics/相册/扫码。未签名，用 Sideloadly/AltStore/TrollStore 自签安装。" \
+            || true
           gh release upload capacitor-1.0.0 "build/ipa/$IPA_NAME" --clobber
+          gh release view capacitor-1.0.0 --json assets --jq '.assets[].name'
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
