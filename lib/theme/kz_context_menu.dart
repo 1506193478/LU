@@ -74,17 +74,14 @@ Future<void> showKzContextMenu({
   required List<KzContextMenuItem> items,
   KzContextMenuController? controller,
 }) async {
-  final BuildContext? overlayContext = Navigator.of(
-    context,
-    rootNavigator: true,
-  ).context;
+  final OverlayState overlay = Navigator.of(context, rootNavigator: true)
+      .overlay!;
   final RenderObject? anchorObject = anchorKey.currentContext
       ?.findRenderObject();
-  if (overlayContext == null || anchorObject is! RenderBox) {
+  if (anchorObject is! RenderBox) {
     KazumiLogger().w('KzContextMenu: anchor not ready');
     return;
   }
-  final OverlayState overlay = Overlay.of(overlayContext, rootOverlay: true);
   final RenderBox overlayBox = overlay.context.findRenderObject()! as RenderBox;
   final Rect anchor =
       anchorObject.localToGlobal(Offset.zero, ancestor: overlayBox) &
@@ -203,11 +200,13 @@ class _KzContextMenuOverlayState extends State<_KzContextMenuOverlay>
         final int? hit = _hoverIndex;
         if (hit != null) {
           _activate(hit);
-        } else {
-          _close();
         }
+        // 没碰到任何条目（长按后直接松手）→ 菜单**保持打开**，
+        // 和 iOS 一致；关闭靠点空白（backdrop onTap）或激活条目。
+        // 3.9.66 以前这里直接 _close()：长按 → 松手的瞬间菜单就消失，
+        // 用户看到的就是「弹不出来」。
       case PointerCancelEvent():
-        _close();
+        break;
     }
   }
 
