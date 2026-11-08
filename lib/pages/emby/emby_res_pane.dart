@@ -380,7 +380,8 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
           KzContextMenuItem(
             label: agg ? '禁用聚合' : '启用聚合',
             icon: agg ? Icons.content_paste_off_rounded : Icons.copy_rounded,
-            onTap: () async {
+            keepOpen: true,
+            onTap: () {
               prefs.setAggregated(key, !agg);
               ctrl.updateItems(buildItems());
               _toast(agg ? '已停用聚合搜索' : '已启用聚合搜索');
@@ -389,7 +390,8 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
         KzContextMenuItem(
           label: isHome ? '取消默认首页' : '设为默认首页',
           icon: Icons.home_rounded,
-          onTap: () async {
+          keepOpen: true,
+          onTap: () {
             if (isHome) {
               prefs.setDefaultHome(null);
               _toast('已取消默认首页');
@@ -462,7 +464,8 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
         KzContextMenuItem(
           label: isHome ? '取消默认首页' : '设为默认首页',
           icon: Icons.home_rounded,
-          onTap: () async {
+          keepOpen: true,
+          onTap: () {
             if (isHome) {
               prefs.setDefaultHome(null);
               _toast('已取消默认首页');
