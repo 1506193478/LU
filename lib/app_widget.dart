@@ -319,9 +319,22 @@ class _AppWidgetState extends State<AppWidget>
           // 3.9.59 第一版只给 5 个主 tab 加了渐变背景，结果一进设置、搜索、
           // 收藏这些二级页就掉回一块死灰——13 个页面的底色是各自写死的。
           // 与其一页页补，不如把背景提到壳层：页面全部透明，背景只有一份。
+          //
+          // Material(transparency) 壳：WidgetsApp 把「红字 + 黄色双下划线」
+          // 的 _errorTextStyle 设为根 DefaultTextStyle（逼你给 Text 配
+          // Material 祖先）。页面有 Scaffold/Material 兜着没事，但直接插进
+          // 根 Overlay 的浮层（长按菜单、HUD 这类）没有 Material 祖先，
+          // 显式 style 又是 inherit 合并，下划线就漏出来了——深浅色都有。
+          // 这里垫一层透明 Material，浮层文字跟页面走同一套主题字体，
+          // 下划线从根上消失。
           builder: (context, child) => WindowShell(
             child: _HomeFadeIn(
-              child: LuBackdrop(child: child ?? const SizedBox.shrink()),
+              child: LuBackdrop(
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: child ?? const SizedBox.shrink(),
+                ),
+              ),
             ),
           ),
         );

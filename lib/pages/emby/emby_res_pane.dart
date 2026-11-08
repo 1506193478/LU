@@ -606,10 +606,15 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
     _toast('密码已更新');
   }
 
-  /// 图标库：选一个替换卡片右上角的默认图标；第一项恢复默认。
+  /// 图标库：选一个替换卡片右上角的默认图标；「恢复默认」清掉。
+  ///
+  /// 除内置图形外还支持自定义图片图标：从相册 / 文件挑一张图，拷进
+  /// 应用目录后以 `img:<路径>` 存进 [ResCardPrefs]（和内置图形共用
+  /// 一个字段，靠 [kResImageIconPrefix] 区分）。
   Future<void> _openIconPicker(String key) async {
     final ResCardPrefs prefs = ResCardPrefs.instance;
     final String? current = prefs.icon(key);
+    final String? currentImage = resCustomImagePath(current);
     final String? picked = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -631,6 +636,31 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
                   spacing: 10,
                   runSpacing: 10,
                   children: <Widget>[
+                    // 从相册 / 文件添加图片图标。相册入口只有手机端有
+                    // （image_picker 没有桌面实现，桌面点进来会抛
+                    // MissingPluginException）；文件入口走 file_picker，
+                    // 全端可用。
+                    if (Platform.isAndroid || Platform.isIOS)
+                      _IconPickCell(
+                        icon: Icons.photo_library_outlined,
+                        selected: false,
+                        dark: dark,
+                        onTap: () => Navigator.of(ctx).pop('gallery'),
+                      ),
+                    _IconPickCell(
+                      icon: Icons.folder_open_rounded,
+                      selected: false,
+                      dark: dark,
+                      onTap: () => Navigator.of(ctx).pop('file'),
+                    ),
+                    // 已经在用的自定义图：缩略图 + 选中态，点它维持不变。
+                    if (currentImage != null)
+                      _IconPickImageCell(
+                        path: currentImage,
+                        selected: true,
+                        dark: dark,
+                        onTap: () => Navigator.of(ctx).pop(current),
+                      ),
                     for (final (String name, IconData icon) in kResIconCatalog)
                       _IconPickCell(
                         icon: icon,
@@ -654,7 +684,59 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
       },
     );
     if (picked == null || !mounted) return;
+    if (picked == 'gallery' || picked == 'file') {
+      // 图片入口：sheet 先关，再开系统选择器，选完直接落盘生效。
+      final String? path = await _pickIconImage(
+        key,
+        fromGallery: picked == 'gallery',
+      );
+      if (path != null && path.isNotEmpty) {
+        prefs.setIcon(key, '$kResImageIconPrefix$path');
+      }
+      return;
+    }
     prefs.setIcon(key, picked.isEmpty ? null : picked);
+  }
+
+  /// 挑一张图片当卡片图标。相册走 image_picker、文件走 file_picker；
+  /// 拿到的是临时路径，系统随时会清，所以必须先拷进应用自己的目录。
+  /// 文件名按卡片 key 固定：同一张卡换图标是覆盖写，不会攒一堆旧图。
+  Future<String> _pickIconImage(String key, {required bool fromGallery}) async {
+    try {
+      String? source;
+      if (fromGallery) {
+        final XFile? file = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          // 图标最终只画 31pt，压一道省得十几 MB 原图进拷贝。
+          maxWidth: 512,
+          imageQuality: 90,
+        );
+        source = file?.path;
+      } else {
+        final FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+        );
+        source = result?.files.single.path;
+      }
+      if (source == null || source.isEmpty) return '';
+      final Directory dir = Directory(
+        '${(await getApplicationSupportDirectory()).path}/res_icons',
+      );
+      if (!dir.existsSync()) {
+        dir.createSync(recursive: true);
+      }
+      final String ext = source.contains('.')
+          ? '.${source.split('.').last.toLowerCase()}'
+          : '.png';
+      final String name =
+          'icon_${key.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}$ext';
+      final String dest = '${dir.path}/$name';
+      await File(source).copy(dest);
+      return dest;
+    } catch (e) {
+      KazumiDialog.showError(message: '导入失败：$e');
+      return '';
+    }
   }
 
   /// 扫一扫添加：解析出主机/端口/账号后，带着预填值打开表单。
@@ -989,6 +1071,9 @@ class _EntryGrid extends StatelessWidget {
         tone: tone,
         dark: dark,
         customIcon: resIconByName(ResCardPrefs.instance.icon(prefKey)),
+        customIconPath: resCustomImagePath(
+          ResCardPrefs.instance.icon(prefKey),
+        ),
         onTap: onTap,
         onLongPress: () => onLocalMenu(
           prefKey,
@@ -1017,6 +1102,9 @@ class _EntryGrid extends StatelessWidget {
         tone: _Tone.green,
         dark: dark,
         customIcon: resIconByName(ResCardPrefs.instance.icon(s.prefKey)),
+        customIconPath: resCustomImagePath(
+          ResCardPrefs.instance.icon(s.prefKey),
+        ),
         onlineDot: s.online,
         stats: showStats ? s.stats : null,
         onTap: () => onServer(s),
@@ -1174,10 +1262,22 @@ const List<(String, IconData)> kResIconCatalog = <(String, IconData)>[
 
 IconData? resIconByName(String? name) {
   if (name == null || name.isEmpty) return null;
+  if (name.startsWith(kResImageIconPrefix)) return null;
   for (final (String n, IconData icon) in kResIconCatalog) {
     if (n == name) return icon;
   }
   return null;
+}
+
+/// 自定义图片图标的存储约定：`img:<绝对路径>`。和内置图形共用
+/// [ResCardPrefs.icon] 一个字段，读的时候按前缀分流。
+const String kResImageIconPrefix = 'img:';
+
+/// [ResCardPrefs.icon] 里存的若是图片图标，返回图片路径；否则 null。
+String? resCustomImagePath(String? icon) {
+  if (icon == null || !icon.startsWith(kResImageIconPrefix)) return null;
+  final String path = icon.substring(kResImageIconPrefix.length);
+  return path.isEmpty ? null : path;
 }
 
 class _LibGlyph extends StatelessWidget {
@@ -1281,6 +1381,7 @@ class _LibCard extends StatelessWidget {
     this.stats,
     this.onlineDot = false,
     this.customIcon,
+    this.customIconPath,
   });
 
   final String title;
@@ -1292,6 +1393,10 @@ class _LibCard extends StatelessWidget {
 
   /// 「修改图标」选的自定义图标；null = 用默认 [glyph]。
   final IconData? customIcon;
+
+  /// 「修改图标」从相册 / 文件挑的图片图标（见 [resCustomImagePath]）。
+  /// 优先级高于 [customIcon]；文件丢了会退回默认 [glyph]。
+  final String? customIconPath;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
@@ -1396,7 +1501,24 @@ class _LibCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                if (customIcon != null)
+                if (customIconPath != null)
+                  // 图片图标：直接把选的图裁成和内置图形一样的圆角块。
+                  // errorBuilder 兜底——图片被系统清掉也不能拖垮整张卡。
+                  Container(
+                    width: 31,
+                    height: 31,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(9),
+                      color: const Color(0xFF0A84FF),
+                    ),
+                    child: Image.file(
+                      File(customIconPath!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => _LibGlyph(glyph),
+                    ),
+                  )
+                else if (customIcon != null)
                   Container(
                     width: 31,
                     height: 31,
@@ -1764,6 +1886,59 @@ class _IconPickCell extends StatelessWidget {
           icon,
           size: 24,
           color: selected ? PvColors.blue : PvColors.ink(context),
+        ),
+      ),
+    );
+  }
+}
+
+/// 图标库里「自定义图片」的那一格：显示缩略图，选中态和普通格一致。
+class _IconPickImageCell extends StatelessWidget {
+  const _IconPickImageCell({
+    required this.path,
+    required this.selected,
+    required this.dark,
+    required this.onTap,
+  });
+
+  final String path;
+  final bool selected;
+  final bool dark;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bg = selected
+        ? PvColors.blue.withValues(alpha: dark ? 0.28 : 0.14)
+        : (dark
+              ? Colors.white.withValues(alpha: 0.07)
+              : Colors.black.withValues(alpha: 0.045));
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 46,
+        height: 46,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+          border: selected
+              ? Border.all(color: PvColors.blue, width: 1.4)
+              : Border.all(
+                  color: dark
+                      ? Colors.white.withValues(alpha: 0.12)
+                      : Colors.black.withValues(alpha: 0.08),
+                ),
+        ),
+        child: Image.file(
+          File(path),
+          fit: BoxFit.cover,
+          // 图片没了就显示个占位，不至于白格一块。
+          errorBuilder: (_, _, _) => Icon(
+            Icons.image_outlined,
+            size: 24,
+            color: PvColors.ink(context),
+          ),
         ),
       ),
     );

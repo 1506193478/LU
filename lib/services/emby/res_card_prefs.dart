@@ -12,7 +12,7 @@ import 'package:XL/services/storage/storage.dart';
 ///   hidden      隐藏（「隐藏」直接藏；「加密」= hidden + locked）
 ///   locked      隐藏时需要过面容/密码才能由顶栏锁按钮显示
 ///   aggregated  是否参与聚合搜索（默认 true）
-///   icon        自定义图标（图标库里的名字，null = 默认）
+///   icon        自定义图标（图标库名字，或 `img:<路径>` 图片图标；null = 默认）
 ///
 /// 另有 [defaultHome]：长按「设为默认首页」记录的 key，进 Emby 模块时
 /// 直接落在那台服务器（媒体库）或那个本地库上。
