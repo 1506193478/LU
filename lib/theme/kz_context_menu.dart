@@ -26,13 +26,12 @@ import 'package:XL/utils/motion.dart';
 /// 预览不是截图：直接把卡片 widget 再渲染一份，放在浮起的位置。
 /// 卡片都是轻量 widget（图标 + 文本），重复构建的成本可以忽略，
 /// 而图片走 ImageProvider 内存缓存，不会重复下载。
-enum KzMenuAfter { dismiss, keepOpen }
-
 class KzContextMenuItem {
   const KzContextMenuItem({
     required this.label,
     this.icon,
     this.destructive = false,
+    this.keepOpen = false,
     this.onTap,
   });
 
@@ -40,9 +39,17 @@ class KzContextMenuItem {
   final IconData? icon;
   final bool destructive;
 
-  /// 返回 [KzMenuAfter.keepOpen] 让菜单保持打开（配合 controller.updateItems
-  /// 做切换类条目）；返回 dismiss 或 null（默认）则激活后关闭。
-  final Future<KzMenuAfter?> Function()? onTap;
+  /// 切换类条目（聚合开关、默认首页这类）：激活后菜单**不关闭**，
+  /// 由 onTap 里 `controller.updateItems(...)` 原位换一组条目——
+  /// 和系统里「切换 Wi-Fi」的菜单一致。
+  ///
+  /// 为什么是静态标记而不是 onTap 返回值：普通动作（编辑/删除）会推页面
+  /// 或等网络，激活后必须**立即**关菜单——如果等动作完成再关，浮层会盖在
+  /// 新推的页面上。所以关不关在构建条目时就定死，动作本身 fire-and-forget。
+  final bool keepOpen;
+
+  /// 激活回调，异步执行、异常只记日志不冒泡。
+  final VoidCallback? onTap;
 }
 
 class KzContextMenuController {
@@ -185,7 +192,8 @@ class _KzContextMenuOverlayState extends State<_KzContextMenuOverlay>
   }
 
   void _handlePointer(PointerEvent event) {
-    if (!mounted) return;
+    // 关闭动画期间不再处理：否则 hover/up 会二次触发动作或重启关闭。
+    if (!mounted || _closing) return;
     switch (event) {
       case PointerDownEvent():
         _updateHover(event.position);
@@ -223,23 +231,25 @@ class _KzContextMenuOverlayState extends State<_KzContextMenuOverlay>
   void _activate(int index) {
     final KzContextMenuItem item = _items[index];
     KazumiHaptics.tap();
-    Future<KzMenuAfter?>? result;
-    try {
-      result = item.onTap?.call();
-    } catch (e) {
-      KazumiLogger().e('KzContextMenu: action failed', error: e);
-    }
-    if (result == null) {
-      _close();
+    if (item.keepOpen) {
+      // 切换类条目：菜单留着，onTap 里 controller.updateItems 换内容。
+      // hover 已经清掉（手指已抬起），再滑过来要重新命中。
+      try {
+        item.onTap?.call();
+      } catch (e) {
+        KazumiLogger().e('KzContextMenu: action failed', error: e);
+      }
       return;
     }
-    result.then((KzMenuAfter? after) {
-      if (!mounted) return;
-      if (after == KzMenuAfter.keepOpen) {
-        // 保持打开：条目由调用方通过 controller.updateItems 刷新。
-        return;
+    // 普通动作：**先关菜单再执行**。动作里经常有 push 页面 / 等网络，
+    // 浮层是 rootOverlay 顶层条目，不同步关掉就会盖在新页面上。
+    _close();
+    Future<void>.sync(() {
+      try {
+        item.onTap?.call();
+      } catch (e) {
+        KazumiLogger().e('KzContextMenu: action failed', error: e);
       }
-      _close();
     });
   }
 
@@ -313,7 +323,8 @@ class _KzContextMenuOverlayState extends State<_KzContextMenuOverlay>
   Widget build(BuildContext context) {
     final Size screen = MediaQuery.sizeOf(context);
     final bool dark = Theme.of(context).brightness == Brightness.dark;
-    final (:preview, :menu, :menuBelow) = _layout(screen);
+    final ({Rect preview, Rect menu, bool menuBelow}) layout = _layout(screen);
+    final Rect preview = layout.preview;
 
     return Stack(
       children: [

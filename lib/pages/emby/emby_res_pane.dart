@@ -374,7 +374,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             } else if (entry.vault != null) {
               await _openForm(entry.vault!.type, existing: entry.vault!);
             }
-            return KzMenuAfter.dismiss;
           },
         ),
         if (entry.emby != null)
@@ -385,7 +384,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
               prefs.setAggregated(key, !agg);
               ctrl.updateItems(buildItems());
               _toast(agg ? '已停用聚合搜索' : '已启用聚合搜索');
-              return KzMenuAfter.keepOpen;
             },
           ),
         KzContextMenuItem(
@@ -400,7 +398,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
               _toast('已设为默认首页');
             }
             ctrl.updateItems(buildItems());
-            return KzMenuAfter.keepOpen;
           },
         ),
         if (entry.vault != null)
@@ -409,7 +406,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             icon: Icons.key_rounded,
             onTap: () async {
               await _changeVaultPassword(entry.vault!);
-              return KzMenuAfter.dismiss;
             },
           ),
         KzContextMenuItem(
@@ -417,7 +413,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
           icon: Icons.person_rounded,
           onTap: () async {
             await _openIconPicker(key);
-            return KzMenuAfter.dismiss;
           },
         ),
         KzContextMenuItem(
@@ -425,7 +420,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
           icon: Icons.lock_rounded,
           onTap: () async {
             await _encryptCard(key);
-            return KzMenuAfter.dismiss;
           },
         ),
         KzContextMenuItem(
@@ -440,7 +434,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             } else if (entry.vault != null) {
               await LuMediaVault.instance.removeServer(entry.vault!.id);
             }
-            return KzMenuAfter.dismiss;
           },
         ),
       ];
@@ -478,7 +471,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
               _toast('已设为默认首页');
             }
             ctrl.updateItems(buildItems());
-            return KzMenuAfter.keepOpen;
           },
         ),
         KzContextMenuItem(
@@ -486,7 +478,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
           icon: Icons.visibility_off_rounded,
           onTap: () async {
             prefs.setHidden(prefKey, true);
-            return KzMenuAfter.dismiss;
           },
         ),
       ];
@@ -545,6 +536,12 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   Future<void> _changeVaultPassword(LuVaultServer server) async {
     final TextEditingController p1 = TextEditingController();
     final TextEditingController p2 = TextEditingController();
+    // 对话框无论以哪种方式结束都要释放 controller，不然算泄露。
+    Future<void> disposeControllers() async {
+      p1.dispose();
+      p2.dispose();
+    }
+
     final bool? ok = await showDialog<bool>(
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
@@ -577,9 +574,13 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
         ],
       ),
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || !mounted) {
+      await disposeControllers();
+      return;
+    }
     if (p1.text.isEmpty || p1.text != p2.text) {
       KazumiDialog.showError(message: '两次输入不一致或为空');
+      await disposeControllers();
       return;
     }
     await LuMediaVault.instance.saveServer(
@@ -598,6 +599,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
         backupLines: server.backupLines,
       ),
     );
+    await disposeControllers();
     _toast('密码已更新');
   }
 
@@ -961,6 +963,11 @@ class _EntryGrid extends StatelessWidget {
   final ValueChanged<_ServerEntry> onServer;
   @override
   Widget build(BuildContext context) {
+    /// [withKey] = true 的实例挂在网格里，同时是长按菜单的锚点；
+    /// = false 的实例只作浮起预览渲染。**预览绝不能带同一个
+    /// GlobalKey**——同一棵树里出现两份同 key 的 widget 会在浮层
+    /// build 时抛 duplicate key 异常，整层浮层失败，表现就是
+    /// 「长按没反应，什么都不弹」。
     Widget localCard({
       required String prefKey,
       required String title,
@@ -969,51 +976,51 @@ class _EntryGrid extends StatelessWidget {
       required _Glyph glyph,
       required _Tone tone,
       required VoidCallback onTap,
+      bool withKey = true,
     }) {
-      return KeyedSubtree(
-        key: cardKeyFor(prefKey),
-        child: _LibCard(
-          title: title,
-          footLeft: footLeft,
-          footRight: footRight,
-          glyph: glyph,
-          tone: tone,
-          dark: dark,
-          customIcon: resIconByName(ResCardPrefs.instance.icon(prefKey)),
-          onTap: onTap,
-          onLongPress: () => onLocalMenu(
-            prefKey,
-            localCard(
-              prefKey: prefKey,
-              title: title,
-              footLeft: footLeft,
-              footRight: footRight,
-              glyph: glyph,
-              tone: tone,
-              onTap: onTap,
-            ),
+      final Widget card = _LibCard(
+        title: title,
+        footLeft: footLeft,
+        footRight: footRight,
+        glyph: glyph,
+        tone: tone,
+        dark: dark,
+        customIcon: resIconByName(ResCardPrefs.instance.icon(prefKey)),
+        onTap: onTap,
+        onLongPress: () => onLocalMenu(
+          prefKey,
+          localCard(
+            prefKey: prefKey,
+            title: title,
+            footLeft: footLeft,
+            footRight: footRight,
+            glyph: glyph,
+            tone: tone,
+            onTap: onTap,
+            withKey: false,
           ),
         ),
       );
+      if (!withKey) return card;
+      return KeyedSubtree(key: cardKeyFor(prefKey), child: card);
     }
 
-    Widget serverCard(_ServerEntry s) {
-      return KeyedSubtree(
-        key: cardKeyFor(s.prefKey),
-        child: _LibCard(
-          title: s.title,
-          footLeft: s.subtitle,
-          footRight: s.online ? '刚刚' : '未连接',
-          glyph: _Glyph.emby,
-          tone: _Tone.green,
-          dark: dark,
-          customIcon: resIconByName(ResCardPrefs.instance.icon(s.prefKey)),
-          onlineDot: s.online,
-          stats: showStats ? s.stats : null,
-          onTap: () => onServer(s),
-          onLongPress: () => onServerMenu(s, serverCard(s)),
-        ),
+    Widget serverCard(_ServerEntry s, {bool withKey = true}) {
+      final Widget card = _LibCard(
+        title: s.title,
+        footLeft: s.subtitle,
+        footRight: s.online ? '刚刚' : '未连接',
+        glyph: _Glyph.emby,
+        tone: _Tone.green,
+        dark: dark,
+        customIcon: resIconByName(ResCardPrefs.instance.icon(s.prefKey)),
+        onlineDot: s.online,
+        stats: showStats ? s.stats : null,
+        onTap: () => onServer(s),
+        onLongPress: () => onServerMenu(s, serverCard(s, withKey: false)),
       );
+      if (!withKey) return card;
+      return KeyedSubtree(key: cardKeyFor(s.prefKey), child: card);
     }
 
     // 隐藏的本地卡不进网格（顶栏锁按钮负责显示回来）。
