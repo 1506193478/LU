@@ -19,7 +19,8 @@
     "@capacitor/core": "^8.6.0",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/ios": "^8.6.0",
-    "@capacitor/status-bar": "^8.0.4"
+    "@capacitor/status-bar": "^8.0.4",
+    "hls.js": "^1.7.4"
   },
   "devDependencies": {
     "electron": "^33.4.11",

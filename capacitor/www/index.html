@@ -693,6 +693,32 @@
     </div>
   </div>
 
+  <!-- ================= 追番（Bangumi 真实数据） ================= -->
+  <div class="page" id="p-bang">
+    <div class="statusbar"><span>19:27</span><span class="r"><svg viewBox="0 0 18 12" fill="currentColor" class="sig"><rect x="0" y="7.4" width="3" height="4.6" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.4" width="3" height="9.6" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg viewBox="0 0 16 12" fill="currentColor" class="wf"><path d="M8 11.4 1.4 4.8a9.3 9.3 0 0 1 13.2 0L8 11.4Z"/></svg><span class="batt"></span></span></div>
+    <div class="nav-lg">
+      <h1 class="h1">追番</h1>
+      <div class="acts"><span id="bang-rule-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2.4"/><path d="m7 9 4 3-4 3M13 15h4"/></svg></span><span id="bang-login" style="font-size:13px;color:var(--blue)">登录 Bangumi</span></div>
+    </div>
+    <div class="scroll">
+      <div class="sec"><span class="t">每日放送</span><span class="n" id="bang-day-n">-</span></div>
+      <div class="daytabs" id="bang-days"></div>
+      <div class="grid" id="bang-grid" style="margin-top:8px"></div>
+      <div class="lib-empty" id="bang-empty" style="display:none"><div class="t">加载中 / 无数据</div></div>
+
+      <div class="sec" style="margin-top:26px"><span class="t">搜索番剧</span></div>
+      <div style="padding:0 16px">
+        <div class="lib-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.6"/><path d="m16 16 4.4 4.4"/></svg>
+          <input id="bang-q" placeholder="搜索 Bangumi 条目"></div>
+      </div>
+      <div class="grid" id="bang-sgrid" style="margin-top:10px"></div>
+
+      <div class="sec" style="margin-top:26px"><span class="t">我的收藏</span><span class="n" id="bang-col-n"></span></div>
+      <div class="grid" id="bang-col" style="margin-top:4px"></div>
+      <div class="gf" id="bang-col-hint" style="text-align:center">登录后同步你的 Bangumi 收藏</div>
+    </div>
+  </div>
+
   <!-- ================= 一起看 ================= -->
   <div class="page" id="p-together">
     <div class="statusbar"><span>19:29</span><span class="r"><svg viewBox="0 0 18 12" fill="currentColor" class="sig"><rect x="0" y="7.4" width="3" height="4.6" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.4" width="3" height="9.6" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg viewBox="0 0 16 12" fill="currentColor" class="wf"><path d="M8 11.4 1.4 4.8a9.3 9.3 0 0 1 13.2 0L8 11.4Z"/></svg><span class="batt"></span></span></div>
@@ -702,11 +728,24 @@
         <div class="acts"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h10M4 12h7M4 17h10"/><circle cx="18" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></svg></span></div>
       </div>
 
-      <div class="tg-card glass">
-        <div class="tg-row"><span class="lab">昵称</span><span class="field">Wehuwu</span></div>
+      <div class="tg-card glass" id="sync-active" style="display:none">
+        <div class="tg-row"><span class="lab">房间</span><span class="field" id="sync-room-nm">-</span>
+          <span class="x" id="sync-leave"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></span></div>
+        <div class="sep" style="left:16px"></div>
+        <div style="padding:10px 16px;max-height:130px;overflow-y:auto" id="sync-users"></div>
+        <div class="sep" style="left:16px"></div>
+        <div style="padding:8px 16px 12px;display:flex;gap:8px;align-items:center">
+          <input id="sync-chat" placeholder="说点什么…" style="flex:1;height:38px;border:0;border-radius:10px;padding:0 12px;font-size:14px;background:rgba(120,120,128,.12);color:var(--ink);outline:none">
+          <div class="bigbtn" id="sync-send" style="margin:0;padding:9px 16px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12h16m0 0-5.5-5.5M19 12l-5.5 5.5"/></svg></div>
+        </div>
+        <div style="padding:0 16px 12px;font-size:12px;color:var(--ink2);max-height:90px;overflow-y:auto" id="sync-chat-log"></div>
       </div>
 
-      <div class="bigbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg><span>创建房间</span></div>
+      <div class="tg-card glass">
+        <div class="tg-row"><span class="lab">昵称</span><span class="field" id="sync-nick">Wehuwu</span></div>
+      </div>
+
+      <div class="bigbtn" id="sync-create"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg><span>创建房间</span></div>
 
       <div class="tg-card glass">
         <div class="tg-row" style="min-height:60px">
@@ -759,6 +798,71 @@
 
       <div class="res-grid" id="res-grid"></div>
     </div>
+  </div>
+
+  <!-- ================= 服务器媒体库（二级） ================= -->
+  <div class="page" id="p-srv">
+    <div class="nav">
+      <div class="back" data-back><svg viewBox="0 0 12 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 2.5 10 10 18"/></svg><span>资源库</span></div>
+      <div class="title" id="srv-title">媒体库</div>
+      <div style="width:70px"></div>
+    </div>
+    <div class="scroll" style="padding-top:0">
+      <div class="card glass" id="srv-views" style="margin-top:12px"></div>
+      <div class="gf" id="srv-info" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- ================= 内容网格（三级：媒体库内容 / 搜索结果） ================= -->
+  <div class="page" id="p-lib">
+    <div class="nav">
+      <div class="back" data-back><svg viewBox="0 0 12 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 2.5 10 10 18"/></svg><span id="lib-back-label">媒体库</span></div>
+      <div class="title" id="lib-title">内容</div>
+      <div style="width:70px"></div>
+    </div>
+    <div class="scroll" style="padding-top:0">
+      <div style="padding:10px 16px 0">
+        <div class="lib-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6.6"/><path d="m16 16 4.4 4.4"/></svg>
+          <input id="lib-q" placeholder="在此服务器内搜索"></div>
+      </div>
+      <div class="grid" id="lib-grid" style="margin-top:14px"></div>
+      <div class="lib-empty" id="lib-empty" style="display:none"><div class="t">没有找到内容</div></div>
+      <div class="gf" id="lib-count" style="text-align:center"></div>
+    </div>
+  </div>
+
+  <!-- ================= 详情页（四级） ================= -->
+  <div class="page" id="p-detail">
+    <div class="detail-hero" id="d-hero">
+      <div class="back" data-back style="color:#fff;z-index:5"><svg viewBox="0 0 12 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2 2.5 10 10 18"/></svg><span>返回</span></div>
+      <div class="d-title" id="d-title"></div>
+      <div class="d-sub" id="d-sub"></div>
+    </div>
+    <div class="scroll" style="padding-top:10px">
+      <div class="bigbtn" id="d-play" style="margin:0 16px">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.4v13.2L19 12 8 5.4Z"/></svg><span id="d-play-lab">播放</span>
+      </div>
+      <div class="gh">简介</div>
+      <div style="padding:0 16px;font-size:14.5px;line-height:1.65;color:var(--ink2)" id="d-overview"></div>
+      <div class="gh" id="d-ep-h" style="display:none">剧集</div>
+      <div class="card glass" id="d-eps" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ================= 播放器（全屏覆盖层） ================= -->
+  <div id="player">
+    <video id="pv" playsinline webkit-playsinline></video>
+    <div class="p-top">
+      <div class="p-btn" id="p-close"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+      <div class="p-ttl" id="p-title"></div>
+    </div>
+    <div class="p-ctrl">
+      <div class="p-btn" id="p-play"><svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5.4v13.2L19 12 8 5.4Z"/></svg></div>
+      <span class="p-time" id="p-cur">00:00</span>
+      <input type="range" id="p-seek" min="0" max="100" value="0" step="0.1">
+      <span class="p-time" id="p-dur">00:00</span>
+    </div>
+    <div class="p-spin" id="p-spin"><div></div></div>
   </div>
 
   <!-- ================= App 图标（二级） ================= -->
@@ -925,6 +1029,95 @@
     <div class="fid-txt">面容 ID</div>
   </div>
 
+  <!-- 加入房间（Syncplay） -->
+  <div class="overlay" id="ov-sync">
+    <div class="ov-scrim" data-close-sync></div>
+    <div class="sheet glass" style="background-color:var(--sheet-bg)">
+      <div class="sheet-top">
+        <div class="x" data-close-sync><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+        <div class="ttl">加入 Syncplay 房间</div>
+        <div class="save" id="sync-ok">连接</div>
+      </div>
+      <div class="sheet-scroll">
+        <div class="flabel">服务器</div>
+        <div class="fgroup glass">
+          <div class="frow"><span class="lab">地址</span><input id="sp-host" type="text" placeholder="syncplay.pl"></div>
+          <div class="sep" style="left:14px"></div>
+          <div class="frow"><span class="lab">端口</span><input id="sp-port" type="text" inputmode="numeric" placeholder="8995"></div>
+          <div class="sep" style="left:14px"></div>
+          <div class="frow"><span class="lab">TLS</span><span class="sw" id="sp-tls" style="margin-left:auto"></span></div>
+        </div>
+        <div class="flabel">房间</div>
+        <div class="fgroup glass">
+          <div class="frow"><span class="lab">房号</span><input id="sp-room" type="text" placeholder="8 位数字（可自定义）"></div>
+          <div class="sep" style="left:14px"></div>
+          <div class="frow"><span class="lab">昵称</span><input id="sp-user" type="text" placeholder="Wehuwu"></div>
+        </div>
+        <div class="fhint">与桌面版 Syncplay / LU 各端互通。加入后播放器会自动与房间保持同步。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bangumi 登录 -->
+  <div class="overlay" id="ov-bgm">
+    <div class="ov-scrim" data-close-bgm></div>
+    <div class="sheet glass" style="background-color:var(--sheet-bg)">
+      <div class="sheet-top">
+        <div class="x" data-close-bgm><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+        <div class="ttl">Bangumi 登录</div>
+        <div class="save" id="bgm-ok">确定</div>
+      </div>
+      <div class="sheet-scroll">
+        <div class="flabel">Access Token</div>
+        <div class="fgroup glass">
+          <div class="frow"><span class="lab">Token</span><input id="bgm-token" type="password" placeholder="粘贴个人令牌"></div>
+        </div>
+        <div class="fhint">在 bgm.tv → 账号 → 个人设置 → 「API 访问令牌」创建后粘贴到这里。仅保存在本机。</div>
+        <div class="fhint" id="bgm-cur" style="color:var(--blue)"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 番剧来源（规则搜索 → 线路 → 剧集） -->
+  <div class="overlay" id="ov-bangsrc">
+    <div class="ov-scrim" data-close-bangsrc></div>
+    <div class="sheet glass" style="background-color:var(--sheet-bg)">
+      <div class="sheet-top">
+        <div class="x" data-close-bangsrc><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+        <div class="ttl" id="bangsrc-title">番剧来源</div>
+        <div style="width:44px"></div>
+      </div>
+      <div class="sheet-scroll">
+        <div class="flabel">规则源</div>
+        <div class="fgroup glass" id="bangsrc-rules"></div>
+        <div class="flabel" id="bangsrc-search-h">搜索结果</div>
+        <div class="fgroup glass" id="bangsrc-results" style="max-height:180px;overflow-y:auto"></div>
+        <div class="flabel" id="bangsrc-road-h" style="display:none">线路与剧集</div>
+        <div class="fgroup glass" id="bangsrc-roads" style="max-height:240px;overflow-y:auto;display:none"></div>
+        <div class="fhint" id="bangsrc-hint"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 规则管理（规则仓库） -->
+  <div class="overlay" id="ov-rules">
+    <div class="ov-scrim" data-close-rules></div>
+    <div class="sheet glass" style="background-color:var(--sheet-bg)">
+      <div class="sheet-top">
+        <div class="x" data-close-rules><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
+        <div class="ttl">规则管理</div>
+        <div style="width:44px"></div>
+      </div>
+      <div class="sheet-scroll">
+        <div class="flabel">已安装</div>
+        <div class="fgroup glass" id="rules-installed"></div>
+        <div class="flabel">规则仓库（KazumiRules）</div>
+        <div class="fgroup glass" id="rules-repo"></div>
+        <div class="fhint">与 Kazumi / LU Flutter 版通用同一套规则（apiLevel 9）。XPath 规则由 WebView 原生求值。</div>
+      </div>
+    </div>
+  </div>
+
   <!-- toast -->
   <div class="toast glass-soft" id="toast"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a6 6 0 0 0-6 6v4l-1.7 3h15.4L18 13V9a6 6 0 0 0-6-6Zm-2.2 14a2.3 2.3 0 0 0 4.4 0Z"/></svg><span></span></div>
 
@@ -938,7 +1131,7 @@
     </div>
     <div class="tabbar glass" id="tabbar">
       <button data-page="p-rec" class="on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M4 11 12 4l8 7v9H4v-9Z"/></svg></span>推荐</button>
-      <button data-page="p-rec"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 19.6S4.4 14.7 4.4 9.8A3.9 3.9 0 0 1 12 8.2a3.9 3.9 0 0 1 7.6 1.6c0 4.9-7.6 9.8-7.6 9.8Z"/></svg></span>追番</button>
+      <button data-page="p-bang"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 19.6S4.4 14.7 4.4 9.8A3.9 3.9 0 0 1 12 8.2a3.9 3.9 0 0 1 7.6 1.6c0 4.9-7.6 9.8-7.6 9.8Z"/></svg></span>追番</button>
       <button data-page="p-together"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="9" cy="9" r="3"/><circle cx="15" cy="9" r="3"/><path d="M3 19c0-2.8 2.7-5 6-5s6 2.2 6 5M15 14c3 0 6 2 6 5"/></svg></span>一起看</button>
       <button data-page="p-emby"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="5" width="18" height="14" rx="2.4"/><path d="m10 9.6 4.4 2.4-4.4 2.4V9.6Z"/></svg></span>Emby</button>
       <button data-page="p-me"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg></span>我的</button>
@@ -1137,8 +1330,59 @@
   /* Android：禁用文本长按选择，触感层自身处理 */
   html.plat-android *{-webkit-tap-highlight-color:transparent}
   html.plat-android .rtile{user-select:none}
+  /* ================= 真实数据：新增组件 ================= */
+  .pbar{position:absolute;left:8px;right:8px;bottom:6px;height:3px;border-radius:2px;background:rgba(255,255,255,.30);overflow:hidden}
+  .pbar i{display:block;height:100%;background:#0A84FF;border-radius:2px}
+  .hero-play{display:inline-flex;align-items:center;gap:8px;margin-top:14px;padding:10px 22px;border-radius:100px;
+    background:rgba(255,255,255,.86);color:#111;font-size:15px;font-weight:600;cursor:pointer;
+    box-shadow:0 4px 18px rgba(0,0,0,.22);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .hero-play svg{width:17px;height:17px}
+  .hero-bg{position:absolute;inset:0}
+  .hero-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.06) 0%,rgba(0,0,0,.42) 74%,rgba(0,0,0,.62) 100%)}
+  .pyr{position:absolute;left:8px;bottom:6px;font-size:10.5px;color:#fff;background:rgba(0,0,0,.45);
+    padding:2px 7px;border-radius:5px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  .detail-hero{position:relative;height:250px;border-radius:0 0 26px 26px;overflow:hidden;
+    background-size:cover;background-position:center 30%;display:flex;flex-direction:column;justify-content:flex-end;
+    padding:0 18px 18px}
+  .detail-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.05),rgba(0,0,0,.66))}
+  .detail-hero .back{position:absolute;top:14px;left:14px;z-index:5;display:flex;align-items:center;gap:6px;
+    font-size:15px;text-shadow:0 1px 6px rgba(0,0,0,.5)}
+  .detail-hero .back svg{width:11px;height:18px}
+  .d-title{position:relative;z-index:2;font-size:22px;font-weight:700;color:#fff;letter-spacing:-.3px;
+    text-shadow:0 1px 8px rgba(0,0,0,.55)}
+  .d-sub{position:relative;z-index:2;font-size:13.5px;color:rgba(255,255,255,.82);margin-top:4px;text-shadow:0 1px 6px rgba(0,0,0,.5)}
+
+  /* 播放器 */
+  #player{position:absolute;inset:0;z-index:80;background:#000;display:none;flex-direction:column}
+  #player.on{display:flex}
+  #player video{flex:1;width:100%;object-fit:contain;background:#000}
+  .p-top{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));left:12px;right:12px;display:flex;align-items:center;gap:10px;z-index:3}
+  .p-ttl{flex:1;font-size:15px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+  .p-btn{width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;flex:none;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  .p-btn svg{width:18px;height:18px}
+  .p-ctrl{position:absolute;left:12px;right:12px;bottom:calc(18px + env(safe-area-inset-bottom,0px));
+    display:flex;align-items:center;gap:10px;z-index:3}
+  .p-time{font-size:11.5px;color:rgba(255,255,255,.86);font-variant-numeric:tabular-nums;flex:none}
+  #p-seek{flex:1;appearance:none;-webkit-appearance:none;height:4px;border-radius:2px;background:rgba(255,255,255,.32);outline:none}
+  #p-seek::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#0A84FF;box-shadow:0 1px 5px rgba(0,0,0,.5)}
+  .p-spin{position:absolute;left:50%;top:50%;width:36px;height:36px;margin:-18px 0 0 -18px;z-index:2;
+    border:3px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;display:none;animation:pspin .8s linear infinite}
+  @keyframes pspin{to{transform:rotate(360deg)}}
+
+  /* 追番 */
+  .daytabs{display:flex;gap:6px;padding:0 16px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .daytabs button{flex:none;border:0;padding:7px 13px;border-radius:100px;font-size:13px;font-family:inherit;
+    background:rgba(255,255,255,.5);color:var(--ink2);cursor:pointer;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  .daytabs button.on{background:var(--blue);color:#fff;font-weight:600}
+
   /* 侧滑返回（iOS 原生手势由系统接管，这里只处理页面级返回栈动画占位） */
 </style>
+
+<script src="vendor/hls.min.js"></script>
+<script src="emby.js"></script>
+<script src="bangumi.js"></script>
+<script src="syncplay.js"></script>
+<script src="rules.js"></script>
 
 <script>
 (function(){
@@ -1174,9 +1418,16 @@
     if(r.textContent.includes('播放行为')) r.addEventListener('click', ()=>show('p-behavior'));
     if(r.textContent.includes('App 图标')) r.addEventListener('click', ()=>show('p-icon'));
   });
-  // 返回
+  // 返回（按页面来源动态决定）
+  const backMap = {};   // pageId -> 返回目标；openSrvPage/openLibGrid/openDetail 会写入
+  window.__backMap = backMap;
   document.querySelectorAll('[data-back]').forEach(b=>{
-    b.addEventListener('click', ()=>show('p-me'));
+    b.addEventListener('click', ()=>{
+      const cur = document.querySelector('.page.on');
+      const target = backMap[cur ? cur.id : ''] || 'p-me';
+      if(cur && cur.id==='p-detail' && document.getElementById('player').classList.contains('on')) closePlayer();
+      show(target);
+    });
   });
 
   // 主题
@@ -1209,8 +1460,8 @@
   });
   scrim.addEventListener('click', closeMenu);
 
-  const FIELD = (lab, ph, type='text') =>
-    `<div class="frow"><span class="lab">${lab}</span><input type="${type}" placeholder="${ph}"></div>`;
+  const FIELD = (lab, ph, type='text', id='') =>
+    `<div class="frow"><span class="lab">${lab}</span><input type="${type}" placeholder="${ph}"${id?` id="${id}"`:''}></div>`;
   const SEP = '<div class="sep" style="left:14px"></div>';
 
   function renderAdd(type){
@@ -1223,29 +1474,25 @@
 
     let h = '';
     h += `<div class="flabel">名称与备注</div>
-      <div class="fgroup glass">${FIELD('名称','Name (可选)')}${SEP}${FIELD('备注','Note (可选)')}</div>`;
+      <div class="fgroup glass">${FIELD('名称','Name (可选)','text','add-nm')}${SEP}${FIELD('备注','Note (可选)')}</div>`;
     h += `<div class="flabel">服务器地址</div><div class="fgroup glass">`;
-    h += FIELD('主机','Host (必填)');
-    if(t.path) h += SEP + FIELD('路径','Path (可选)');
-    h += SEP + `<div class="frow"><span class="lab">端口</span><input type="text" inputmode="numeric" placeholder="${t.port}"></div>`;
-    if(t.https) h += SEP + `<div class="frow"><span class="lab">https</span><span class="sw" style="margin-left:auto"></span></div>`;
+    h += FIELD('主机','Host (必填)','text','add-host');
+    if(t.path) h += SEP + FIELD('路径','Path (可选)','text','add-path');
+    h += SEP + `<div class="frow"><span class="lab">端口</span><input type="text" inputmode="numeric" placeholder="${t.port}" id="add-port"></div>`;
+    if(t.https) h += SEP + `<div class="frow"><span class="lab">https</span><span class="sw"${type==='emby'?' id="add-https"':''} style="margin-left:auto"></span></div>`;
     h += `</div>`;
 
     if(type==='smb') h += `<div class="fhint">支持 SMB2 和 SMB3 协议</div>`;
 
     h += `<div class="flabel">登录信息</div>
-      <div class="fgroup glass">${FIELD('用户','Username (可选)')}${SEP}
-      <div class="frow"><span class="lab">密码</span><input type="password" placeholder="Password (可选)">
+      <div class="fgroup glass">${FIELD('用户','Username (可选)','text','add-user')}${SEP}
+      <div class="frow"><span class="lab">密码</span><input type="password" placeholder="Password (可选)" id="add-pass">
         <span class="eye"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
         <path d="M2.4 12S5.6 6.2 12 6.2 21.6 12 21.6 12 18.4 17.8 12 17.8 2.4 12 2.4 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></span></div></div>`;
 
     if(type==='emby'){
-      h += `<div class="flabel">连接</div><div class="fgroup glass">
-        <div class="frow"><span class="lab" style="width:auto;flex:1">备用线路</span><span class="v">2</span>
-          <span class="chev" style="margin-left:6px"><svg viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 5.5 5.5L1 12"/></svg></span></div>
-        ${SEP}
-        <div class="frow"><span class="lab" style="width:auto;flex:1">高级设置</span>
-          <span class="chev"><svg viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 5.5 5.5L1 12"/></svg></span></div>
+      h += `<div class="flabel">连接</div><div class="fgroup glass" id="emby-conn" style="color:var(--ink3);font-size:14px">
+        <div class="frow"><span class="lab" style="width:auto;flex:1">状态</span><span class="v" id="emby-conn-st">未连接</span></div>
       </div>`;
     }
     if(type==='webdav'){
@@ -1258,16 +1505,68 @@
     return h;
   }
 
+  let addType = null;
   document.querySelectorAll('.mi').forEach(mi=>{
     mi.addEventListener('click', ()=>{
       if(!mi.dataset.add) return;
       const type = mi.dataset.add;
+      addType = type;
       const title = {webdav:'添加 WebDAV', smb:'添加 SMB', ftp:'添加 FTP', emby:'添加服务器'}[type];
       document.getElementById('add-title').textContent = title;
       document.getElementById('add-body').innerHTML = renderAdd(type);
+      const sv = ovAdd.querySelector('.save');
+      if(type==='emby') sv.removeAttribute('data-close-add'); else sv.setAttribute('data-close-add','');
       closeMenu();
       ovAdd.classList.add('on');
     });
+  });
+
+  /* 服务配置入口（资源库长按 → 服务配置） */
+  window.__openAdd = function(type, title, prefill){
+    addType = type;
+    document.getElementById('add-title').textContent = title || '添加服务器';
+    document.getElementById('add-body').innerHTML = renderAdd(type);
+    const sv = ovAdd.querySelector('.save');
+    if(type==='emby') sv.removeAttribute('data-close-add'); else sv.setAttribute('data-close-add','');
+    if(prefill){
+      const g = id => document.getElementById(id);
+      if(g('add-nm')) g('add-nm').value = prefill.name || '';
+      if(g('add-host')) g('add-host').value = prefill.host || '';
+      if(g('add-port')) g('add-port').value = prefill.port || '';
+      if(g('add-user')) g('add-user').value = prefill.user || '';
+      const sw = document.getElementById('add-https');
+      if(sw && prefill.https) sw.classList.add('on');
+    }
+    ovAdd.classList.add('on');
+  };
+
+  /* 保存：emby 类型走真实鉴权，其它类型直接关闭 */
+  ovAdd.querySelector('.save').addEventListener('click', async ()=>{
+    if(addType!=='emby'){ ovAdd.classList.remove('on'); return; }
+    const g = id => { const el=document.getElementById(id); return el ? el.value.trim() : ''; };
+    const host = g('add-host');
+    const user = g('add-user') || '';
+    const pass = g('add-pass') || '';
+    if(!host){ toast('请填写服务器地址'); return; }
+    if(!user){ toast('请填写用户名'); return; }
+    const st = document.getElementById('emby-conn-st');
+    if(st) st.textContent = '连接中…';
+    let url = (document.getElementById('add-https')?.classList.contains('on') ? 'https://' : 'http://')
+      + host.replace(/^https?:\/\//,'')
+      + (g('add-path') ? '/' + g('add-path').replace(/^\/+|\/+$/g,'') : '')
+      + (g('add-port') ? (':' + g('add-port')) : '');
+    try{
+      const srv = await EBY.auth({ url, user, pass, name: g('add-nm') || undefined });
+      if(st) st.textContent = '已连接 · ' + (srv.version||'');
+      haptic('success');
+      ovAdd.classList.remove('on');
+      syncSRVS(); renderSrvSheet(); renderSrv(); renderRes(true); refreshSrvStats(); renderEmbyHome();
+      toast('已连接 · ' + srv.name);
+    }catch(e){
+      if(st) st.textContent = '连接失败 · ' + (e.message||'').slice(0,40);
+      haptic('medium');
+      toast('连接失败：检查地址/账号或网络');
+    }
   });
 
   document.querySelectorAll('[data-close-add]').forEach(b=>b.addEventListener('click',()=>ovAdd.classList.remove('on')));
@@ -1296,62 +1595,69 @@
   };
 })();
 
-/* ---------------- v4：多服务器管理 ---------------- */
-const SRVS=[
-  {id:'BBemby',   sub:'4.10.2.0 · 主线路',  c:'#3ED177'},
-  {id:'海豚emby', sub:'1.7.0 · 主线路',    c:'#2FBF5C'},
-  {id:"予初'",    sub:'4.8.5 · 主线路',    c:'#1FBE5B'},
-  {id:"OKemby'",  sub:'4.7.8 · 备用线路',  c:'#20B85C'},
-  {id:"nyamedia'",sub:'4.9.1 · 主线路',    c:'#1FB65A'}
-];
-let curSrv = 'all';
+/* ---------------- v4：多服务器管理（真实 Emby 数据） ---------------- */
+let curSrv = EBY.state.cur || 'all';
+let SRVS = [];                            // {id, nm, sub, c} — 由 EBY 状态映射而来
+let srvStats = {};                        // srvId -> {movies, series, episodes}
+
+function syncSRVS(){
+  SRVS = EBY.state.servers.map(s=>({
+    id: s.id, nm: s.name, sub: 'v' + (s.version||'?') + ' · ' + (s.userName||''), c: s.color
+  }));
+}
+syncSRVS();
 
 const PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.4v13.2L19 12 8 5.4Z"/></svg>';
 const CKI  = '<span class="srv-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m5 12.5 4.5 4.5L19 8"/></svg></span>';
 
 const srvSheet = document.getElementById('srv-sheet-list');
-srvSheet.innerHTML = SRVS.map((s,i)=>`
-  <div class="frow srv-opt" data-srv="${s.id}" style="cursor:pointer">${i? '<div class="sep" style="left:14px"></div>':''}
-    <span class="ico" style="background:${s.c}">${PLAY}</span>
-    <div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink);letter-spacing:-.2px">${s.id}</div>
-    <div style="font-size:12.5px;color:var(--ink2);margin-top:1px">${s.sub}</div></div>
-    <span class="opt-ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="m5 12.5 4.5 4.5L19 8"/></svg></span>
-  </div>`).join('');
+function renderSrvSheet(){
+  srvSheet.innerHTML = SRVS.length ? SRVS.map((s,i)=>`
+    <div class="frow srv-opt" data-srv="${s.id}" style="cursor:pointer">${i? '<div class="sep" style="left:14px"></div>':''}
+      <span class="ico" style="background:${s.c}">${PLAY}</span>
+      <div style="flex:1;min-width:0"><div style="font-size:16px;color:var(--ink);letter-spacing:-.2px">${s.nm}</div>
+      <div style="font-size:12.5px;color:var(--ink2);margin-top:1px">${s.sub}</div></div>
+      <span class="opt-ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="m5 12.5 4.5 4.5L19 8"/></svg></span>
+    </div>`).join('')
+    : '<div class="frow" style="color:var(--ink3);font-size:14px">还没有添加服务器</div>';
+}
+renderSrvSheet();
 
 function renderSrv(){
   // 我的：服务器列表
   const list = document.getElementById('srv-list');
-  list.innerHTML = SRVS.map((s,i)=>`
+  list.innerHTML = SRVS.length ? SRVS.map((s,i)=>`
     <div class="row" data-srv-row="${i}">${i? '<div class="sep" style="left:57px"></div>':''}
       <span class="ico" style="background:${s.c}">${PLAY}</span>
-      <div class="txt"><div class="t">${s.id}</div><div class="s">${s.sub} · 已连接</div></div>
+      <div class="txt"><div class="t">${s.nm}</div><div class="s">${s.sub} · 已连接</div></div>
       ${curSrv===s.id ? CKI : ''}
-    </div>`).join('');
+    </div>`).join('')
+    : '<div class="row"><span class="ico" style="background:rgba(120,120,128,.2)">+</span><div class="txt"><div class="t">添加你的第一个 Emby 服务器</div><div class="s">资源库 → 左上角 + → Emby</div></div></div>';
   // 我的：顶部当前卡
   const cur = SRVS.find(s=>s.id===curSrv);
-  document.getElementById('me-srv-name').textContent = cur ? cur.id : '全部服务器';
-  document.getElementById('me-srv-sub').textContent  = cur ? cur.sub+' · 已连接' : '聚合 '+SRVS.length+' 个服务器 · 已连接';
+  document.getElementById('me-srv-name').textContent = cur ? cur.nm : '全部服务器';
+  document.getElementById('me-srv-sub').textContent  = cur ? cur.sub+' · 已连接' : (SRVS.length ? '聚合 '+SRVS.length+' 个服务器 · 已连接' : '未添加服务器');
   // Emby 首页 pill
-  document.getElementById('pill-nm').textContent = cur ? cur.id : '全部服务器';
+  document.getElementById('pill-nm').textContent = cur ? cur.nm : '全部服务器';
   document.getElementById('pill-dot').innerHTML = cur ? PLAY :
     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4V4Zm0 6h16v4H4v-4Zm0 6h16v4H4v-4Z"/></svg>';
-  // 继续观看卡：可见性 + 来源角标
-  let vis = 0;
-  document.querySelectorAll('#p-emby .ecard').forEach(c=>{
-    const show = (curSrv==='all' || curSrv===c.dataset.srv);
-    c.style.display = show ? '' : 'none';
-    if(show) vis++;
-    const tag = c.querySelector('.srvtag');
-    if(tag) tag.style.display = curSrv==='all' ? '' : 'none';
-  });
-  document.getElementById('cw-n').textContent = vis;
-  // 面板勾选
+  // 切换面板勾选 + 聚合行副标题
   document.querySelectorAll('.srv-opt').forEach(o=>{
     o.classList.toggle('sel', o.dataset.srv===curSrv);
+    if(o.dataset.srv==='all'){
+      const sub = o.querySelector('div[style*="flex:1"] > div:nth-child(2)');
+      if(sub) sub.textContent = (SRVS.length? '聚合 '+SRVS.length+' 个服 · 内容带来源角标' : '添加服务器后开启聚合');
+    }
   });
+  // 面板勾选（srv-sheet-list 单独刷新）
   // 绑定：我的列表行
   list.querySelectorAll('[data-srv-row]').forEach(r=>{
-    r.addEventListener('click', ()=>{ curSrv = SRVS[+r.dataset.srvRow].id; renderSrv(); });
+    r.addEventListener('click', ()=>{
+      const s = SRVS[+r.dataset.srvRow];
+      if(!s) return;
+      curSrv = s.id; EBY.state.cur = s.id; EBY.save();
+      renderSrv(); renderEmbyHome();
+    });
   });
 }
 
@@ -1359,7 +1665,7 @@ document.getElementById('srv-pill').addEventListener('click', ()=>document.getEl
 document.querySelectorAll('[data-close-srv]').forEach(b=>b.addEventListener('click',()=>document.getElementById('ov-srv').classList.remove('on')));
 document.getElementById('ov-srv').addEventListener('click', e=>{
   const o = e.target.closest('.srv-opt');
-  if(o){ curSrv = o.dataset.srv; renderSrv(); document.getElementById('ov-srv').classList.remove('on'); }
+  if(o){ curSrv = o.dataset.srv; EBY.state.cur = curSrv; EBY.save(); renderSrv(); renderEmbyHome(); document.getElementById('ov-srv').classList.remove('on'); }
 });
 renderSrv();
 
@@ -1423,20 +1729,39 @@ bindCustom('file-album'); bindCustom('file-doc');
 renderIcons();
 
 /* ---------------- v4.2：资源库卡片 · 长按设置 / 隐藏 / 加密 / 面容 ID ---------------- */
-const RES=[
+const RES_LOCAL=[
   {id:'lf',  nm:'本地文件', type:'local', cls:'local',  icon:'folder', ic:'rgba(255,170,60,.92)', tag:'本地', foot:'未观看'},
   {id:'ls',  nm:'本地私密', type:'local', cls:'local',  icon:'lock',   ic:'rgba(255,190,70,.92)', tag:'私密', foot:'未观看'},
   {id:'al',  nm:'相册视频', type:'local', cls:'local',  icon:'album',  ic:'rgba(255,180,60,.92)', tag:'相册', foot:'未观看'},
   {id:'nl',  nm:'网络链接', type:'local', cls:'local2', icon:'link',   ic:'rgba(90,160,255,.92)', tag:'链接', foot:'1 个'},
-  {id:'iptv',nm:'IPTV',     type:'local', cls:'local2', icon:'tv',     ic:'rgba(80,150,240,.92)', tag:'IPTV', foot:'未观看'},
-  {id:'s1', nm:'BBemby',    type:'srv', cls:'', ic:'#22A85C', stats:['663','504'],   sub:'主线路', ago:'1 天前', agg:true},
-  {id:'s2', nm:'海豚emby',  type:'srv', cls:'', ic:'#2FBF5C', stats:['1602','2.5万'], sub:'主线路', ago:'刚刚', agg:true},
-  {id:'s3', nm:"予初'",     type:'srv', cls:'', ic:'#1FBE5B', stats:['3.7万','20万'], sub:'主线路', ago:'刚刚', agg:true},
-  {id:'s4', nm:"OKemby'",   type:'srv', cls:'', ic:'#20B85C', stats:['7313','8.2万'], sub:'主线路', ago:'刚刚', agg:true},
-  {id:'s5', nm:"nyamedia'", type:'srv', cls:'', ic:'#1FB65A', stats:['661','1.6万'],  sub:'主线路', ago:'刚刚', agg:true}
+  {id:'iptv',nm:'IPTV',     type:'local', cls:'local2', icon:'tv',     ic:'rgba(80,150,240,.92)', tag:'IPTV', foot:'未观看'}
 ];
-let hiddenSet=new Set(), unlocked=false, defaultHome=null;
+let hiddenSet=new Set(EBY.state.hiddenSet), unlocked=false;
+let defaultHome = EBY.state.home;         // Emby 媒体库默认首页 = 服务器 id
 let ctxT=null, delT=null, icolibT=null, srvIcons=[];
+
+/* 服务器卡：真实状态映射（stats 由后台拉取计数后回填） */
+function srvTiles(){
+  return SRVS.map(s=>({
+    id:s.id, nm:s.nm, type:'srv', cls:'', ic:s.c,
+    stats: srvStats[s.id] ? [srvStats[s.id].movies ? EBY.fmtCount(srvStats[s.id].movies) : '-',
+                             srvStats[s.id].episodes ? EBY.fmtCount(srvStats[s.id].episodes) : '-']
+                          : ['…','…'],
+    sub:'v' + (EBY.srv(s.id)?.version || '?') + ' · ' + (EBY.srv(s.id)?.userName || ''),
+    ago:'刚刚', agg:true
+  }));
+}
+function refreshSrvStats(){               // 后台拉取各服 ItemCounts
+  SRVS.forEach(s=>{
+    const real = EBY.srv(s.id); if(!real) return;
+    EBY.counts(real).then(c=>{
+      srvStats[s.id]=c;
+      resGrid.querySelectorAll(`[data-tile="${s.id}"] .mid`).forEach(el=>{
+        el.innerHTML = `<span>${S.eye}${EBY.fmtCount(c.movies)}</span><span>${S.rect}${EBY.fmtCount(c.episodes)}</span>`;
+      });
+    }).catch(()=>{ srvStats[s.id]={movies:0,series:0,episodes:0}; });
+  });
+}
 
 const S={
   folder:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h6l2 2h10v11H3V6Z"/></svg>',
@@ -1466,6 +1791,7 @@ function emHTML(t, big){
 }
 
 const resGrid=document.getElementById('res-grid');
+function allTiles(){ return RES_LOCAL.concat(srvTiles()); }
 function tileHTML(t,i,pop){
   const isSrv=t.type==='srv';
   const home = defaultHome===t.id ? `<span class="home-ic">${S.home}</span>` : '';
@@ -1476,9 +1802,672 @@ function tileHTML(t,i,pop){
     <div class="foot">${foot}</div></div>`;
 }
 function renderRes(pop=false){
+  const RES = allTiles();
   const arr = unlocked ? RES : RES.filter(t=>!hiddenSet.has(t.id));
   resGrid.innerHTML = arr.map((t,i)=>tileHTML(t,i,pop)).join('');
+  // 点击：服务器卡 → 服务器媒体库；本地卡 → 提示
+  resGrid.querySelectorAll('[data-tile]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if(hiddenSet.has(el.dataset.tile) && !unlocked) return;
+      if(el.dataset.tile==='ls'){ toast('本地私密锁 · 面容 ID 解锁后可用'); return; }
+      if(!EBY.srv(el.dataset.tile)){ toast('本地功能暂未接入，先添加 Emby 服务器'); return; }
+      openSrvPage(el.dataset.tile);
+    });
+  });
 }
+function persistHidden(){ EBY.state.hiddenSet = hiddenSet; EBY.save(); }
+
+/* ================= 真实数据：Emby 首页 / 媒体库 / 详情 / 播放器 ================= */
+
+/* ---- Emby 首页：继续观看（聚合）+ 最新 ---- */
+let homeLoading = false;
+async function renderEmbyHome(){
+  const rail = document.querySelector('#p-emby .rail');
+  const cwN = document.getElementById('cw-n');
+  const hero = document.querySelector('#p-emby .hero');
+  if(homeLoading) return;
+  const list = (curSrv==='all' ? SRVS.map(s=>EBY.srv(s.id)).filter(Boolean) : [EBY.srv(curSrv)].filter(Boolean));
+  if(!list.length){
+    rail.innerHTML = '<div style="grid-column:1/-1;padding:30px 20px;color:var(--ink3);font-size:14px;text-align:center">还没有 Emby 服务器<br>去「资源库」点 + 添加</div>';
+    cwN.textContent = '0'; return;
+  }
+  homeLoading = true;
+  rail.innerHTML = '<div style="grid-column:1/-1;padding:26px;color:var(--ink3);font-size:13px;text-align:center">正在从服务器拉取继续观看…</div>';
+  try{
+    let items = [];
+    const results = await Promise.allSettled(list.map(s=>EBY.resumeItems(s, 12)));
+    results.forEach(r=>{ if(r.status==='fulfilled') items = items.concat(r.value); });
+    items.sort((a,b)=> (b.posSec||0) - (a.posSec||0));
+    renderResumeRail(items, rail, cwN);
+    renderHomeHero(items[0], hero);
+    renderLatestRail(list);
+  }catch(e){
+    rail.innerHTML = '<div style="grid-column:1/-1;padding:26px;color:var(--ink3);font-size:13px;text-align:center">加载失败 · 检查服务器连接</div>';
+  }
+  homeLoading = false;
+}
+function renderResumeRail(items, rail, cwN){
+  const vis = items.filter(it=> curSrv==='all' || it.srvId===curSrv);
+  cwN.textContent = vis.length;
+  rail.innerHTML = vis.length ? vis.map(it=>{
+    const s = EBY.srv(it.srvId);
+    const dur = EBY.fmtTime(it.runMs), pos = EBY.fmtTime(it.posSec);
+    const img = s ? EBY.imageUrl(s, it.id, 'Primary', 360) : '';
+    const pct = it.runMs ? Math.min(100, it.posSec/it.runMs*100) : 0;
+    const sub = it.type==='Episode' ? ('S'+(it.season||1).toString().padStart(2,'0')+'E'+(it.ep||1).toString().padStart(2,'0')+' · '+it.seriesName) : (it.year||'影片');
+    return `<div class="ecard" data-srv="${it.srvId}" data-item="${it.id}">
+      <div class="cover" style="${img?`background-image:url('${img}');background-size:cover;background-position:center`:''}">
+        ${curSrv==='all' ? `<span class="srvtag">${it.srvName}</span>` : ''}
+        <span class="dur">${pos} / ${dur}</span>
+        <div class="pbar"><i style="width:${pct}%"></i></div>
+      </div>
+      <div class="n">${it.seriesName || it.nm}</div><div class="s">${it.type==='Episode' ? sub : (it.nm||'')}</div>
+    </div>`;
+  }).join('') : '<div style="grid-column:1/-1;padding:26px;color:var(--ink3);font-size:13px;text-align:center">暂无观看记录</div>';
+  rail.querySelectorAll('.ecard').forEach(c=>{
+    c.addEventListener('click', ()=> openDetail(c.dataset.srv, c.dataset.item, c));
+  });
+}
+async function renderHomeHero(first, hero){
+  if(!first){ return; }
+  const s = EBY.srv(first.srvId); if(!s) return;
+  try{
+    const full = await EBY.item(s, first.id);
+    const img = EBY.imageUrl(s, full.id, full.type==='Episode' ? 'Primary' : 'Backdrop', 900);
+    hero.innerHTML = `
+      <div class="hero-bg" style="background-image:url('${img}');background-size:cover;background-position:center 30%"></div>
+      <div class="hero-center">
+        <h2>${(full.seriesName ? full.seriesName + ' · ' : '') + full.nm}</h2>
+        <div class="yr">${full.year || ''}</div>
+        <div class="desc">${(full.overview||'').slice(0,110)}${(full.overview||'').length>110?'…':''}</div>
+        <div class="hero-play" id="hero-play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.4v13.2L19 12 8 5.4Z"/></svg><span>${full.posSec>30?'继续播放':'立即播放'}</span></div>
+      </div>`;
+    const hp = document.getElementById('hero-play');
+    if(hp) hp.addEventListener('click', ()=> openPlayer(full, full.posSec||0));
+  }catch(e){ /* hero 静默失败 */ }
+}
+async function renderLatestRail(list){
+  const sec = document.querySelector('#p-emby .gh');
+  let grid = document.getElementById('emby-latest');
+  if(!grid){
+    grid = document.createElement('div');
+    grid.className = 'grid'; grid.id = 'emby-latest';
+    sec.after(grid);
+  }
+  const results = await Promise.allSettled(list.map(s=>EBY.latestItems(s, null, 10)));
+  let items = [];
+  results.forEach(r=>{ if(r.status==='fulfilled') items = items.concat(r.value); });
+  grid.innerHTML = items.slice(0,12).map(it=>{
+    const s = EBY.srv(it.srvId);
+    const img = s ? EBY.imageUrl(s, it.id, 'Primary', 300) : '';
+    return `<div class="poster" data-srv="${it.srvId}" data-item="${it.id}" style="${img?`background-image:url('${img}');background-size:cover;background-position:center`:''}"><div class="cap">${it.seriesName || it.nm}</div></div>`;
+  }).join('') || '<div style="grid-column:1/-1;padding:16px;color:var(--ink3);font-size:12px">暂无最新内容</div>';
+  grid.querySelectorAll('.poster').forEach(p=>{
+    p.addEventListener('click', ()=> openDetail(p.dataset.srv, p.dataset.item, p));
+  });
+}
+
+/* ---- 服务器媒体库页 ---- */
+function openSrvPage(id){
+  const real = EBY.srv(id);
+  if(!real){ /* 本地卡等：暂不跳转 */ return; }
+  document.getElementById('srv-title').textContent = real.name;
+  const box = document.getElementById('srv-views');
+  const info = document.getElementById('srv-info');
+  box.innerHTML = '<div class="frow" style="color:var(--ink3)">正在获取媒体库…</div>';
+  info.textContent = '';
+  if(window.__backMap) window.__backMap['p-srv']='p-res';
+  show('p-srv');
+  Promise.all([EBY.views(real), EBY.counts(real).catch(()=>null)]).then(([vs,c])=>{
+    box.innerHTML = vs.length ? vs.map((v,i)=>`
+      <div class="frow" data-view="${v.id}" data-view-nm="${v.name}" data-view-type="${v.type}" style="cursor:pointer">${i? '<div class="sep" style="left:57px"></div>':''}
+        <span class="ico" style="background:${real.color}">${S.folder}</span>
+        <div class="txt"><div class="t">${v.name}</div><div class="s">${v.type}</div></div>
+        <span class="chev"><svg viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 5.5 5.5L1 12"/></svg></span>
+      </div>`).join('') : '<div class="frow" style="color:var(--ink3)">服务器没有可见媒体库</div>';
+    info.textContent = c ? `影片 ${c.movies} · 剧集 ${c.series} · 单集 ${c.episodes}` : '';
+    box.querySelectorAll('[data-view]').forEach(r=>{
+      r.addEventListener('click', ()=> openLibGrid(real, r.dataset.view, r.dataset.viewNm, r.dataset.viewType));
+    });
+  }).catch(e=>{
+    box.innerHTML = '<div class="frow" style="color:var(--red)">连接失败 · ' + (e.message||'').slice(0,60) + '</div>';
+  });
+}
+
+/* ---- 内容网格页（媒体库内容 / 搜索） ---- */
+let libCtx = null;   // {srvId, viewId, viewNm, viewType, mode:'lib'|'search'}
+function openLibGrid(srv, viewId, viewNm, viewType){
+  libCtx = { srvId: srv.id, viewId, viewNm, viewType, mode:'lib' };
+  document.getElementById('lib-title').textContent = viewNm;
+  document.getElementById('lib-back-label').textContent = srv.name;
+  document.getElementById('lib-q').value = '';
+  if(window.__backMap) window.__backMap['p-lib']='p-srv';
+  show('p-lib');
+  loadLibGrid();
+}
+async function loadLibGrid(term){
+  const s = EBY.srv(libCtx.srvId); if(!s) return;
+  const grid = document.getElementById('lib-grid'), empty = document.getElementById('lib-empty'), cnt = document.getElementById('lib-count');
+  grid.innerHTML = '<div style="grid-column:1/-1;padding:26px;color:var(--ink3);font-size:13px;text-align:center">加载中…</div>';
+  empty.style.display='none'; cnt.textContent='';
+  try{
+    let r;
+    if(term){
+      r = await EBY.search(s, term, 60);
+    } else {
+      r = await EBY.items(s, Object.assign({ ParentId: libCtx.viewId, Limit: 60 }, libCtx.viewType==='tvshows'?{IncludeItemTypes:'Series'}:{}));
+    }
+    grid.innerHTML = r.items.map(it=>{
+      const img = EBY.imageUrl(s, it.id, 'Primary', 300);
+      const lbl = it.type==='Series' ? (it.childCount? it.childCount+' 季' : '剧集') : (it.year||'');
+      return `<div class="poster" data-id="${it.id}" data-tp="${it.type}" style="${img?`background-image:url('${img}');background-size:cover;background-position:center`:''}"><div class="cap">${it.nm}</div><span class="pyr">${lbl}</span></div>`;
+    }).join('');
+    if(!r.items.length) empty.style.display='flex';
+    cnt.textContent = '共 ' + r.total + ' 项';
+    grid.querySelectorAll('.poster').forEach(p=>{
+      p.addEventListener('click', ()=> openDetail(s.id, p.dataset.id, p));
+    });
+  }catch(e){
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:26px;color:var(--red);font-size:13px;text-align:center">加载失败</div>';
+  }
+}
+document.getElementById('lib-q').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ const v=e.target.value.trim(); loadLibGrid(v || undefined); }
+});
+
+/* ---- 详情页 ---- */
+async function openDetail(srvId, itemId, srcEl){
+  const s = EBY.srv(srvId); if(!s || !itemId) return;
+  {
+    const cur = document.querySelector('.page.on');
+    if(window.__backMap && cur && cur.id!=='p-detail') window.__backMap['p-detail']=cur.id;
+  }
+  show('p-detail');
+  const hero = document.getElementById('d-hero');
+  hero.style.backgroundImage = srcEl ? '' : 'none';
+  if(srcEl && getComputedStyle(srcEl).backgroundImage && getComputedStyle(srcEl).backgroundImage !== 'none'){
+    hero.style.backgroundImage = getComputedStyle(srcEl).backgroundImage;
+  } else {
+    hero.style.backgroundImage = `url('${EBY.imageUrl(s, itemId, 'Primary', 700)}')`;
+  }
+  document.getElementById('d-title').textContent = '…';
+  document.getElementById('d-sub').textContent = '';
+  document.getElementById('d-overview').textContent = '';
+  document.getElementById('d-eps').style.display='none';
+  document.getElementById('d-ep-h').style.display='none';
+  try{
+    const it = await EBY.item(s, itemId);
+    window.__dItem = it;
+    document.getElementById('d-title').textContent = (it.type==='Episode' && it.seriesName) ? it.seriesName : it.nm;
+    document.getElementById('d-sub').textContent =
+      (it.type==='Episode' ? 'S'+(it.season||1)+'E'+(it.ep||1)+' · '+it.nm : '') + (it.year? ' · '+it.year : '');
+    document.getElementById('d-overview').textContent = it.overview || '暂无简介';
+    const playBtn = document.getElementById('d-play');
+    document.getElementById('d-play-lab').textContent = it.posSec>30 ? '继续播放 · '+EBY.fmtTime(it.posSec) : '播放';
+    playBtn.onclick = ()=> openPlayer(it, it.posSec||0);
+    if(it.type==='Series'){
+      const eh = document.getElementById('d-ep-h'), eps = document.getElementById('d-eps');
+      eh.style.display=''; eps.style.display='';
+      eps.innerHTML = '<div class="frow" style="color:var(--ink3)">正在获取剧集…</div>';
+      EBY.episodes(s, itemId, null).then(list=>{
+        eps.innerHTML = list.map((e,i)=>`
+          <div class="frow" data-ep="${e.id}" style="cursor:pointer">${i? '<div class="sep" style="left:57px"></div>':''}
+            <span class="ico" style="background:${s.color}">${S.playf}</span>
+            <div class="txt"><div class="t">${'第'+(e.ep||i+1)+'集'} · ${e.nm}</div>
+              <div class="s">${e.posSec>30 ? '看到 '+EBY.fmtTime(e.posSec)+' / '+EBY.fmtTime(e.runMs) : EBY.fmtTime(e.runMs)}</div></div>
+            <span class="chev"><svg viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 5.5 5.5L1 12"/></svg></span>
+          </div>`).join('');
+        eps.querySelectorAll('[data-ep]').forEach(r=>{
+          r.addEventListener('click', ()=>{
+            const ep = list.find(x=>x.id===r.dataset.ep);
+            if(ep) openPlayer(ep, ep.posSec||0);
+          });
+        });
+      }).catch(()=>{ eps.innerHTML='<div class="frow" style="color:var(--red)">剧集获取失败</div>'; });
+    }
+  }catch(e){
+    document.getElementById('d-title').textContent = '加载失败';
+  }
+}
+
+/* ---- 播放器 ---- */
+const PV = { srv:null, item:null, hls:null };
+const pv = document.getElementById('pv'), pSeek = document.getElementById('p-seek');
+function openPlayer(item, startPos){
+  const s = EBY.srv(item.srvId);
+  if(item.directUrl){
+    /* 规则源的网页直链（第三方在线源） */
+    PV.srv = null; PV.item = item;
+    document.getElementById('p-title').textContent = (item.seriesName ? item.seriesName+' · ' : '') + item.nm;
+    const pl = document.getElementById('player');
+    pl.classList.add('on');
+    destroyHls();
+    pv.onerror = ()=>{ toast('视频加载失败 · 该源可能需要 WebView 抓取'); document.getElementById('p-spin').style.display='none'; };
+    pv.src = item.directUrl;
+    pv.addEventListener('loadedmetadata', function onMeta(){
+      pv.removeEventListener('loadedmetadata', onMeta);
+      document.getElementById('p-dur').textContent = EBY.fmtTime(pv.duration);
+      document.getElementById('p-spin').style.display='none';
+      pv.play().catch(()=>{});
+    });
+    pv.play().catch(()=>{});
+    document.getElementById('p-spin').style.display='flex';
+    return;
+  }
+  if(!s){ toast('服务器不存在'); return; }
+  PV.srv = s; PV.item = item;
+  document.getElementById('p-title').textContent = (item.seriesName ? item.seriesName+' · ' : '') + item.nm;
+  const pl = document.getElementById('player');
+  pl.classList.add('on');
+  startPlayback(s, item, startPos||item.posSec||0);
+}
+function startPlayback(s, item, posSec){
+  const vid = pv;
+  destroyHls();
+  vid.onerror = ()=>{                       // 直连失败 → 转 HLS
+    if(PV.hls || vid.dataset.triedHls) return;
+    vid.dataset.triedHls = '1';
+    const canNative = vid.canPlayType('application/vnd.apple.mpegurl');
+    const url = EBY.hlsUrl(s, item.id);
+    if(canNative){ vid.src = url; vid.play().catch(()=>{}); }
+    else if(window.Hls && Hls.isSupported()){
+      PV.hls = new Hls({ maxBufferLength: 30 });
+      PV.hls.loadSource(url);
+      PV.hls.attachMedia(vid);
+      PV.hls.on(Hls.Events.MANIFEST_PARSED, ()=> vid.play().catch(()=>{}));
+      PV.hls.on(Hls.Events.ERROR, (ev,data)=>{ if(data.fatal) toast('转码流播放失败 · '+(data.details||'')); });
+    } else {
+      toast('该格式无法直连播放（需要服务器转码支持）');
+    }
+  };
+  delete vid.dataset.triedHls;
+  vid.src = EBY.streamUrl(s, item.id);
+  vid.addEventListener('loadedmetadata', function onMeta(){
+    vid.removeEventListener('loadedmetadata', onMeta);
+    if(posSec>0 && posSec < vid.duration-10) vid.currentTime = posSec;
+    vid.play().catch(()=>{});
+    document.getElementById('p-dur').textContent = EBY.fmtTime(vid.duration);
+    document.getElementById('p-spin').style.display='none';
+  });
+  vid.addEventListener('timeupdate', ()=>{
+    document.getElementById('p-cur').textContent = EBY.fmtTime(vid.currentTime);
+    if(vid.duration) pSeek.value = vid.currentTime/vid.duration*100;
+  });
+  vid.addEventListener('playing', ()=>{
+    document.getElementById('p-spin').style.display='none';
+    EBY.reportStart(s, item.id, vid.currentTime);
+    EBY.autoProgress(s, item.id, ()=>vid.currentTime, ()=>vid.paused);
+  });
+  vid.addEventListener('pause', ()=> EBY.reportProgress(s, item.id, vid.currentTime, true));
+  vid.play().catch(()=>{});
+  document.getElementById('p-spin').style.display='flex';
+  haptic('light');
+}
+function destroyHls(){
+  if(PV.hls){ try{ PV.hls.destroy(); }catch(e){} PV.hls=null; }
+}
+function closePlayer(){
+  const vid = pv;
+  EBY.stopAutoProgress();
+  if(PV.srv && PV.item) EBY.reportStop(PV.srv, PV.item.id, vid.currentTime);
+  destroyHls();
+  vid.pause(); vid.removeAttribute('src'); vid.load();
+  document.getElementById('player').classList.remove('on');
+  haptic('soft');
+  // 回流：刷新继续观看（当前页可能停留了新进度）
+  renderEmbyHome();
+}
+document.getElementById('p-close').addEventListener('click', closePlayer);
+document.getElementById('p-play').addEventListener('click', ()=>{
+  if(pv.paused){ pv.play().catch(()=>{}); } else pv.pause();
+  haptic('soft');
+});
+pv.addEventListener('play', ()=>{ document.getElementById('p-play').innerHTML='<svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5.4v13.2L19 12 8 5.4Z"/></svg>'; });
+pv.addEventListener('pause', ()=>{ document.getElementById('p-play').innerHTML='<svg viewBox="0 0 24 24" fill="#fff"><path d="M7 5h3.6v14H7V5Zm6.4 0H17v14h-3.6V5Z"/></svg>'; });
+pSeek.addEventListener('input', ()=>{ if(pv.duration) pv.currentTime = pSeek.value/100*pv.duration; });
+
+/* ---- 追番（Bangumi 真实数据） ---- */
+const WEEK_CN = ['星期一','星期二','星期三','星期四','星期五','星期六','星期日'];
+let bangCal = null, bangDay = (new Date().getDay()+6)%7;   // 0=周一
+function bangCardHTML(b, srvAttr){
+  return `<div class="poster" ${srvAttr||''} style="${b.cover?`background-image:url('${b.cover}');background-size:cover;background-position:center`:''}">
+    <span class="pyr">${b.score? '★'+b.score : (b.date||'').slice(0,4)}</span><div class="cap">${b.nm||b.nmOrig||''}</div></div>`;
+}
+function renderBangDay(){
+  const tabs = document.getElementById('bang-days');
+  const grid = document.getElementById('bang-grid'), empty = document.getElementById('bang-empty');
+  const day = bangCal[bangDay];
+  tabs.innerHTML = WEEK_CN.map((w,i)=>`<button class="${i===bangDay?'on':''}" data-d="${i}">${i===(new Date().getDay()+6)%7 ? '今天' : w.slice(2)}</button>`).join('');
+  tabs.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{ bangDay=+b.dataset.d; renderBangDay(); }));
+  if(!day || !day.items.length){ grid.innerHTML=''; empty.style.display='flex'; document.getElementById('bang-day-n').textContent='0'; return; }
+  empty.style.display='none';
+  document.getElementById('bang-day-n').textContent = day.items.length;
+  grid.innerHTML = day.items.map(b=>bangCardHTML(b)).join('');
+  grid.querySelectorAll('.poster').forEach((p,i)=>{
+    p.addEventListener('click', ()=>{ const b=day.items[i]; if(b) playBangInEmby(b); });
+  });
+}
+/* Bangumi 条目 → 规则源播放（与 LU Flutter 版同一条链路：规则搜索 → 线路 → 章节 → 播放页解析） */
+async function playBangInEmby(b){        // 保留函数名作为入口（bangCard 点击统一走这里）
+  if(!RULES.state.installed.length){
+    toast('还没有安装规则，先去「规则管理」安装');
+    openRuleManager();
+    return;
+  }
+  const ov = document.getElementById('ov-bangsrc');
+  document.getElementById('bangsrc-title').textContent = b.nm || b.nmOrig || '番剧';
+  document.getElementById('bangsrc-results').innerHTML = '<div class="frow" style="color:var(--ink3)">请选择规则源后搜索</div>';
+  document.getElementById('bangsrc-roads').style.display='none';
+  document.getElementById('bangsrc-road-h').style.display='none';
+  document.getElementById('bangsrc-hint').textContent = '';
+  ov.dataset.bang = JSON.stringify({ id:b.id, nm:b.nm||'', nmOrig:b.nmOrig||'' });
+  renderBangsrcRules();
+  const sel = RULES.selected();
+  if(sel) searchBangInRule(sel.name);
+  ov.classList.add('on');
+}
+function renderBangsrcRules(){
+  const box = document.getElementById('bangsrc-rules');
+  const rs = RULES.state.installed;
+  box.innerHTML = rs.length ? rs.map(r=>`
+    <div class="frow" data-rule="${r.name}" style="cursor:pointer">
+      <span class="ico" style="background:linear-gradient(150deg,#7C5CFF,#B69CFF)">${S.tv}</span>
+      <div class="txt"><div class="t">${r.name}</div><div class="s">v${r.version||'?'} · ${r.searchMode||'xpath'}</div></div>
+      ${RULES.state.selected===r.name ? CKI : ''}
+    </div>`).join('') : '<div class="frow" style="color:var(--ink3)">未安装任何规则</div>';
+  box.querySelectorAll('[data-rule]').forEach(r=>{
+    r.addEventListener('click', ()=>{
+      RULES.select(r.dataset.rule); renderBangsrcRules();
+      const bang = JSON.parse(document.getElementById('ov-bangsrc').dataset.bang);
+      searchBangInRule(r.dataset.rule, bang);
+    });
+  });
+}
+async function searchBangInRule(ruleName, bang){
+  const rule = RULES.state.installed.find(r=>r.name===ruleName); if(!rule) return;
+  bang = bang || JSON.parse(document.getElementById('ov-bangsrc').dataset.bang || '{}');
+  const kw = bang.nm || bang.nmOrig || '';
+  const resBox = document.getElementById('bangsrc-results');
+  resBox.innerHTML = '<div class="frow" style="color:var(--ink3)">规则搜索中…</div>';
+  try{
+    const list = await RULES.search(rule, kw);
+    if(!list.length){ resBox.innerHTML = '<div class="frow" style="color:var(--ink3)">该源没有搜索到结果</div>'; return; }
+    resBox.innerHTML = list.map((it,i)=>`
+      <div class="frow" data-src="${i}" style="cursor:pointer">
+        <span class="ico" style="background:rgba(120,120,128,.2)">${S.tv}</span>
+        <div class="txt"><div class="t">${it.name}</div><div class="s">${it.url.slice(0,42)}…</div></div>
+        <span class="chev"><svg viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 5.5 5.5L1 12"/></svg></span>
+      </div>`).join('');
+    resBox.querySelectorAll('[data-src]').forEach(r=>{
+      r.addEventListener('click', ()=> openRuleRoads(rule, list[+r.dataset.src]));
+    });
+  }catch(e){
+    resBox.innerHTML = '<div class="frow" style="color:var(--red)">搜索失败 · '+(e.message||'').slice(0,50)+'</div>';
+  }
+}
+async function openRuleRoads(rule, srcItem){
+  const roadBox = document.getElementById('bangsrc-roads');
+  document.getElementById('bangsrc-road-h').style.display='';
+  roadBox.style.display='';
+  roadBox.innerHTML = '<div class="frow" style="color:var(--ink3)">正在解析线路…</div>';
+  try{
+    const roads = await RULES.roads(rule, srcItem.url);
+    if(!roads.length){ roadBox.innerHTML = '<div class="frow" style="color:var(--ink3)">没有解析到线路</div>'; return; }
+    roadBox.innerHTML = roads.map((rd,ri)=>`
+      <div style="padding:6px 14px">
+        <div style="font-size:12px;color:var(--ink3);padding:4px 0">${rd.name} · ${rd.chapters.length} 集</div>
+        ${rd.chapters.map((ep,ei)=>`<div class="frow" data-road="${ri}" data-ep="${ei}" style="cursor:pointer;min-height:44px">
+          <div class="txt"><div class="t">${ep.name}</div></div>
+          <span class="chev"><svg viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 5.5 5.5L1 12"/></svg></span>
+        </div>`).join('')}
+      </div>`).join('');
+    roadBox.querySelectorAll('[data-road]').forEach(r=>{
+      r.addEventListener('click', async ()=>{
+        const ep = roads[+r.dataset.road].chapters[+r.dataset.ep];
+        document.getElementById('bangsrc-hint').textContent = '解析视频直链中…';
+        try{
+          const videoUrl = await RULES.resolvePlay(rule, ep.url);
+          document.getElementById('bangsrc-hint').textContent = '';
+          document.getElementById('ov-bangsrc').classList.remove('on');
+          openPlayer({ srvId:'web', id:'web-'+Date.now(), nm: ep.name, seriesName: srcItem.name, directUrl: videoUrl, posSec:0 }, 0);
+        }catch(e){
+          document.getElementById('bangsrc-hint').textContent = '解析失败：'+(e.message||'');
+        }
+      });
+    });
+  }catch(e){
+    roadBox.innerHTML = '<div class="frow" style="color:var(--red)">线路解析失败 · '+(e.message||'').slice(0,50)+'</div>';
+  }
+}
+/* 规则管理 */
+function openRuleManager(){
+  renderRulesInstalled(); renderRulesRepo();
+  document.getElementById('ov-rules').classList.add('on');
+}
+function renderRulesInstalled(){
+  const box = document.getElementById('rules-installed');
+  const rs = RULES.state.installed;
+  box.innerHTML = rs.length ? rs.map(r=>`
+    <div class="frow" data-rule="${r.name}" style="cursor:pointer">
+      <span class="ico" style="background:linear-gradient(150deg,#7C5CFF,#B69CFF)">${S.tv}</span>
+      <div class="txt"><div class="t">${r.name}</div><div class="s">v${r.version||'?'} · ${r.searchMode||'xpath'}</div></div>
+      <span class="x" data-del="${r.name}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+    </div>`).join('') : '<div class="frow" style="color:var(--ink3)">未安装 · 从下方仓库安装</div>';
+  box.querySelectorAll('[data-rule]').forEach(r=>{
+    r.addEventListener('click', e=>{
+      if(e.target.closest('[data-del]')) return;
+      RULES.select(r.dataset.rule); renderRulesInstalled(); toast('当前规则源 · '+r.dataset.rule);
+    });
+  });
+  box.querySelectorAll('[data-del]').forEach(x=>{
+    x.addEventListener('click', ()=>{
+      RULES.uninstall(x.dataset.del); renderRulesInstalled(); toast('已卸载 · '+x.dataset.del);
+    });
+  });
+}
+async function renderRulesRepo(){
+  const box = document.getElementById('rules-repo');
+  box.innerHTML = '<div class="frow" style="color:var(--ink3)">仓库加载中…</div>';
+  try{
+    const list = await RULES.repoList();
+    box.innerHTML = list.map(r=>`
+      <div class="frow" data-file="${r.fileName}" style="cursor:pointer">
+        <span class="ico" style="background:rgba(120,120,128,.2)">${S.folder}</span>
+        <div class="txt"><div class="t">${r.name||r.webName||r.fileName}</div><div class="s">${r.version||''} ${r.type||''}</div></div>
+        <span class="chev"><svg viewBox="0 0 8 13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m1 1 5.5 5.5L1 12"/></svg></span>
+      </div>`).join('');
+    box.querySelectorAll('[data-file]').forEach(r=>{
+      r.addEventListener('click', async ()=>{
+        try{
+          const name = await RULES.install(r.dataset.file);
+          renderRulesInstalled(); haptic('success'); toast('已安装 · '+name);
+        }catch(e){ toast('安装失败 · '+(e.message||'')); }
+      });
+    });
+  }catch(e){
+    box.innerHTML = '<div class="frow" style="color:var(--red)">仓库加载失败（需要网络）</div>';
+  }
+}
+document.getElementById('bang-rule-btn').addEventListener('click', openRuleManager);
+document.querySelectorAll('[data-close-rules]').forEach(b=>b.addEventListener('click',()=>document.getElementById('ov-rules').classList.remove('on')));
+document.querySelectorAll('[data-close-bangsrc]').forEach(b=>b.addEventListener('click',()=>document.getElementById('ov-bangsrc').classList.remove('on')));
+
+/* ---- 一起看（Syncplay 真实协议） ---- */
+async function loadBangCalendar(){
+  const grid = document.getElementById('bang-grid');
+  try{
+    bangCal = await BGM.calendar();
+    renderBangDay();
+  }catch(e){
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:22px;color:var(--ink3);font-size:13px;text-align:center">放送日历加载失败（Bangumi 需自定义 UA，原生 App 内可用）</div>';
+  }
+}
+document.getElementById('bang-q').addEventListener('keydown', async e=>{
+  if(e.key!=='Enter') return;
+  const q = e.target.value.trim(); if(!q) return;
+  const sg = document.getElementById('bang-sgrid');
+  sg.innerHTML = '<div style="grid-column:1/-1;padding:16px;color:var(--ink3);font-size:13px">搜索中…</div>';
+  try{
+    const list = await BGM.search(q, 20);
+    sg.innerHTML = list.map(b=>bangCardHTML(b)).join('') || '<div style="grid-column:1/-1;padding:16px;color:var(--ink3);font-size:13px">无结果</div>';
+    sg.querySelectorAll('.poster').forEach((p,i)=>{
+      p.addEventListener('click', ()=>{ const b=list[i]; if(b) playBangInEmby(b); });
+    });
+  }catch(err){
+    sg.innerHTML = '<div style="grid-column:1/-1;padding:16px;color:var(--ink3);font-size:13px">搜索失败</div>';
+  }
+});
+async function loadBangCollections(){
+  const col = document.getElementById('bang-col'), hint = document.getElementById('bang-col-hint'), lg = document.getElementById('bang-login');
+  if(!BGM.state.token){ hint.textContent='登录后同步你的 Bangumi 收藏'; col.innerHTML=''; return; }
+  hint.textContent='加载中…';
+  try{
+    const u = BGM.state.user || await BGM.me();
+    lg.textContent = u.name || '已登录';
+    const list = await BGM.collections(2, 24);
+    col.innerHTML = list.filter(Boolean).map(b=>bangCardHTML(b)).join('');
+    document.getElementById('bang-col-n').textContent = list.length;
+    hint.textContent = list.length ? '' : '「在看」列表为空';
+  }catch(e){
+    hint.textContent='收藏加载失败（token 失效？）';
+  }
+}
+document.getElementById('bang-login').addEventListener('click', ()=>{
+  const ov = document.getElementById('ov-bgm');
+  const cur = document.getElementById('bgm-cur');
+  cur.textContent = BGM.state.user ? '当前用户：'+BGM.state.user.name : (BGM.state.token ? '已填 token，未验证' : '');
+  ov.classList.add('on');
+});
+document.querySelectorAll('[data-close-bgm]').forEach(b=>b.addEventListener('click',()=>document.getElementById('ov-bgm').classList.remove('on')));
+document.getElementById('bgm-ok').addEventListener('click', async ()=>{
+  const tk = document.getElementById('bgm-token').value.trim();
+  if(!tk){ toast('请粘贴 token'); return; }
+  try{
+    const u = await BGM.login(tk);
+    document.getElementById('ov-bgm').classList.remove('on');
+    document.getElementById('bang-login').textContent = u.name || '已登录';
+    haptic('success'); toast('已登录 · '+(u.name||''));
+    loadBangCollections();
+  }catch(e){
+    haptic('medium'); toast('token 无效 · '+e.message);
+  }
+});
+document.querySelector('[data-page="p-bang"]').addEventListener('click', ()=>{
+  setTimeout(()=>{ if(!bangCal) loadBangCalendar(); loadBangCollections(); }, 60);
+});
+
+/* ---- 一起看（Syncplay 真实协议） ---- */
+let SP = null;   // SyncplayClient 实例
+const LS2 = { get(k,def){ try{ return JSON.parse(localStorage.getItem(k)) ?? def; }catch(e){ return def; } }, set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} } };
+function syncRoomCard(show){
+  document.getElementById('sync-active').style.display = show ? '' : 'none';
+}
+function renderSyncUsers(){
+  if(!SP) return;
+  const box = document.getElementById('sync-users');
+  const us = SP.userList();
+  box.innerHTML = us.map(u=>{
+    const dot = u.me ? '●' : (u.file ? '▶' : '○');
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+      <span style="font-size:11px;color:var(--blue)">${dot}</span>
+      <span style="font-size:14px;color:var(--ink);font-weight:${u.me?'600':'400'}">${u.name}${u.me?'（我）':''}</span>
+      <span style="font-size:12px;color:var(--ink3);margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">${u.file||''}</span>
+    </div>`;
+  }).join('');
+}
+function renderSyncChat(){
+  if(!SP) return;
+  document.getElementById('sync-chat-log').innerHTML = SP.chatLog.slice(-8).map(c=>
+    `<div><b>${c.user}</b>：${c.msg}</div>`).join('');
+}
+function spOpenJoin(prefillRoom){
+  const ov = document.getElementById('ov-sync');
+  const saved = LS2.get('lu.sync.cfg', {});
+  document.getElementById('sp-host').value = saved.host || 'syncplay.pl';
+  document.getElementById('sp-port').value = saved.port || 8995;
+  if(saved.tls) document.getElementById('sp-tls').classList.add('on');
+  document.getElementById('sp-user').value = document.getElementById('sync-nick').textContent || 'LU';
+  document.getElementById('sp-room').value = prefillRoom || '';
+  ov.classList.add('on');
+}
+document.getElementById('sync-create').addEventListener('click', ()=>{
+  const room = String(Math.floor(10000000 + Math.random()*89999999));
+  document.getElementById('sync-nick').textContent = LS2.get('lu.sync.nick', 'Wehuwu');
+  spOpenJoin(room);
+});
+document.querySelectorAll('#p-together .tg-row').forEach(r=>{
+  if(r.textContent.includes('加入房间')) r.addEventListener('click', ()=> spOpenJoin(''));
+});
+document.querySelectorAll('[data-close-sync]').forEach(b=>b.addEventListener('click',()=>document.getElementById('ov-sync').classList.remove('on')));
+document.getElementById('sp-tls').addEventListener('click', ()=>document.getElementById('sp-tls').classList.toggle('on'));
+document.getElementById('sp-user').addEventListener('change', e=>{
+  const v = e.target.value.trim(); if(v){ document.getElementById('sync-nick').textContent = v; LS2.set('lu.sync.nick', v); }
+});
+document.getElementById('sync-ok').addEventListener('click', async ()=>{
+  const host = document.getElementById('sp-host').value.trim();
+  const port = +document.getElementById('sp-port').value || 8995;
+  const tls  = document.getElementById('sp-tls').classList.contains('on');
+  const room = document.getElementById('sp-room').value.trim();
+  const user = document.getElementById('sp-user').value.trim() || 'LU';
+  if(!host){ toast('请填写服务器地址'); return; }
+  if(!room){ toast('请填写房号'); return; }
+  LS2.set('lu.sync.cfg', { host, port, tls });
+  if(SP) SP.disconnect();
+  SP = new Syncplay.SyncplayClient({ host, port, useTls:tls, username:user, room });
+  SP.on('users', ()=>{ renderSyncUsers(); });
+  SP.on('chat', ()=>{ renderSyncChat(); });
+  SP.on('state', (st)=>{
+    // 远端控制 → 同步播放器
+    const pl = document.getElementById('player');
+    if(pl.classList.contains('on') && st.position!==undefined){
+      if(Math.abs(pv.currentTime - st.position) > 1.5 || st.doSeek){
+        pv.currentTime = Math.max(0, st.position); toast('已同步到 '+EBY.fmtTime(st.position)+'（'+(st.setBy||'房间')+'）');
+      }
+      if(st.paused!==undefined && st.paused!==pv.paused){ st.paused ? pv.pause() : pv.play().catch(()=>{}); }
+    }
+  });
+  SP.on('close', ()=>{ syncRoomCard(false); });
+  try{
+    await SP.connect();
+    syncRoomCard(true);
+    document.getElementById('sync-room-nm').textContent = room + ' · ' + host + ':' + port;
+    renderSyncUsers();
+    haptic('success'); toast('已连接 Syncplay · 房间 '+room);
+    document.getElementById('ov-sync').classList.remove('on');
+  }catch(e){
+    haptic('medium'); toast('连接失败 · ' + e.message);
+  }
+});
+document.getElementById('sync-leave').addEventListener('click', ()=>{
+  if(SP){ SP.disconnect(); SP=null; }
+  syncRoomCard(false); toast('已离开房间');
+});
+document.getElementById('sync-send').addEventListener('click', ()=>{
+  const inp = document.getElementById('sync-chat');
+  const v = inp.value.trim(); if(!v || !SP) return;
+  SP.sendChat(v); inp.value=''; renderSyncChat();
+});
+document.getElementById('sync-chat').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('sync-send').click(); });
+
+/* 播放器 ↔ Syncplay 联动 */
+pv.addEventListener('timeupdate', ()=>{
+  if(SP && SP.connected){
+    SP.setLocalState(pv.currentTime, pv.paused, false);
+    if(!PV.item.__spFile){
+      SP.setFileState((PV.item.seriesName ? PV.item.seriesName+' - ' : '') + PV.item.nm, PV.item.runMs || pv.duration || 0, 0);
+      PV.item.__spFile = true;
+    }
+  }
+});
+pv.addEventListener('seeked', ()=>{
+  if(SP && SP.connected) SP.setLocalState(pv.currentTime, pv.paused, true);
+});
+
+/* ---- 首次进入 & 页面切换时刷新真实数据 ---- */
+window.__renderEmbyHome = renderEmbyHome;
+document.querySelector('[data-page="p-emby"]').addEventListener('click', ()=> setTimeout(renderEmbyHome, 60));
+renderEmbyHome();
+refreshSrvStats();
 
 /* 长按手势（带触感反馈） */
 let lpTimer=null, lpTile=null, lpX=0, lpY=0;
@@ -1524,7 +2513,7 @@ function menuHTML(t){
     + mi('del','删除', S.trash, 'red');
 }
 function openCtx(id, tile){
-  ctxT = RES.find(x=>x.id===id); if(!ctxT) return;
+  ctxT = allTiles().find(x=>x.id===id); if(!ctxT) return;
   const pr=phone.getBoundingClientRect(), r=tile.getBoundingClientRect();
   const left=r.left-pr.left, top=r.top-pr.top, w=r.width;
   ctxCard.innerHTML=ctxCardHTML(ctxT);
@@ -1547,21 +2536,25 @@ ctxMenu.addEventListener('click', e=>{
   const m=e.target.closest('.ctx-mi'); if(!m) return;
   const act=m.dataset.act, t=ctxT;
   haptic('soft');
-  if(act==='config'){ closeCtx(); setTimeout(()=>window.__openAdd('emby','服务配置'),160); }
+  if(act==='config'){
+    const real = EBY.srv(t.id);
+    const pf = real ? { name:real.name, https:/^https/.test(real.url), host:(real.url.match(/^https?:\/\/([^\/:]+)/)||[])[1]||'', port:(real.url.match(/:(\d+)/)||[])[1]||'', user:real.userName } : null;
+    closeCtx(); setTimeout(()=>window.__openAdd('emby','服务配置 · '+(t.nm||''), pf),160);
+  }
   else if(act==='agg'){ t.agg=!t.agg; toast(t.agg?'已启用聚合':'已禁用聚合'); closeCtx(); renderRes(); }
   else if(act==='home'){
     if(defaultHome===t.id){ defaultHome=null; toast('已取消默认首页'); }
     else{
       defaultHome=t.id;
-      if(t.type==='srv'){ curSrv=t.id; renderSrv(); toast('已设为 Emby 默认首页 · '+t.nm); }
+      if(t.type==='srv'){ curSrv=t.id; EBY.state.cur=t.id; EBY.state.home=t.id; EBY.save(); renderSrv(); toast('已设为 Emby 默认首页 · '+t.nm); }
       else toast('已设为默认首页');
     }
     closeCtx(); renderRes();
   }
   else if(act==='pwd'){ closeCtx(); setTimeout(()=>document.getElementById('ov-pwd').classList.add('on'),160); }
   else if(act==='icolib'){ icolibT=t; closeCtx(); setTimeout(()=>{ renderIcolib(); document.getElementById('ov-icolib').classList.add('on'); },160); }
-  else if(act==='encrypt'){ hiddenSet.add(t.id); unlocked=false; setLockIcon(); closeCtx(); renderRes(); toast('已加密 · 点右上角锁形按钮解锁'); }
-  else if(act==='hide'){ hiddenSet.add(t.id); unlocked=false; setLockIcon(); closeCtx(); renderRes(); toast('已隐藏'); }
+  else if(act==='encrypt'){ hiddenSet.add(t.id); persistHidden(); unlocked=false; setLockIcon(); closeCtx(); renderRes(); toast('已加密 · 点右上角锁形按钮解锁'); }
+  else if(act==='hide'){ hiddenSet.add(t.id); persistHidden(); unlocked=false; setLockIcon(); closeCtx(); renderRes(); toast('已隐藏'); }
   else if(act==='del'){ delT=t; closeCtx(); setTimeout(()=>{ document.getElementById('del-msg').textContent='「'+t.nm+'」将从资源库移除'; document.getElementById('ov-del').classList.add('on'); },160); }
 });
 
@@ -1582,11 +2575,17 @@ document.getElementById('pwd-ok').addEventListener('click', ()=>{
 const ovDel=document.getElementById('ov-del');
 ovDel.querySelectorAll('[data-close-del]').forEach(b=>b.addEventListener('click',()=>ovDel.classList.remove('on')));
 document.getElementById('del-ok').addEventListener('click', ()=>{
-  const i=RES.findIndex(x=>x.id===delT.id);
-  if(i>-1) RES.splice(i,1);
-  hiddenSet.delete(delT.id);
-  if(defaultHome===delT.id) defaultHome=null;
-  ovDel.classList.remove('on'); renderRes(); toast('已删除');
+  const id=delT.id;
+  hiddenSet.delete(id); persistHidden();
+  if(defaultHome===id){ defaultHome=null; EBY.state.home=null; EBY.save(); }
+  if(delT.type==='srv'){
+    EBY.remove(id);                 // 真实移除服务器（含持久化）
+    syncSRVS(); renderSrvSheet(); renderSrv(); refreshSrvStats();
+    toast('服务器已删除 · '+delT.nm);
+  } else {
+    toast('已删除');
+  }
+  ovDel.classList.remove('on'); renderRes(true);
 });
 
 /* 图标库（修改图标） */
@@ -1721,10 +2720,17 @@ renderRes();
     var App = LU.plugin('App');
     try{
       App.addListener('backButton', function(){
+        var player = document.getElementById('player');
+        if(player && player.classList.contains('on')){ closePlayer(); return; }
         var open = document.querySelectorAll('.overlay.on, .ov-alert.on, .faceid.on, .ctx.on, .sheet.on');
         if(open.length){ open[open.length-1].classList.remove('on'); haptic('soft'); return; }
         var cur = document.querySelector('.page.on');
-        if(cur && (cur.id==='p-behavior' || cur.id==='p-icon') && LU.show){ LU.show('p-me'); haptic('soft'); return; }
+        var backTarget = window.__backMap && cur && window.__backMap[cur.id];
+        if(backTarget){ LU.show(backTarget); haptic('soft'); return; }
+        if(cur && ['p-behavior','p-icon','p-srv','p-lib','p-detail'].indexOf(cur.id) >= 0){
+          var fb = { 'p-behavior':'p-me', 'p-icon':'p-me', 'p-srv':'p-res', 'p-lib':'p-srv', 'p-detail':'p-lib' };
+          LU.show(fb[cur.id]); haptic('soft'); return;
+        }
         App.exitApp();
       });
     }catch(e){}

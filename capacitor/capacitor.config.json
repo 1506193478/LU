@@ -3,11 +3,13 @@
   "appName": "LU",
   "webDir": "www",
   "android": {
-    "allowMixedContent": true
+    "allowMixedContent": true,
+    "appendUserAgent": "LuApp/1.1.0"
   },
   "ios": {
     "contentInset": "always",
-    "limitsNavigationsToAppBoundDomains": false
+    "limitsNavigationsToAppBoundDomains": false,
+    "appendUserAgent": "LuApp/1.1.0"
   },
   "plugins": {
     "BiometricAuthNative": {
