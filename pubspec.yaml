@@ -1,7 +1,7 @@
 name: XL
 description: "A new Flutter project."
 publish_to: "none"
-version: 3.9.68+30968
+version: 4.0.0+40000
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
@@ -21,6 +21,7 @@ dependencies:
   cookie_jar: ^4.0.9
   crypto: ^3.0.6
   connectivity_plus: ^6.0.5
+  battery_plus: ^6.2.0
   local_auth: ^2.3.0
 
   path_provider: ^2.1.5

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:media_kit/media_kit.dart';
@@ -19,6 +20,7 @@ import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/services/subtitle/han_convert.dart';
+import 'package:XL/utils/format.dart';
 import 'package:XL/utils/motion.dart';
 
 /// Emby 独立播放器。
@@ -155,6 +157,16 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   bool _orientationApplied = false;
   bool _firstItem = true;
 
+  // ---- 顶栏状态行（时间 / 网速 / 电量）----
+  // 每秒一跳的独立计时器，只驱动顶栏那一小块文字；值没变就不 setState。
+  Timer? _statusTimer;
+  int _statusTick = 0;
+  String _clockText = '';
+  String _netSpeedText = '';
+  int? _batteryLevel;
+  bool _batteryCharging = false;
+  final Battery _battery = Battery();
+
   @override
   void initState() {
     super.initState();
@@ -174,6 +186,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     }
     WidgetsBinding.instance.addObserver(this);
     controller.addListener(_onPlaybackChanged);
+    _statusTimer = Timer.periodic(const Duration(seconds: 1), _onStatusTick);
     _chromeCtrl.addStatusListener((status) {
       if (!mounted) return;
       final settled = status == AnimationStatus.dismissed;
@@ -187,6 +200,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     _hudTimer?.cancel();
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
+    _statusTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_onPlaybackChanged);
     if (_longPressActive) {
@@ -1397,18 +1411,169 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   // ------------------------------------------------------------ 顶栏
 
+  /// 顶栏状态行的秒级刷新：
+  ///   * 时间每秒重算，分钟变了才重绘；
+  ///   * 网速每秒读一次 mpv 的 `cache-speed`（真实网络读取速度，
+  ///     AV 内核读不到 → 不显示；控件收起时不读，省平台通道调用）；
+  ///   * 电量每 30 秒查一次（拿不到就整块不显示，比如台式机）。
+  Future<void> _onStatusTick(Timer timer) async {
+    _statusTick++;
+    final now = DateTime.now();
+    final clock =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+    double? speed;
+    if (controller.playing && _chromeShown) speed = await _readNetworkSpeed();
+
+    int? level = _batteryLevel;
+    bool charging = _batteryCharging;
+    if (_statusTick % 30 == 1) {
+      try {
+        level = await _battery.batteryLevel;
+        charging = await _battery.batteryState == BatteryState.charging;
+      } catch (_) {
+        // 无电池的设备（台式机等）：保持 null，状态行不显示电量。
+      }
+    }
+
+    if (!mounted) return;
+    final speedText = speed != null && speed > 0 ? formatSpeed(speed) : '';
+    if (clock == _clockText &&
+        speedText == _netSpeedText &&
+        level == _batteryLevel &&
+        charging == _batteryCharging) {
+      return;
+    }
+    setState(() {
+      _clockText = clock;
+      _netSpeedText = speedText;
+      _batteryLevel = level;
+      _batteryCharging = charging;
+    });
+  }
+
+  /// mpv 内核的实时网络读取速度（bytes/s）。`cache-speed` 在缓存未激活 /
+  /// 值未知时返回负数，按拿不到处理；AV 内核（AVPlayer）拿不到，返回 null。
+  Future<double?> _readNetworkSpeed() async {
+    if (controller.isAvBackend) return null;
+    final platform = controller.playback.mediaPlayer?.platform;
+    if (platform is! NativePlayer) return null;
+    try {
+      final value = double.tryParse(await platform.getProperty('cache-speed'));
+      if (value == null || value <= 0) return null;
+      return value;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  IconData _batteryIcon(int level, bool charging) {
+    if (charging) return Icons.battery_charging_full_rounded;
+    if (level >= 95) return Icons.battery_full_rounded;
+    if (level >= 85) return Icons.battery_6_bar_rounded;
+    if (level >= 70) return Icons.battery_5_bar_rounded;
+    if (level >= 55) return Icons.battery_4_bar_rounded;
+    if (level >= 40) return Icons.battery_3_bar_rounded;
+    if (level >= 25) return Icons.battery_2_bar_rounded;
+    if (level >= 10) return Icons.battery_1_bar_rounded;
+    return Icons.battery_0_bar_rounded;
+  }
+
+  /// 顶栏状态行：左「时间 · WiFi · 网速」，中「片名」，右「电量」。
+  /// 标题用 Stack 绝对居中，两侧各留一段安全边距防重叠。
+  Widget _buildTopStatusRow(String centerTitle) {
+    final Color dim = Colors.white.withValues(alpha: 0.82);
+    final TextStyle statusStyle = TextStyle(
+      color: dim,
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.1,
+    );
+
+    final Widget left = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(_clockText, style: statusStyle),
+        if (_netSpeedText.isNotEmpty) ...[
+          const SizedBox(width: 5),
+          Icon(Icons.wifi_rounded, size: 13, color: dim),
+          const SizedBox(width: 3),
+          Text(_netSpeedText, style: statusStyle),
+        ],
+      ],
+    );
+
+    final Widget? right = _batteryLevel == null
+        ? null
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('$_batteryLevel%', style: statusStyle),
+              const SizedBox(width: 3),
+              Icon(
+                _batteryIcon(_batteryLevel!, _batteryCharging),
+                size: 15,
+                color: dim,
+              ),
+            ],
+          );
+
+    return SizedBox(
+      height: 22,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: _isDesktop ? 200 : 112,
+                ),
+                child: Text(
+                  centerTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Center(child: left),
+          ),
+          if (right != null)
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: Center(child: right),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTopBar() {
     final item = controller.current;
     final series = item?.seriesName?.trim();
-    final title = (series != null && series.isNotEmpty)
-        ? series
+    // 居中标题：剧集 =「剧名 S01E06 单集名」，电影 = 片名。
+    final parts = <String>[
+      if (series != null && series.isNotEmpty) series,
+      if (controller.episodeLabel.isNotEmpty) controller.episodeLabel,
+      if (item != null && item.isEpisode && item.name.trim().isNotEmpty)
+        item.name.trim(),
+    ];
+    final centerTitle = parts.isNotEmpty
+        ? parts.join(' ')
         : (item?.name ?? widget.launch.title);
-    final sub = item == null
-        ? ''
-        : [
-            if (controller.episodeLabel.isNotEmpty) controller.episodeLabel,
-            if (item.isEpisode) item.name,
-          ].join(' · ');
 
     return Positioned(
       left: 0,
@@ -1421,84 +1586,57 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               _isDesktop ? 20 : 12,
-              _isDesktop ? 14 : 8,
+              _isDesktop ? 14 : 6,
               _isDesktop ? 20 : 12,
               8,
             ),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 短按先收起控件（视频里那颗按钮的手感），长按才真的退出。
-                // 不想这样的话可以在「播放手势 → 长按返回键退出播放器」关掉。
-                _CircleAction(
-                  icon: Icons.arrow_back_ios_new_rounded,
-                  iconSize: 17,
-                  onTap: _gesture.longPressExit
-                      ? _toggleControls
-                      : () => Navigator.of(context).maybePop(),
-                  onLongPress: _gesture.longPressExit
-                      ? () => Navigator.of(context).maybePop()
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        if (sub.isNotEmpty) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            sub,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.62),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ],
+                _buildTopStatusRow(centerTitle),
+                SizedBox(height: _isDesktop ? 12 : 8),
+                Row(
+                  children: [
+                    // 短按先收起控件（视频里那颗按钮的手感），长按才真的退出。
+                    // 不想这样的话可以在「播放手势 → 长按返回键退出播放器」关掉。
+                    _CircleAction(
+                      icon: Icons.arrow_back_ios_new_rounded,
+                      iconSize: 17,
+                      onTap: _gesture.longPressExit
+                          ? _toggleControls
+                          : () => Navigator.of(context).maybePop(),
+                      onLongPress: _gesture.longPressExit
+                          ? () => Navigator.of(context).maybePop()
+                          : null,
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                if (widget.launch.episodes.length > 1)
-                  _CircleAction(
-                    icon: Icons.menu_book_rounded,
-                    iconSize: 17,
-                    onTap: _openEpisodes,
-                  ),
-                if (widget.launch.episodes.length > 1) const SizedBox(width: 8),
-                _CircleAction(
-                  icon: Icons.info_outline_rounded,
-                  iconSize: 17,
-                  onTap: _openInfo,
-                ),
-                const SizedBox(width: 8),
-                _CircleAction(
-                  icon: Icons.lock_open_rounded,
-                  iconSize: 17,
-                  onTap: controller.toggleLock,
-                ),
-                const SizedBox(width: 8),
-                _CircleAction(
-                  icon: Icons.more_horiz_rounded,
-                  iconSize: 19,
-                  onTap: _openMore,
+                    const Spacer(),
+                    if (widget.launch.episodes.length > 1)
+                      _CircleAction(
+                        icon: Icons.menu_book_rounded,
+                        iconSize: 17,
+                        onTap: _openEpisodes,
+                      ),
+                    if (widget.launch.episodes.length > 1)
+                      const SizedBox(width: 8),
+                    _CircleAction(
+                      icon: Icons.info_outline_rounded,
+                      iconSize: 17,
+                      onTap: _openInfo,
+                    ),
+                    const SizedBox(width: 8),
+                    _CircleAction(
+                      icon: Icons.lock_open_rounded,
+                      iconSize: 17,
+                      onTap: controller.toggleLock,
+                    ),
+                    const SizedBox(width: 8),
+                    _CircleAction(
+                      icon: Icons.more_horiz_rounded,
+                      iconSize: 19,
+                      onTap: _openMore,
+                    ),
+                  ],
                 ),
               ],
             ),
