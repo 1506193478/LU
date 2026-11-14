@@ -26,10 +26,14 @@ class MenuRoute {
 ///
 /// 时间表不再是底栏页：入口挪到「我的」页里（和设置同层），
 /// 但 `/tab/timeline/` 路由仍然保留，老用户存的默认启动页指向它也能打开。
+///
+/// 第 6 项 `/hg` 是隐藏入口（连点「关于」标题 3 次解锁）：路由常驻、
+/// 底栏只在解锁后才显示第 6 颗按钮（见 menu.dart 的 tabs 组装）。
 const MenuRoute menu = MenuRoute([
   MenuRouteItem(path: '/popular'),
   MenuRouteItem(path: '/collect'),
   MenuRouteItem(path: '/syncplay'),
   MenuRouteItem(path: '/emby'),
   MenuRouteItem(path: '/my'),
+  MenuRouteItem(path: '/hg'),
 ]);

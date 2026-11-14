@@ -13,9 +13,13 @@ import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/menu/route_visibility.dart';
 import 'package:XL/pages/router.dart';
+import 'package:XL/modules/hg/hg_session.dart';
 import 'package:XL/utils/device.dart';
 
-/// 底部导航的 5 个目标，顺序与 `menu.getPath` 一致。
+/// 底部导航的目标，顺序与 `menu.getPath` 一致。
+///
+/// 第 6 项（HG 短剧）是隐藏入口：连点「关于」标题 3 次解锁后，
+/// 组装底栏时才追加（见 [_ScaffoldMenu._tabs]）。
 const List<KazumiTabItem> kKazumiTabs = [
   KazumiTabItem(
     icon: Icons.home_outlined,
@@ -46,6 +50,12 @@ const List<KazumiTabItem> kKazumiTabs = [
   ),
 ];
 
+const KazumiTabItem kHgTabItem = KazumiTabItem(
+  icon: Icons.live_tv_outlined,
+  selectedIcon: Icons.live_tv,
+  label: '短剧',
+);
+
 class ScaffoldMenu extends StatefulWidget {
   const ScaffoldMenu({super.key, required this.location});
 
@@ -59,6 +69,25 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   final _outletKey = GlobalKey<RouterOutletState>();
   late int _selectedIndex = menu.indexForPath(widget.location);
   DateTime? _lastExitPromptAt;
+
+  /// 底栏 tab 组装：隐藏入口解锁后才追加 HG 短剧。
+  ///
+  /// 解锁发生在「关于」页，底栏通过 [HgStore.unlockedNotifier] 收到通知
+  /// 后重建；回退路径（didPopNext setState）只是兜底。
+  List<KazumiTabItem> get _tabs => [
+        ...kKazumiTabs,
+        if (HgStore.unlocked) kHgTabItem,
+      ];
+
+  @override
+  void initState() {
+    super.initState();
+    HgStore.unlockedNotifier.addListener(_onUnlockedChanged);
+  }
+
+  void _onUnlockedChanged() {
+    if (mounted) setState(() {});
+  }
 
   /// The shell sits at the bottom of the root stack and stays mounted while
   /// other pages cover it, so it publishes that state for its subtree.
@@ -83,6 +112,7 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
 
   @override
   void dispose() {
+    HgStore.unlockedNotifier.removeListener(_onUnlockedChanged);
     rootRouteObserver.unsubscribe(this);
     super.dispose();
   }
@@ -190,6 +220,7 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   }
 
   Widget _bottomMenu(BuildContext context, int selectedIndex) {
+    final tabs = _tabs;
     return Scaffold(
       // 底栏是浮起来的：内容从下面滚过去。
       // 页面底部留白统一按 immersiveTabBarInset 算。
@@ -212,8 +243,8 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
           // 常驻指示，正在下什么、下到哪了完全看不见。
           _DownloadActivityStrip(onTap: _openDownloads),
           KazumiTabBar(
-            items: kKazumiTabs,
-            selectedIndex: selectedIndex,
+            items: tabs,
+            selectedIndex: selectedIndex.clamp(0, tabs.length - 1),
             onSelected: _selectDestination,
           ),
         ],

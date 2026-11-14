@@ -27,6 +27,8 @@ import 'package:XL/services/platform/desktop_window_config.dart';
 import 'package:XL/services/platform/webview_feature_service.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/navigation.dart';
+import 'package:XL/modules/hg/hg_proxy.dart';
+import 'package:XL/modules/hg/hg_session.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -67,6 +69,9 @@ void main() async {
     final hivePath = '${(await getApplicationSupportDirectory()).path}/hive';
     await Hive.initFlutter(hivePath);
     await GStorage.init();
+    // HG 短剧模块：会话存储 + 本地取流代理（循环回听，常驻无害）。
+    await HgStore.init();
+    await HgProxy.start();
   } catch (e) {
     debugPrint('Storage initialization failed: $e');
 
