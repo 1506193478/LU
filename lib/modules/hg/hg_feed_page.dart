@@ -3,14 +3,21 @@
 /// PageView 竖向滑动，当前页播放、上下邻页显示封面；右下角
 /// 点赞/评论/收藏带真实数量（详情接口 counts 优先，卡片缓存兜底）。
 /// 互动需登录（游客点开引导登录），浏览完全免登录。
+/// 交互对照 HGhubX Feed.tsx：切集开关（swipeEp）、画质切换（HD/标清）、
+/// 长按倍速（播放器内）、观看记录续播。
 library;
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'package:XL/modules/hg/hg_module.dart';
 import 'package:XL/modules/hg/hg_api.dart';
 import 'package:XL/modules/hg/hg_discover_page.dart';
 import 'package:XL/modules/hg/hg_feed_player.dart';
 import 'package:XL/modules/hg/hg_models.dart';
+import 'package:XL/modules/hg/hg_profile_page.dart';
 import 'package:XL/modules/hg/hg_proxy.dart';
 import 'package:XL/modules/hg/hg_sheets.dart';
 import 'package:XL/modules/hg/hg_session.dart';
@@ -30,8 +37,11 @@ class HgFeedPage extends StatefulWidget {
 class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
   final PageController _pageController = PageController();
   final Map<int, HgDetail> _details = {};
-  final Map<String, String> _playUrls = {}; // '$id:$ep' → 上游地址
+  final Map<String, HgPlayInfo> _playInfos = {}; // '$id:$ep' → 播放信息
   final Map<int, int> _eps = {}; // id → 当前集
+  Timer? _historyTimer;
+  int _historyId = 0;
+  int _historyEp = 1;
 
   final List<HgVideoCard> _cards = [];  int _feedPage = 0;
   bool _loadingFeed = false;
@@ -43,6 +53,15 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
   /// App 整体退到后台（true 时暂停播放）。
   bool _appPaused = false;
 
+  /// swipeEp 生效：设置开关开着且是移动端（桌面保持滚轮/键盘翻页）。
+  bool get _swipeEpActive =>
+      HgStore.prefs.swipeEp && !_isDesktopLike;
+
+  static final bool _isDesktopLike = !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux);
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +71,7 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _historyTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     super.dispose();
@@ -121,9 +141,44 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
   }
 
   void _onPageChanged(int index) {
+    _flushHistory();
     setState(() => _index = index);
     if (index >= _cards.length - 3) _loadMore();
     _preload(index);
+  }
+
+  /// swipeEp 手势切换：dy<0 下滑手势 → 下一集/下一剧。
+  void _onSwipeEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() < 300) return;
+    final dir = velocity < 0 ? 1 : -1; // 上滑=前进
+    _stepDir(dir);
+  }
+
+  /// 统一上下切换（Feed.tsx stepDir）：swipeEp 开且为多集视频时优先
+  /// 切集，否则切剧。
+  void _stepDir(int dir) {
+    final card = _cards[_index];
+    final detail = _details[card.id];
+    final total = detail?.episodes.length ?? 0;
+    if (HgStore.prefs.swipeEp && total > 0) {
+      final ep = _epFor(card.id);
+      final want = dir == 1 ? (ep < total ? ep + 1 : 0) : (ep > 1 ? ep - 1 : 0);
+      if (want > 0) {
+        _eps[card.id] = want;
+        setState(() {});
+        _ensurePlayUrl(card.id, want);
+        return;
+      }
+    }
+    final next = _index + dir;
+    if (next >= 0 && next < _cards.length) {
+      _pageController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   /// 预取当前±1的详情和播放地址（HGhubX Feed 同款策略）。
@@ -153,16 +208,54 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
     return current.clamp(1, maxEp < 1 ? 1 : maxEp);
   }
 
+  /// preferHevc 开且 hevc 流可用时优先高清（Feed.tsx 的 playUrl 语义）。
+  String _pickUrl(HgPlayInfo info) {
+    if (HgStore.prefs.preferHevc && info.videoUrlHevc.isNotEmpty) {
+      return info.videoUrlHevc;
+    }
+    return info.videoUrl;
+  }
+
   Future<String> _ensurePlayUrl(int id, int ep) async {
     final key = '$id:$ep';
-    if (_playUrls.containsKey(key)) return _playUrls[key]!;
+    final cached = _playInfos[key];
+    if (cached != null) return _pickUrl(cached);
     try {
       final info = await HgApi.play(id, ep);
-      _playUrls[key] = info.videoUrl;
+      _playInfos[key] = info;
       if (mounted) setState(() {});
-      return info.videoUrl;
+      return _pickUrl(info);
     } catch (_) {
       return '';
+    }
+  }
+
+  /// 观看记录写回（onPosition 节流 + 翻页/换集时兜底 flush）。
+  void _onPosition(int id, int ep, Duration pos, Duration dur) {
+    _historyId = id;
+    _historyEp = ep;
+    _historyTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
+      _flushHistory();
+    });
+    _lastPos = pos;
+    _lastDur = dur;
+  }
+
+  Duration _lastPos = Duration.zero;
+  Duration _lastDur = Duration.zero;
+
+  Future<void> _flushHistory() async {
+    if (_historyId <= 0 || _lastDur <= Duration.zero) return;
+    await HgStore.prefs.saveHistory(
+      _historyId,
+      _historyEp,
+      _lastPos.inMilliseconds / 1000,
+      _lastDur.inMilliseconds / 1000,
+    );
+    final detail = _details[_historyId];
+    if (detail != null) {
+      await HgStore.prefs.setHistoryMeta(
+          _historyId, detail.title, detail.cover);
     }
   }
 
@@ -300,26 +393,41 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
   void _openUser(HgAuthor? author) async {
     if (author == null || author.id <= 0) return;
     setState(() => _covered = true);
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => HgUserPage(userId: author.id),
-    ));
+    await hgPush<void>(context,  HgUserPage(userId: author.id),
+    );
     if (mounted) setState(() => _covered = false);
   }
 
   void _openEpisodes(HgVideoCard card) {
     final detail = _details[card.id];
     if (detail == null || detail.episodes.isEmpty) return;
+    _flushHistory();
     showHgEpisodesSheet(
       context,
       detail: detail,
       currentEp: _epFor(card.id),
       onPick: (ep) {
         _eps[card.id] = ep;
-        _playUrls.remove('${card.id}:$ep');
         setState(() {});
         _ensurePlayUrl(card.id, ep);
       },
     );
+  }
+
+  /// 本地收藏（store.tsx 的 favs，区别于远端 collect）。
+  Future<void> _toggleLocalFav(HgVideoCard card) async {
+    await HgStore.prefs.toggleFav(card.id);
+    final detail = _details[card.id];
+    if (detail != null) {
+      await HgStore.prefs.setHistoryMeta(card.id, detail.title, detail.cover);
+    }
+    if (mounted) {
+      final on = HgStore.prefs.isFav(card.id);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(on ? '已加入本地片库' : '已从本地片库移除'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
   }
 
   @override
@@ -343,9 +451,8 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
                   onTap: () async {
                     // 推入发现页期间暂停当前视频，返回后恢复。
                     setState(() => _covered = true);
-                    await Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => const HgDiscoverPage(),
-                    ));
+                    await hgPush<void>(context,  const HgDiscoverPage(),
+                    );
                     if (mounted) setState(() => _covered = false);
                   },
                 ),
@@ -355,7 +462,14 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
                       ? Icons.person_rounded
                       : Icons.login_rounded,
                   onTap: () async {
-                    await showHgLoginSheet(context);
+                    if (HgStore.session.loggedIn) {
+                      // 已登录进「我的」（Profile.tsx：片库/记录/登出/设置）。
+                      setState(() => _covered = true);
+                      await hgPush<void>(context, const HgProfilePage());
+                      if (mounted) setState(() => _covered = false);
+                    } else {
+                      await showHgLoginSheet(context);
+                    }
                     // 登录/退出成功后弹层关闭，刷新顶栏图标。
                     if (mounted) setState(() {});
                   },
@@ -396,6 +510,11 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
                   scrollDirection: Axis.vertical,
                   itemCount: _cards.length,
                   onPageChanged: _onPageChanged,
+                  // swipeEp 开启时手势接管（Feed.tsx 的 touch-action:none
+                  // 语义）：PageView 禁滚，竖滑手势先切集、无集可切再翻剧。
+                  physics: _swipeEpActive
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
                   controller: _pageController,
                   itemBuilder: (context, i) => _buildPage(i),
                 ),
@@ -410,7 +529,7 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
     // 或 App 退到后台时也不播。
     final isActive = index == _index && !_covered && !_appPaused;
 
-    return Stack(
+    Widget pageBody = Stack(
       children: [
         Positioned.fill(
           child: index == _index
@@ -424,7 +543,21 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
                     }
                     // 播放器保持挂载：active=false 时暂停而不是卸载，
                     // 避免从发现页/用户页返回后重新加载、丢进度。
-                    return HgFeedPlayer(upstreamUrl: url, active: isActive);
+                    final hist = HgStore.prefs.historyOf(card.id, ep);
+                    final startPos = hist == null
+                        ? Duration.zero
+                        : Duration(milliseconds:
+                            (((hist['t'] as num?)?.toDouble() ?? 0.0) * 1000)
+                                .round());
+                    return HgFeedPlayer(
+                      upstreamUrl: url,
+                      active: isActive,
+                      startPosition: startPos,
+                      initialVolume: HgStore.prefs.volume,
+                      initialMuted: false,
+                      onPosition: (pos, dur) =>
+                          _onPosition(card.id, ep, pos, dur),
+                    );
                   },
                 )
               : _coverLayer(card, detail),
@@ -432,7 +565,7 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
         // 右下角操作栏（真实计数）。
         Positioned(
           right: 12,
-          bottom: MediaQuery.paddingOf(context).bottom + 86,
+          bottom: MediaQuery.paddingOf(context).bottom + 96,
           child: _actionRail(card, detail),
         ),
         // 左下角信息区。
@@ -444,6 +577,16 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
         ),
       ],
     );
+
+    // swipeEp 手势接管（仅移动端；桌面保留滚轮/键盘翻页）。
+    if (_swipeEpActive && index == _index) {
+      pageBody = GestureDetector(
+        behavior: HitTestBehavior.deferToChild,
+        onVerticalDragEnd: _onSwipeEnd,
+        child: pageBody,
+      );
+    }
+    return pageBody;
   }
 
   Widget _coverLayer(HgVideoCard card, HgDetail? detail) {
@@ -463,8 +606,8 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
     );
   }
 
-  /// 右下角竖排：心形+点赞数 / 气泡+评论数 / 星形+收藏数。
-  /// 数量优先级：详情接口 counts > 卡片缓存，点赞收藏状态来自详情 interaction。
+  /// 右下角竖排：心形+点赞数 / 气泡+评论数 / 星形+收藏数 / 切集开关 /
+  /// 画质切换（Feed.tsx 右栏同款）。
   Widget _actionRail(HgVideoCard card, HgDetail? detail) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -477,14 +620,14 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
           label: hgFmtCount(detail?.likeCount ?? card.likeCount),
           onTap: () => _toggleLike(card),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _railButton(
           icon: Icons.mode_comment_outlined,
           color: Colors.white,
           label: hgFmtCount(detail?.commentCount ?? card.commentCount),
           onTap: () => _openComments(card),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         _railButton(
           icon: detail?.collected == true
               ? Icons.star_rounded
@@ -494,12 +637,90 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
           label: hgFmtCount(detail?.collectCount ?? card.collectCount),
           onTap: () => _toggleCollect(card),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
+        _railButton(
+          icon: HgStore.prefs.isFav(card.id)
+              ? Icons.bookmark_rounded
+              : Icons.bookmark_outline_rounded,
+          color: HgStore.prefs.isFav(card.id)
+              ? const Color(0xFF7BD88F)
+              : Colors.white,
+          label: '片库',
+          onTap: () => _toggleLocalFav(card),
+        ),
+        const SizedBox(height: 16),
         _railButton(
           icon: Icons.playlist_play_rounded,
           color: Colors.white,
           label: '选集',
           onTap: () => _openEpisodes(card),
+        ),
+        const SizedBox(height: 16),
+        // 切集开关（Feed.tsx 的 IVertSwap 按钮语义：上下滑=切集/切剧）。
+        _railButton(
+          icon: HgStore.prefs.swipeEp
+              ? Icons.swap_vert_rounded
+              : Icons.swap_vert_circle_outlined,
+          color: HgStore.prefs.swipeEp
+              ? const Color(0xFFF3C969)
+              : Colors.white,
+          label: '切集',
+          onTap: () async {
+            await HgStore.prefs.setSwipeEp(!HgStore.prefs.swipeEp);
+            if (mounted) setState(() {});
+          },
+        ),
+        const SizedBox(height: 16),
+        // 画质切换（preferHevc：HD/标清）。
+        GestureDetector(
+          onTap: () async {
+            await HgStore.prefs.setPreferHevc(!HgStore.prefs.preferHevc);
+            // 画质变了要让当前页重取播放地址（hevc/main 换流）。
+            final id = card.id;
+            final ep = _epFor(id);
+            final key = '$id:$ep';
+            final info = _playInfos[key];
+            if (info != null) {
+              // 缓存里两种流都有，直接换 url 触发重开播放器。
+              setState(() {});
+            }
+          },
+          behavior: HitTestBehavior.opaque,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: HgStore.prefs.preferHevc
+                      ? const Color(0xFFF3C969)
+                      : Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  HgStore.prefs.preferHevc ? 'HD' : '标清',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: HgStore.prefs.preferHevc
+                        ? Colors.black
+                        : Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                '画质',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  shadows: [Shadow(blurRadius: 4, color: Colors.black45)],
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );

@@ -1,7 +1,7 @@
 name: XL
 description: "A new Flutter project."
 publish_to: "none"
-version: 4.1.0+40100
+version: 4.1.1+40101
 
 environment:
   sdk: ">=3.10.0 <4.0.0"

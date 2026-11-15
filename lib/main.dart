@@ -27,6 +27,8 @@ import 'package:XL/services/platform/desktop_window_config.dart';
 import 'package:XL/services/platform/webview_feature_service.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/navigation.dart';
+import 'package:XL/modules/hg/hg_lines.dart';
+import 'package:XL/modules/hg/hg_net.dart';
 import 'package:XL/modules/hg/hg_proxy.dart';
 import 'package:XL/modules/hg/hg_session.dart';
 
@@ -72,6 +74,11 @@ void main() async {
     // HG 短剧模块：会话存储 + 本地取流代理（循环回听，常驻无害）。
     await HgStore.init();
     await HgProxy.start();
+    // 恢复上次线路（手选或自动选线结果）；自动选线在解锁入口后启动。
+    if (HgStore.prefs.lineBase.isNotEmpty) {
+      HgNet.setBase(HgStore.prefs.lineBase);
+    }
+    if (HgStore.unlocked) HgAutoLine.start();
   } catch (e) {
     debugPrint('Storage initialization failed: $e');
 

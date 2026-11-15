@@ -8,9 +8,11 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 
+import 'package:XL/modules/hg/hg_module.dart';
+import 'package:XL/modules/hg/hg_session.dart';
+import 'package:XL/modules/hg/hg_settings_page.dart';
 import 'package:XL/modules/hg/hg_api.dart';
 import 'package:XL/modules/hg/hg_models.dart';
-import 'package:XL/modules/hg/hg_net.dart';
 import 'package:XL/modules/hg/hg_post_page.dart';
 import 'package:XL/modules/hg/hg_proxy.dart';
 import 'package:XL/modules/hg/hg_feed_page.dart';
@@ -69,68 +71,16 @@ class _HgDiscoverPageState extends State<HgDiscoverPage>
   }
 
   void _openSearch(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const _HgSearchPage()),
-    );
+    hgPush<void>(context, const _HgSearchPage());
   }
 
-  /// 线路切换（三期线路管理的手机端最小形态）：固定线路列表 + 当前高亮。
-  ///
-  /// 会话按线路 origin 绑定，切换后需要重新登录——弹层里明确提示。
+  /// 线路切换：LinePicker（固定线路 + 发布页镜像列表 + 探测），
+  /// 与设置页同款（LinePicker.tsx 语义）。
   void _openLineSheet(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (sheetContext) {
-        var current = HgNet.base;
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('选择线路', style: Theme.of(sheetContext).textTheme.titleMedium),
-                    const SizedBox(height: 6),
-                    Text(
-                      '登录状态按线路保存，切换后需要重新登录。',
-                      style: Theme.of(sheetContext).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(sheetContext).colorScheme.onSurfaceVariant,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
-                    RadioGroup<String>(
-                      groupValue: current,
-                      onChanged: (v) {
-                        if (v == null || v == current) return;
-                        HgNet.setBase(v);
-                        setSheetState(() => current = v);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('已切换到线路 $v')),
-                          );
-                        }
-                      },
-                      child: Column(
-                        children: [
-                          for (final (name, url) in kHgFixedLines)
-                            RadioListTile<String>(
-                              value: url,
-                              title: Text(name),
-                              subtitle: Text(url.replaceFirst('https://', '')),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (sheetContext) => const HgLinePicker(),
     );
   }
 }
@@ -281,9 +231,8 @@ class _CategoryPaneState extends State<_CategoryPane>
   }
 
   void _open(HgVideoCard card) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => HgFeedPage(startVideoId: card.id),
-    ));
+    hgPush<void>(context,  HgFeedPage(startVideoId: card.id),
+    );
   }
 }
 
@@ -445,9 +394,8 @@ class _PostsPaneState extends State<_PostsPane>
   }
 
   void _open(HgPost post) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => HgPostPage(postId: post.id, post: post),
-    ));
+    hgPush<void>(context,  HgPostPage(postId: post.id, post: post),
+    );
   }
 
   @override
@@ -723,9 +671,8 @@ class _TopicsPaneState extends State<_TopicsPane>
   }
 
   void _open(HgTopic topic) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => _HgTopicDetailPage(slug: topic.slug, title: topic.title),
-    ));
+    hgPush<void>(context,  _HgTopicDetailPage(slug: topic.slug, title: topic.title),
+    );
   }
 
   @override
@@ -881,9 +828,8 @@ class _HgTopicDetailPageState extends State<_HgTopicDetailPage> {
                   itemBuilder: (context, i) => HgVideoGridCard(
                     card: detail.videos.items[i],
                     onOpen: (card) {
-                      Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => HgFeedPage(startVideoId: card.id),
-                      ));
+                      hgPush<void>(context,  HgFeedPage(startVideoId: card.id),
+                      );
                     },
                   ),
                 ),
@@ -1008,10 +954,9 @@ class _RankPaneState extends State<_RankPane>
                           ),
                           trailing: const Icon(Icons.chevron_right_rounded),
                           onTap: () {
-                            Navigator.of(context).push(MaterialPageRoute<void>(
-                              builder: (_) =>
+                            hgPush<void>(context, 
                                   HgFeedPage(startVideoId: item.videoId),
-                            ));
+                            );
                           },
                         );
                       },
@@ -1040,6 +985,8 @@ class _HgSearchPageState extends State<_HgSearchPage> {
   String _scope = 'video';
   bool _loading = false;
   String? _error;
+  /// 热搜榜（Search.tsx 的 searchHot chips）。
+  List<(int, String, String)> _hot = [];
 
   @override
   void initState() {
@@ -1053,11 +1000,22 @@ class _HgSearchPageState extends State<_HgSearchPage> {
         });
       }
     });
+    _loadHot();
+  }
+
+  Future<void> _loadHot() async {
+    try {
+      final hot = await HgApi.searchHot();
+      if (mounted) setState(() => _hot = hot.take(12).toList());
+    } catch (_) {
+      // 热搜拉不到不影响搜索。
+    }
   }
 
   Future<void> _search() async {
     final q = _input.text.trim();
     if (q.isEmpty || _loading) return;
+    await HgStore.prefs.addSearchHist(q);
     setState(() {
       _loading = true;
       _error = null;
@@ -1157,16 +1115,17 @@ class _HgSearchPageState extends State<_HgSearchPage> {
                     child: CircularProgressIndicator(strokeWidth: 2.4))
                 : _error != null
                     ? _ErrorRetry(message: _error!, onRetry: _search)
-                    : _scope == 'post'
-                        ? _postResults.isEmpty
-                            ? Center(
-                                child: Text('输入关键词开始搜索吃瓜帖',
-                                    style: TextStyle(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant)),
-                              )
-                            : ListView.builder(
+                    : (_results.isEmpty && _postResults.isEmpty)
+                        ? _SearchAuxPanel(
+                            scope: _scope,
+                            hot: _hot,
+                            onPick: (q) {
+                              _input.text = q;
+                              _search();
+                            },
+                          )
+                        : _scope == 'post'
+                            ? ListView.builder(
                                 padding: const EdgeInsets.all(12),
                                 itemCount: _postResults.length,
                                 itemBuilder: (context, i) => _PostTile(
@@ -1180,17 +1139,10 @@ class _HgSearchPageState extends State<_HgSearchPage> {
                                   },
                                 ),
                               )
-                        : _results.isEmpty
-                            ? Center(
-                                child: Text('输入关键词开始搜索',
-                                    style: TextStyle(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant)),
-                              )
                             : GridView.builder(
                                 padding: const EdgeInsets.all(12),
-                                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                                gridDelegate:
+                                    const SliverGridDelegateWithMaxCrossAxisExtent(
                                   maxCrossAxisExtent: 130,
                                   mainAxisSpacing: 12,
                                   crossAxisSpacing: 10,
@@ -1216,6 +1168,89 @@ class _HgSearchPageState extends State<_HgSearchPage> {
 }
 
 /* ═════════════════════════ 共用 ═════════════════════════ */
+
+/// 搜索页辅助面板（Search.tsx 语义）：搜索历史（可清空）+ 热搜榜。
+class _SearchAuxPanel extends StatelessWidget {
+  const _SearchAuxPanel({
+    required this.scope,
+    required this.hot,
+    required this.onPick,
+  });
+
+  final String scope;
+  final List<(int, String, String)> hot;
+  final void Function(String q) onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hist = HgStore.prefs.searchHist;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (hist.isNotEmpty) ...[
+          Row(
+            children: [
+              Text('搜索历史', style: theme.textTheme.titleSmall),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => HgStore.prefs.clearSearchHist(),
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.delete_outline_rounded,
+                        size: 16, color: theme.colorScheme.outline),
+                    const SizedBox(width: 4),
+                    Text('清空',
+                        style: TextStyle(
+                            fontSize: 12.5, color: theme.colorScheme.outline)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final q in hist.take(15))
+                ActionChip(
+                  label: Text(q),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onPick(q),
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+        ],
+        if (hot.isNotEmpty) ...[
+          Text('热搜榜', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final (i, (_, title, plays)) in hot.indexed)
+                ActionChip(
+                  label: Text('$i  $title',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => onPick(title),
+                ),
+            ],
+          ),
+        ],
+        if (hist.isEmpty && hot.isEmpty)
+          Center(
+            child: Text('输入关键词开始搜索',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+          ),
+      ],
+    );
+  }
+}
 
 /// 网格视频卡：封面（本地代理解密）+ 标题 + 集数/评分。
 class HgVideoGridCard extends StatelessWidget {

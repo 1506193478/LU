@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:XL/modules/hg/hg_module.dart';
 import 'package:XL/modules/hg/hg_api.dart';
 import 'package:XL/modules/hg/hg_models.dart';
 import 'package:XL/modules/hg/hg_proxy.dart';
@@ -259,9 +260,8 @@ class _HgCommentsSheetState extends State<_HgCommentsSheet> {
           GestureDetector(
             onTap: () {
               if (c.userId > 0) {
-                Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => HgUserPage(userId: c.userId),
-                ));
+                hgPush<void>(context,  HgUserPage(userId: c.userId),
+                );
               }
             },
             child: CircleAvatar(

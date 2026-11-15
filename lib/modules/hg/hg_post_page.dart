@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:XL/modules/hg/hg_module.dart';
 import 'package:XL/modules/hg/hg_api.dart';
 import 'package:XL/modules/hg/hg_feed_player.dart';
 import 'package:XL/modules/hg/hg_models.dart';
@@ -154,9 +155,8 @@ class _HgPostPageState extends State<HgPostPage> {
 
   void _openUser(HgAuthor? author) {
     if (author == null || author.id <= 0) return;
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => HgUserPage(userId: author.id),
-    ));
+    hgPush<void>(context,  HgUserPage(userId: author.id),
+    );
   }
 
   @override

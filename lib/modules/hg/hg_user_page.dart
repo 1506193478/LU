@@ -6,6 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:XL/modules/hg/hg_module.dart';
 import 'package:XL/modules/hg/hg_api.dart';
 import 'package:XL/modules/hg/hg_discover_page.dart';
 import 'package:XL/modules/hg/hg_models.dart';
@@ -143,10 +144,9 @@ class _HgUserPageState extends State<HgUserPage> {
                             (context, i) => HgVideoGridCard(
                               card: _videos[i],
                               onOpen: (card) {
-                                Navigator.of(context).push(MaterialPageRoute<void>(
-                                  builder: (_) =>
+                                hgPush<void>(context, 
                                       HgFeedPage(startVideoId: card.id),
-                                ));
+                                );
                               },
                             ),
                             childCount: _videos.length,

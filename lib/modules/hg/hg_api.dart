@@ -3,6 +3,7 @@
 /// 所有方法名和上游注释保持一致，方便两边对照。
 library;
 
+import 'package:XL/modules/hg/hg_lines.dart';
 import 'package:XL/modules/hg/hg_models.dart';
 import 'package:XL/modules/hg/hg_net.dart';
 import 'package:XL/modules/hg/hg_session.dart';
@@ -10,12 +11,27 @@ import 'package:XL/modules/hg/hg_session.dart';
 class HgApi {
   HgApi._();
 
+  /// 严格安全模式（net.rs 的 strict_security 分支）：镜像线路仅供
+  /// 游客浏览，登录/注册必须走固定线路或被发布页收录的镜像。
+  static Future<void> _verifyAuthOrigin(String origin) async {
+    if (!HgStore.prefs.strictSecurity) return;
+    if (isFixedLine(origin) || isTrustedMirror(origin)) return;
+    try {
+      await mirrors(); // 刷新可信集合（带 30 秒缓存语义的上游等价物）。
+    } catch (_) {}
+    if (!isFixedLine(origin) && !isTrustedMirror(origin)) {
+      throw const HgApiError(
+          '镜像线路仅供游客浏览；登录/注册请切换到固定线路');
+    }
+  }
+
   /* ── 会话 ── */
 
 
   /// 用户名密码登录。成功后会话写入本地（按线路绑定）。
   static Future<HgUser> login(String username, String password) async {
     final origin = HgNet.base;
+    await _verifyAuthOrigin(origin);
     final data = await HgNet.edge(
       'POST',
       '/api/account/loginByPassword',
@@ -30,6 +46,7 @@ class HgApi {
     String email,
   ) async {
     final origin = HgNet.base;
+    await _verifyAuthOrigin(origin);
     final body = <String, dynamic>{
       'username': username,
       'password': password,

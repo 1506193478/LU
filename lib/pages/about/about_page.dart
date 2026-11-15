@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/widget/content_section.dart';
+import 'package:XL/modules/hg/hg_lines.dart';
 import 'package:XL/modules/hg/hg_session.dart';
 import 'package:XL/pages/about/about_widgets.dart';
 import 'package:XL/request/config/api_endpoints.dart';
@@ -40,6 +41,8 @@ class _HgUnlockTitleState extends State<_HgUnlockTitle> {
       return;
     }
     await HgStore.unlock();
+    // 解锁后启动 HG 自动选线（镜像探测 + 健康检查）。
+    HgAutoLine.start();
     KazumiHaptics.heavy();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
