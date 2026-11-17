@@ -41,6 +41,10 @@ class HgPrefs {
   String _lineBase = '';
   List<int> _favs = [];
   final Map<String, Map<String, dynamic>> _history = {};
+  // 代理（proxy.rs：system/custom/off）与播放诊断日志。
+  String _proxyMode = 'system';
+  String _proxyUrl = '';
+  bool _playbackLog = false;
 
   bool get autoLine => _autoLine;
   bool get preferHevc => _preferHevc;
@@ -50,6 +54,15 @@ class HgPrefs {
   String get appearance => _appearance;
   bool get strictSecurity => _strictSecurity;
   List<String> get searchHist => List.unmodifiable(_searchHist);
+
+  /// 应用代理模式：system（跟随系统/TUN）/ custom / off（直连）。
+  String get proxyMode => _proxyMode;
+
+  /// 自定义代理地址（已归一化，凭据仅保存在本地输入框回填用）。
+  String get proxyUrl => _proxyUrl;
+
+  /// 播放诊断日志 verbose 开关（失败原因始终记录，不受开关影响）。
+  bool get playbackLog => _playbackLog;
 
   /// 持久化的手选/自动线路（启动时恢复，上游 line.json 语义）。
   String get lineBase => _lineBase;
@@ -147,6 +160,10 @@ class HgPrefs {
     _searchHist =
         (box.get('pref_searchHist') as List?)?.cast<String>().toList() ?? [];
     _lineBase = box.get('pref_lineBase') as String? ?? '';
+    _proxyMode = box.get('pref_proxyMode') as String? ?? 'system';
+    if (!['system', 'custom', 'off'].contains(_proxyMode)) _proxyMode = 'system';
+    _proxyUrl = box.get('pref_proxyUrl') as String? ?? '';
+    _playbackLog = box.get('pref_playbackLog') as bool? ?? false;
     _favs = (box.get('pref_favs') as List?)?.cast<int>().toList() ?? [];
     final historyRaw = box.get('pref_history');
     if (historyRaw is Map) {
@@ -231,6 +248,21 @@ class HgPrefs {
     await _box?.put('pref_lineBase', base);
     changed.value++;
   }
+
+  Future<void> setProxy(String mode, String url) async {
+    _proxyMode = mode;
+    _proxyUrl = mode == 'custom' ? url : _proxyUrl;
+    await _box?.put('pref_proxyMode', mode);
+    await _box?.put('pref_proxyUrl', _proxyUrl);
+    changed.value++;
+  }
+
+  Future<void> setPlaybackLog(bool v) async {
+    if (_playbackLog == v) return;
+    _playbackLog = v;
+    await _box?.put('pref_playbackLog', v);
+    changed.value++;
+  }
 }
 
 class HgStore {
@@ -293,5 +325,12 @@ class HgStore {
     _unlocked = true;
     unlockedNotifier.value = true;
     await _box?.put('unlocked', true);
+  }
+
+  /// 重新隐藏入口（关于标题再连点 3 次）：只隐藏，登录/片库等数据保留。
+  static Future<void> lock() async {
+    _unlocked = false;
+    unlockedNotifier.value = false;
+    await _box?.put('unlocked', false);
   }
 }

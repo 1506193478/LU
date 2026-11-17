@@ -36,8 +36,20 @@ class _HgUnlockTitleState extends State<_HgUnlockTitle> {
   }
 
   Future<void> _unlock() async {
+    // 已解锁状态下再连点 3 次 = 重新隐藏入口（登录/片库数据保留）。
     if (HgStore.unlocked) {
+      await HgStore.lock();
+      HgAutoLine.stop();
       KazumiHaptics.heavy();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已隐藏「短剧」入口，再连点 3 次本标题可重新开启'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      if (mounted) setState(() {});
       return;
     }
     await HgStore.unlock();

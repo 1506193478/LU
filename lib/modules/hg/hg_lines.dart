@@ -17,6 +17,7 @@ import 'dart:collection';
 
 import 'package:flutter/widgets.dart';
 
+import 'package:XL/modules/hg/hg_diag.dart';
 import 'package:XL/modules/hg/hg_net.dart';
 import 'package:XL/modules/hg/hg_session.dart';
 
@@ -628,6 +629,59 @@ Future<HgProbeHit> tryMain() => probeHit('main', kHgFixedLines[0].$2);
 /// 当前线路健康检查（lines.rs 的 health）。
 Future<HgProbeHit> health() => probeHit('current', HgNet.base);
 
+/* ──────────────── 手动选线（LinePicker.tsx 的 applyLine） ──────────────── */
+
+/// 手动切换线路：立即关自动选线（失败恢复），成功后持久化并广播。
+/// 返回归一化后的 origin。
+Future<String> setManualLine(String url, {bool custom = false}) async {
+  final wasAuto = HgStore.prefs.autoLine;
+  final previous = HgNet.base;
+  try {
+    if (wasAuto) await HgStore.prefs.setAutoLine(false);
+    final normalized = HgNet.normalizeBase(url);
+    if (normalized == null) throw '线路必须是合法的 HTTP(S) 地址';
+    HgNet.setBase(normalized);
+    await HgStore.prefs.setLineBase(normalized);
+    HgAutoLine.lineEpoch.value++;
+    await HgDiag.trace('line.manual', {
+      'line': normalized,
+      'prev': previous,
+      'custom': custom,
+      'ok': true,
+    });
+    return normalized;
+  } catch (e) {
+    if (wasAuto) await HgStore.prefs.setAutoLine(true);
+    await HgDiag.trace('line.manual', {
+      'line': url,
+      'prev': previous,
+      'ok': false,
+      'err': e.toString(),
+    });
+    rethrow;
+  }
+}
+
+/// 自定义镜像（LinePicker.tsx 的 saveCustom）：只接受 HTTPS 站点根地址，
+/// 不带路径、参数、账号密码。
+Future<String> setCustomLine(String raw) async {
+  final s = raw.trim();
+  final uri = Uri.tryParse(s);
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      uri.host.isEmpty ||
+      (uri.path.isNotEmpty && uri.path != '/') ||
+      uri.hasQuery ||
+      uri.hasFragment ||
+      uri.userInfo.isNotEmpty) {
+    throw '请填写 HTTPS 站点根地址，不带路径、参数或账号密码';
+  }
+  return setManualLine(s, custom: true);
+}
+
+/// 恢复主站（LinePicker.tsx 的 line_reset）。
+Future<String> resetLine() => setManualLine(kHgDefaultBase);
+
 /* ──────────────── 自动选线调度（autoLine.ts） ──────────────── */
 
 class HgAutoLine {
@@ -705,7 +759,15 @@ class HgAutoLine {
       }
       if (HgNet.base != result.base) {
         HgNet.setBase(result.base);
-        lineEpoch.value++;
+        await HgStore.prefs.setLineBase(result.base);
+        HgAutoLine.lineEpoch.value++;
+        await HgDiag.trace('line.auto', {
+          'line': result.base,
+          'tier': result.tier,
+          'ms': result.ms,
+          'reason': result.reason,
+          'mirror_error': result.mirrorError,
+        });
       }
     } catch (_) {
       // 选线失败不致命，等下次健康检查。
@@ -733,7 +795,13 @@ class HgAutoLine {
           final main = await tryMain();
           if (main.ok && HgNet.base != main.url) {
             HgNet.setBase(main.url);
-            lineEpoch.value++;
+            await HgStore.prefs.setLineBase(main.url);
+            HgAutoLine.lineEpoch.value++;
+            await HgDiag.trace('line.auto', {
+              'line': main.url,
+              'tier': 'main',
+              'reason': 'main-restored',
+            });
           }
         }
         _schedule(_healthSteps[_step]);

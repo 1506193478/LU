@@ -15,6 +15,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:XL/modules/hg/hg_dial.dart';
+import 'package:XL/modules/hg/hg_diag.dart';
+import 'package:XL/modules/hg/hg_policy.dart';
 import 'package:XL/modules/hg/hg_session.dart';
 
 /// 固定线路（lines.rs 的 FIXED）。
@@ -43,11 +46,140 @@ class HgNet {
   static void Function(bool networkish)? onApiFailure;
 
   static HttpClient _httpClient() {
-    _client ??= HttpClient()
+    _client ??= _buildClient();
+    return _client!;
+  }
+
+  /// 代理（proxy.rs 语义）应用到 HttpClient：
+  /// * system：沿用环境变量（桌面端）；移动端由 VPN/TUN 接管，等效直连；
+  /// * custom：HTTP 代理（Dart 网络层不支持 SOCKS，配置时已拦截提示）；
+  /// * off：直连，忽略系统代理与环境变量。
+  static HttpClient _buildClient() {
+    final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15)
       ..autoUncompress = true
       ..userAgent = kHgUserAgent;
-    return _client!;
+    final mode = HgStore.prefs.proxyMode;
+    if (mode == 'custom') {
+      final url = HgStore.prefs.proxyUrl;
+      if (url.isNotEmpty) {
+        client.findProxy = (_) => _dartProxyDirective(url);
+      }
+    } else if (mode == 'off') {
+      client.findProxy = (_) => 'DIRECT';
+    } else {
+      // system：优先环境变量；无环境变量时直连（移动端 TUN 场景）。
+      final envProxy = Platform.environment['HTTPS_PROXY'] ??
+          Platform.environment['https_proxy'] ??
+          Platform.environment['HTTP_PROXY'] ??
+          Platform.environment['http_proxy'] ??
+          Platform.environment['ALL_PROXY'] ??
+          Platform.environment['all_proxy'];
+      if (envProxy != null && envProxy.isNotEmpty) {
+        client.findProxy = HttpClient.findProxyFromEnvironment;
+      }
+    }
+    return client;
+  }
+
+  /// 自定义代理地址 → Dart 的 PROXY 指令（仅 http/https；socks 不支持）。
+  static String _dartProxyDirective(String normalized) {
+    final uri = Uri.tryParse(normalized);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return 'DIRECT';
+    }
+    final host = uri.host;
+    final port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+    return 'PROXY $host:$port';
+  }
+
+  /// 代理设置变化后重建所有连接（ProxySettings.tsx 保存后的
+  /// hg:proxy-changed 事件语义）。
+  static void rebuildClients() {
+    _client?.close(force: true);
+    _client = null;
+  }
+
+  /// 代理地址归一化（proxy.rs 的 normalize_proxy）。
+  /// 返回归一化后的地址；[isSocks] 告知上层 Dart 不支持 SOCKS 需提示。
+  static (String?, bool) normalizeProxy(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return (null, false);
+    if (s.codeUnits.any((c) => c < 0x20 || c == 0x7F)) {
+      throw const HgApiError('代理地址含控制字符');
+    }
+    if (!s.contains('://')) s = 'http://$s';
+    final uri = Uri.tryParse(s);
+    if (uri == null || uri.host.isEmpty) {
+      throw const HgApiError('代理地址格式无效');
+    }
+    final scheme = uri.scheme.toLowerCase();
+    const allowed = ['http', 'https', 'socks5', 'socks5h', 'socks4', 'socks4a'];
+    if (!allowed.contains(scheme)) {
+      throw const HgApiError('代理协议只支持 http / https / socks5 / socks4');
+    }
+    if ((uri.path.isNotEmpty && uri.path != '/') ||
+        uri.hasQuery ||
+        uri.hasFragment) {
+      throw const HgApiError('代理地址不要带路径、参数或片段');
+    }
+    if (uri.hasPort && uri.port == 0) {
+      throw const HgApiError('代理端口应为 1–65535');
+    }
+    final isSocks = scheme.startsWith('socks');
+    final buffer = StringBuffer('$scheme://${uri.userInfo}${uri.host}');
+    if (uri.hasPort) buffer.write(':${uri.port}');
+    return (buffer.toString(), isSocks);
+  }
+
+  /// 代理连通性测试（ProxySettings.tsx 的「测试连接」）：
+  /// 用草稿配置打当前线路首页，返回 (ok, ms, status, error)。
+  static Future<(bool, int, int?, String)> testProxy(String mode, String url) async {
+    final started = DateTime.now();
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10)
+      ..userAgent = kHgUserAgent;
+    try {
+      if (mode == 'custom') {
+        final (normalized, isSocks) = normalizeProxy(url);
+        if (normalized == null) throw const HgApiError('请填写代理地址');
+        if (isSocks) {
+          throw const HgApiError(
+              'LU 网络层暂不支持 SOCKS 代理；请使用 HTTP 代理，或直接使用 VPN/TUN 全局接管');
+        }
+        client.findProxy = (_) => _dartProxyDirective(normalized);
+      } else if (mode == 'off') {
+        client.findProxy = (_) => 'DIRECT';
+      }
+      final request = await client
+          .getUrl(Uri.parse('$base/'))
+          .timeout(const Duration(seconds: 15));
+      request.headers.set(HttpHeaders.refererHeader, '$base/');
+      final response =
+          await request.close().timeout(const Duration(seconds: 20));
+      await response.drain<void>();
+      final ms = DateTime.now().difference(started).inMilliseconds;
+      final ok = response.statusCode >= 200 && response.statusCode < 500;
+      return (
+        ok,
+        ms,
+        response.statusCode,
+        ok ? '' : 'HTTP ${response.statusCode}',
+      );
+    } on TimeoutException {
+      return (false, DateTime.now().difference(started).inMilliseconds, null, '连接超时');
+    } on HgApiError catch (e) {
+      return (false, DateTime.now().difference(started).inMilliseconds, null, e.message);
+    } catch (e) {
+      return (
+        false,
+        DateTime.now().difference(started).inMilliseconds,
+        null,
+        '请检查地址和网络',
+      );
+    } finally {
+      client.close(force: true);
+    }
   }
 
   /// 切换线路（会话跟随 origin 绑定，换线路后旧 token 不再使用）。
@@ -91,6 +223,13 @@ class HgNet {
     String? baseOverride,
   }) async {
     final origin = baseOverride ?? _base;
+    // 严格安全模式守卫（network_policy.parse_target）：目标合法性 +
+    // 主机名检查；字面量私网 IP 在这里就能拦下。
+    final guardError = hgCheckTarget(Uri.parse(origin));
+    if (guardError != null) {
+      await HgDiag.trace('api.blocked', {'origin': origin, 'why': guardError});
+      throw HgApiError(guardError);
+    }
     var token = baseOverride == null ? _tokenFor(origin) : '';
     if (authed && token.isEmpty) {
       throw const HgApiError('请先登录');
@@ -109,6 +248,7 @@ class HgNet {
     // net.rs：edge 信封 POST 逐跳重建、拒绝降级。Dart 的 HttpClient 会把
     // 301/302/303 的 POST 自动改成 GET 跟随，导致信封丢失——这里关闭
     // 自动跟随，guest GET 自己跟一跳，其余直接报错。
+    try {
     final request = await _httpClient()
         .postUrl(Uri.parse(url))
         .timeout(const Duration(seconds: 20));
@@ -176,28 +316,33 @@ class HgNet {
         : '接口返回失败';
     if (baseOverride == null) onApiFailure?.call(true);
     throw HgApiError(msg);
+    } on HgApiError {
+      rethrow;
+    } catch (e) {
+      // 网络层异常（SocketException/HandshakeException/超时）：记录进
+      // 播放诊断日志，然后按网络类失败交给观察者。
+      if (baseOverride == null) {
+        onApiFailure?.call(true);
+        await HgDiag.trace('api.error', {
+          'origin': origin,
+          'path': path,
+          'error': e.toString(),
+          'strict': HgStore.prefs.strictSecurity,
+        });
+      }
+      rethrow;
+    }
   }
 
   /// 拉原始字节（封面 / m3u8 / 分片 / key），带 UA + Referer 防盗链头。
+  ///
+  /// 经 HgDial：3 次重试 + DNS 自愈（连接类失败自动切阿里 DoH 解析的
+  /// 公网 IP 直连，media_dns.rs 语义），重定向逐跳校验。
   static Future<(String? contentType, Uint8List bytes)> fetchBytes(
     String url, {
     String? refererBase,
-  }) async {
-    final referer = refererBase ?? _base;
-    final request = await _httpClient()
-        .getUrl(Uri.parse(url))
-        .timeout(const Duration(seconds: 20));
-    request.headers.set('Referer', '$referer/');
-    final response = await request.close().timeout(const Duration(seconds: 25));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HgApiError('HTTP ${response.statusCode}');
-    }
-    final ctype = response.headers.value('content-type');
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in response) {
-      builder.add(chunk);
-    }
-    return (ctype, builder.takeBytes());
+  }) {
+    return HgDial.fetch(url, refererBase ?? _base);
   }
 
   /// 发布页专用 GET（lines.rs 的 get_text）：带 UA 与宽 Accept，

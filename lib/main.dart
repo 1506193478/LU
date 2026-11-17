@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show PlatformDispatcher;
 
@@ -27,6 +28,7 @@ import 'package:XL/services/platform/desktop_window_config.dart';
 import 'package:XL/services/platform/webview_feature_service.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/navigation.dart';
+import 'package:XL/modules/hg/hg_diag.dart';
 import 'package:XL/modules/hg/hg_lines.dart';
 import 'package:XL/modules/hg/hg_net.dart';
 import 'package:XL/modules/hg/hg_proxy.dart';
@@ -78,6 +80,7 @@ void main() async {
     if (HgStore.prefs.lineBase.isNotEmpty) {
       HgNet.setBase(HgStore.prefs.lineBase);
     }
+    unawaited(HgDiag.init());
     if (HgStore.unlocked) HgAutoLine.start();
   } catch (e) {
     debugPrint('Storage initialization failed: $e');

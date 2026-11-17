@@ -16,7 +16,9 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import 'package:XL/modules/hg/hg_diag.dart';
 import 'package:XL/modules/hg/hg_lines.dart';
+import 'package:XL/modules/hg/hg_net.dart';
 import 'package:XL/modules/hg/hg_proxy.dart';
 
 class HgFeedPlayer extends StatefulWidget {
@@ -143,6 +145,11 @@ class _HgFeedPlayerState extends State<HgFeedPlayer> {
     });
     _errorSub = player.stream.error.listen((error) {
       if (mounted && seq == _openSeq && !_failed) {
+        HgDiag.trace('play.fail', {
+          'line': HgNet.base,
+          'upstream': upstream,
+          'error': error.toString(),
+        });
         setState(() {
           _failed = true;
           _buffering = false;
@@ -170,6 +177,10 @@ class _HgFeedPlayerState extends State<HgFeedPlayer> {
         await player.dispose();
         return;
       }
+      await HgDiag.trace('play.open', {
+        'line': HgNet.base,
+        'upstream': upstream,
+      });
       await player.setVolume(_muted ? 0 : _volume * 100);
       await player.setRate(_doubleSpeed ? 2.0 : 1.0);
       if (widget.startPosition > const Duration(seconds: 1) &&
@@ -189,6 +200,7 @@ class _HgFeedPlayerState extends State<HgFeedPlayer> {
 
   Future<void> _retry() async {
     // 重试前先触发一次自动选线（线路挂了会切到新镜像）。
+    await HgDiag.trace('play.retry', {'line': HgNet.base});
     if (HgAutoLine.enabled) {
       await HgAutoLine.pickLine('retry', force: true);
     }
