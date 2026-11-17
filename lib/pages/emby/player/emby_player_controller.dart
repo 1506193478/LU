@@ -204,10 +204,10 @@ class EmbyPlayerController extends ChangeNotifier {
 
   bool get isAvBackend => _av != null;
 
-  /// AV 路径的画面纹理 id；页面用它渲染 `Texture`。
+  /// AV 路径的平台视图句柄；页面用它渲染 `UiKitView('xl/avplayer_view')`。
   int? get avTextureId {
     final engine = _av;
-    return (engine != null && engine.ready) ? engine.textureId : null;
+    return (engine != null && engine.ready) ? engine.viewId : null;
   }
 
   /// AV 路径的当前字幕文本（Dart 层渲染，跟着 position 走）。

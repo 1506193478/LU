@@ -3,13 +3,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-/// iOS AVPlayer 播放引擎（方向 B 的 Dart 侧）。
+/// iOS AVPlayer 播放引擎（v2 系统组件方案的 Dart 侧）。
 ///
-/// 原生实现在 `ios/Runner/AvPlayerEnginePlugin.swift`：
+/// 原生实现在 `ios/Runner/AppDelegate.swift`（AvPlayerEnginePlugin）：
 ///   * MethodChannel `xl/avplayer` —— 控制命令；
 ///   * EventChannel `xl/avplayer/events` —— 状态回推；
-///   * [textureId] 交给 `Texture` widget 渲染（AVPlayerItemVideoOutput 的
-///     pixel buffer 经 CADisplayLink 驱动）。
+///   * [viewId] 交给 `UiKitView(viewType: 'xl/avplayer_view')` 渲染
+///     （系统 AVPlayerViewController 嵌入，v1 的自研纹理路径已整体移除）。
 ///
 /// 设计目标：接口形状尽量贴近 media_kit 的 `Player`（playing/buffering/
 /// completed/position/duration/volume/rate + audio/subtitle 轨道），让
@@ -21,7 +21,8 @@ class AvPlayerEngine extends ChangeNotifier {
 
   StreamSubscription<dynamic>? _sub;
 
-  int textureId = -1;
+  /// 平台视图句柄（v2：>=0 即就绪，交给 UiKitView 的 creationParams）。
+  int viewId = -1;
   bool ready = false;
 
   bool playing = false;
@@ -61,8 +62,8 @@ class AvPlayerEngine extends ChangeNotifier {
   void resetError() => error = '';
 
   Future<void> create() async {
-    textureId = (await _channel.invokeMethod<int>('create')) ?? -1;
-    ready = textureId >= 0;
+    viewId = (await _channel.invokeMethod<int>('create')) ?? -1;
+    ready = viewId >= 0;
     _sub ??= _events.receiveBroadcastStream().listen(
       _onEvent,
       onError: (e) {

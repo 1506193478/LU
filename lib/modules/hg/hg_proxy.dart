@@ -15,6 +15,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pointycastle/export.dart' as pc;
 
 import 'package:XL/modules/hg/hg_net.dart';
@@ -90,13 +91,19 @@ class HgProxy {
 
   static Future<void> _handle(HttpRequest request) async {
     try {
+      final path = request.uri.path;
+      // WebView 路线 A：宿主前端静态资源（同源，hls.js fetch 无 CORS）。
+      if (path == '/app' || path.startsWith('/app/')) {
+        await _handleStatic(request, path);
+        return;
+      }
       final target = request.uri.queryParameters['u'] ?? '';
       if (target.isEmpty) {
         await _respond(request, 400, 'text/plain', _textBytes('missing u'),
             cache: 'no-store');
         return;
       }
-      switch (request.uri.path) {
+      switch (path) {
         case '/img':
           await _handleImg(request, target);
         case '/hls':
@@ -113,6 +120,60 @@ class HgProxy {
             cache: 'no-store');
       } catch (_) {
         // 客户端已断开，忽略。
+      }
+    }
+  }
+
+  /// 前端 bundle 静态服务（assets/hgweb，vite build 产物）。
+  static const String _assetRoot = 'assets/hgweb';
+
+  static const Map<String, String> _mimeTypes = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.txt': 'text/plain; charset=utf-8',
+    '.map': 'application/json; charset=utf-8',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+  };
+
+  static Future<void> _handleStatic(HttpRequest request, String path) async {
+    var rel = path == '/app' ? '' : path.substring('/app/'.length);
+    if (rel.startsWith('/')) rel = rel.substring(1);
+    // 只接受安全路径（SPA 路由回退 index.html）。
+    if (rel.contains('..') || rel.contains('\\')) {
+      await _respond(request, 400, 'text/plain', _textBytes('bad path'),
+          cache: 'no-store');
+      return;
+    }
+    if (rel.isEmpty) rel = 'index.html';
+    try {
+      final bytes = (await rootBundle.load('$_assetRoot/$rel')).buffer
+          .asUint8List();
+      final ext = rel.contains('.')
+          ? rel.substring(rel.lastIndexOf('.')).toLowerCase()
+          : '';
+      final mime = _mimeTypes[ext] ?? 'application/octet-stream';
+      await _respond(request, 200, mime, bytes,
+          cache: ext == '.html' ? 'no-cache' : 'public, max-age=3600');
+    } catch (_) {
+      // SPA 路由回退到入口页（前端用 history 路由时需要）。
+      try {
+        final bytes = (await rootBundle.load('$_assetRoot/index.html')).buffer
+            .asUint8List();
+        await _respond(request, 200, 'text/html; charset=utf-8', bytes,
+            cache: 'no-cache');
+      } catch (e) {
+        await _respond(request, 404, 'text/plain', _textBytes('not found'),
+            cache: 'no-store');
       }
     }
   }

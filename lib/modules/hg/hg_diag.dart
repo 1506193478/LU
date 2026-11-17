@@ -80,11 +80,14 @@ class HgDiag {
     final batch = _queue.toList();
     _queue.clear();
     final text = batch.map((l) => '$l\n').join();
-    _writing = _writing?.then<void>((_) async {
-          await _file?.writeAsString(text,
-              mode: FileMode.append, flush: false);
-        }).catchError((_) {}) ??
-        Future<void>.value();
+    // 串行化写入：先接上「上一次写完成」的 Future，再写当前批。
+    // 之前 `_writing?.then(...) ?? Future.value()` 的写法在 _writing
+    // 为 null 时走了 ?? 分支，then 里的 writeAsString 根本没执行，
+    // 导致第一批日志（冷启动 300ms 内的 app.start 等）被静默丢弃。
+    final prev = _writing ?? Future<void>.value();
+    _writing = prev.then((_) async {
+      await _file?.writeAsString(text, mode: FileMode.append, flush: true);
+    }).catchError((_) {});
     await _writing;
   }
 

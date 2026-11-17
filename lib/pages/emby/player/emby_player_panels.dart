@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
+import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/subtitle/han_convert.dart';
 
 /// 播放器内的面板。
@@ -231,10 +232,14 @@ class EmbyMorePanelActions {
     required this.onSleep,
     required this.onBackground,
     required this.onProgress,
+    this.onStreamMode,
+    this.onInfo,
+    this.onChapters,
     this.episodeCount = 0,
     this.decodeLabel = '硬解',
     this.playbackModeLabel = '顺序播放',
     this.sleepLabel = '不启用',
+    this.streamModeLabel = '自动',
     this.background = false,
     this.progressAlways = false,
   });
@@ -245,10 +250,14 @@ class EmbyMorePanelActions {
   final VoidCallback onSleep;
   final VoidCallback onBackground;
   final VoidCallback onProgress;
+  final VoidCallback? onStreamMode;
+  final VoidCallback? onInfo;
+  final VoidCallback? onChapters;
   final int episodeCount;
   final String decodeLabel;
   final String playbackModeLabel;
   final String sleepLabel;
+  final String streamModeLabel;
   final bool background;
   final bool progressAlways;
 }
@@ -258,6 +267,13 @@ Widget buildEmbyMorePanel(BuildContext context, EmbyMorePanelActions a) {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       const _GroupTitle('播放设置', first: true),
+      if (a.onStreamMode != null)
+        _PanelRow(
+          title: '切换线路',
+          subtitle: a.streamModeLabel,
+          chevron: true,
+          onTap: a.onStreamMode,
+        ),
       _PanelRow(
         title: '解码',
         subtitle: a.decodeLabel,
@@ -277,9 +293,11 @@ Widget buildEmbyMorePanel(BuildContext context, EmbyMorePanelActions a) {
         chevron: true,
         onTap: a.onSleep,
       ),
-      // 「媒体信息」不再放这里：顶栏已经有一枚 info 按钮，重复入口只会
-      // 让人以为点开的是两份不同的数据。
       const _GroupTitle('工具'),
+      if (a.onChapters != null)
+        _PanelRow(title: '章节', chevron: true, onTap: a.onChapters),
+      if (a.onInfo != null)
+        _PanelRow(title: '媒体信息', chevron: true, onTap: a.onInfo),
       _PanelRow(
         title: '后台音频',
         subtitle: a.background ? '继续播放声音' : '随画面一起暂停',
@@ -1217,4 +1235,122 @@ String _fmtDuration(Duration d) {
   final String mm = m.toString().padLeft(2, '0');
   final String ss = s.toString().padLeft(2, '0');
   return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
+}
+
+/// 弹幕面板：开关状态/来源在标题行，下面是参考播放器的五个动作。
+Widget buildEmbyDanmakuPanel({
+  required bool on,
+  required bool loading,
+  required String status,
+  required int count,
+  required String matchedTitle,
+  required VoidCallback onImport,
+  required VoidCallback onToggle,
+  required VoidCallback onPosition,
+  required VoidCallback onSettings,
+  required VoidCallback onDisableForever,
+}) {
+  final String stateText;
+  if (loading) {
+    stateText = '匹配中…';
+  } else if (matchedTitle.isNotEmpty) {
+    stateText = '$matchedTitle（$count 条）';
+  } else if (status.isNotEmpty) {
+    stateText = status;
+  } else {
+    stateText = on ? '已开启' : '已停用';
+  }
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _PanelRow(
+        title: '弹幕',
+        subtitle: stateText,
+        icon: Icons.sports_esports_outlined,
+        onTap: null,
+      ),
+      _PanelRow(
+        title: '禁用弹幕',
+        selected: !on,
+        onTap: onToggle,
+      ),
+      _PanelRow(
+        title: '本地导入',
+        chevron: true,
+        onTap: onImport,
+      ),
+      _PanelRow(
+        title: '弹幕位置',
+        chevron: true,
+        onTap: onPosition,
+      ),
+      _PanelRow(
+        title: '弹幕设置',
+        chevron: true,
+        onTap: onSettings,
+      ),
+      _PanelRow(
+        title: '永久禁用',
+        chevron: true,
+        onTap: onDisableForever,
+      ),
+      const SizedBox(height: 8),
+    ],
+  );
+}
+
+/// 弹幕位置：顶部 / 滚动 / 底部三组开关（读全局弹幕设置键，与设置页同步）。
+/// 点一下切换该类弹幕显示/隐藏，然后收起子菜单（再打开就能看到新状态）。
+Widget buildEmbyDanmakuPositionPanel({
+  required bool scroll,
+  required bool top,
+  required bool bottom,
+  required void Function(String kind) onToggle,
+}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const _GroupTitle('弹幕位置', first: true),
+      _PanelRow(
+        title: '滚动弹幕',
+        subtitle: scroll ? '显示' : '隐藏',
+        selected: scroll,
+        onTap: () => onToggle('scroll'),
+      ),
+      _PanelRow(
+        title: '顶部弹幕',
+        subtitle: top ? '显示' : '隐藏',
+        selected: top,
+        onTap: () => onToggle('top'),
+      ),
+      _PanelRow(
+        title: '底部弹幕',
+        subtitle: bottom ? '显示' : '隐藏',
+        selected: bottom,
+        onTap: () => onToggle('bottom'),
+      ),
+      const SizedBox(height: 8),
+    ],
+  );
+}
+
+/// 切换线路：自动 / 直连 / 转码。
+Widget buildEmbyStreamModePanel({
+  required EmbyStreamMode current,
+  required ValueChanged<EmbyStreamMode> onSelect,
+}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const _GroupTitle('线路', first: true),
+      for (final mode in EmbyStreamMode.values)
+        _PanelRow(
+          title: mode.label,
+          subtitle: mode.description,
+          selected: current == mode,
+          onTap: () => onSelect(mode),
+        ),
+      const SizedBox(height: 8),
+    ],
+  );
 }

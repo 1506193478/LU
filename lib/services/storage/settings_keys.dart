@@ -816,6 +816,9 @@ class SettingsKeys {
     embySubtitleLanguage,
     embySubtitleDisabledIds,
     embyIosKernel,
+    urlParseApi,
+    urlParseJsonPath,
+    embyDanmakuForeverDisabled,
     subtitleHanConvert,
     playbackCacheProfile,
   ];
@@ -873,6 +876,28 @@ class SettingsKeys {
   static const embyIosKernel = SettingKey<String>(
     _SettingBoxKey.embyIosKernel,
     'auto',
+    group: SettingGroup.emby,
+  );
+
+  /// 自定义解析接口模板：资源库「网络链接」粘贴的地址先交给它换直链再播。
+  /// 占位符：`{url}` 原样、`{url_enc}` URL 编码。留空 = 不解析直连。
+  static const urlParseApi = SettingKey<String>(
+    'urlParseApi',
+    '',
+    group: SettingGroup.emby,
+  );
+
+  /// 解析接口返回 JSON 时的字段路径（点分，如 `data.url`）；留空自动探测。
+  static const urlParseJsonPath = SettingKey<String>(
+    'urlParseJsonPath',
+    '',
+    group: SettingGroup.emby,
+  );
+
+  /// Emby 播放器弹幕「永久禁用」（区别于播放页里的会话开关）。
+  static const embyDanmakuForeverDisabled = SettingKey<bool>(
+    'embyDanmakuForeverDisabled',
+    false,
     group: SettingGroup.emby,
   );
 
@@ -1030,6 +1055,9 @@ class _SettingBoxKey {
       embySubtitleLanguage = 'embySubtitleLanguage',
       embySubtitleDisabledIds = 'embySubtitleDisabledIds',
       embyIosKernel = 'embyIosKernel',
+      urlParseApi = 'urlParseApi',
+      urlParseJsonPath = 'urlParseJsonPath',
+      embyDanmakuForeverDisabled = 'embyDanmakuForeverDisabled',
       subtitleHanConvert = 'subtitleHanConvert',
       playbackCacheProfile = 'playbackCacheProfile';
 }

@@ -5,12 +5,15 @@
 /// 沉浸页（Feed）自身恒黑不受影响。
 library;
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'package:flutter_modular/flutter_modular.dart';
 
 import 'package:XL/modules/hg/hg_feed_page.dart';
+import 'package:XL/modules/hg/hg_web_page.dart';
 import 'package:XL/modules/hg/hg_session.dart';
 
 final hgModule = createModule(
@@ -19,9 +22,11 @@ final hgModule = createModule(
     c.route(
       '/',
       transition: TransitionType.none,
-      child: (context, state) => const HgAppearanceScope(
-        child: HgFeedPage(),
-      ),
+      // WebView 路线（fork 前端原样承载）：移动/macOS 走 WebView；
+      // Windows/Linux 尚无 flutter_inappwebview 平台实现，暂回退原生 UI。
+      child: (context, state) => (Platform.isWindows || Platform.isLinux)
+          ? const HgAppearanceScope(child: HgFeedPage())
+          : const HgWebPage(),
     );
   },
 );

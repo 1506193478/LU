@@ -80,7 +80,7 @@ void main() async {
     if (HgStore.prefs.lineBase.isNotEmpty) {
       HgNet.setBase(HgStore.prefs.lineBase);
     }
-    unawaited(HgDiag.init());
+    await HgDiag.init();
     if (HgStore.unlocked) HgAutoLine.start();
   } catch (e) {
     debugPrint('Storage initialization failed: $e');

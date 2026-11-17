@@ -1,25 +1,36 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:saver_gallery/saver_gallery.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:XL/bean/dialog/dialog.dart';
+import 'package:XL/pages/emby/player/emby_danmaku.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
+import 'package:XL/pages/settings/danmaku/danmaku_settings.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
+import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/services/player/pip_utils.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
+import 'package:XL/services/storage/storage.dart';
 import 'package:XL/services/subtitle/han_convert.dart';
+import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/utils/format.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -164,6 +175,12 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   String _clockText = '';
   String _netSpeedText = '';
   int? _batteryLevel;
+
+  // 弹幕（dandanplay 自动匹配 / 本地 XML 导入）。画布 widget 缓存，
+  // 只有显示设置变化（optionRev）才重建。
+  final EmbyDanmakuController danmaku = EmbyDanmakuController();
+  int _danmakuOptionRev = -1;
+  Widget? _danmakuChild;
   bool _batteryCharging = false;
   final Battery _battery = Battery();
 
@@ -207,6 +224,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       unawaited(controller.setSpeed(_speedBeforeLongPress));
     }
     _saveZoom();
+    danmaku.dispose();
     if (!_isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       // 还原亮度 + 放开方向锁。少了这两行，退出播放器后整个 App 是暗的、
@@ -581,10 +599,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           sleepLabel: embySleepLabel(controller.sleepMode),
           background: controller.backgroundAudio,
           progressAlways: controller.progressAlwaysVisible,
+          streamModeLabel: EmbyStreamPrefs.mode.label,
           onDecode: _openDecode,
           onPlaybackMode: _openPlaybackMode,
           onIntroOutro: _openIntroOutro,
           onSleep: _openSleep,
+          onStreamMode: _openStreamMode,
+          onInfo: _openInfo,
+          onChapters: controller.chapters.isEmpty ? null : _openChapters,
           onBackground: () {
             controller.setBackgroundAudio(!controller.backgroundAudio);
             Navigator.of(ctx).pop();
@@ -721,6 +743,136 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         onSelect: (value) {
           controller.setSpeed(value);
           Navigator.of(ctx).pop();
+        },
+      ),
+    );
+  }
+
+  /// 重新加载当前流（换线路 / 卡住自救）。
+  Future<void> _reloadStream() async {
+    unawaited(controller.openIndex(controller.index));
+  }
+
+  bool get _pipSupported {
+    if (Platform.isAndroid) return true;
+    if (Platform.isIOS) return controller.pipAvailable;
+    return false;
+  }
+
+  /// 画中画：AV 内核直接进原生小窗；mpv 在 Android 走系统画中画
+  /// （画面由 Flutter 继续渲染），iOS 直连原盘要先切转码内核。
+  Future<void> _togglePip() async {
+    if (controller.isAvBackend) {
+      await controller.requestPip();
+      return;
+    }
+    if (Platform.isAndroid) {
+      final ok = await PipUtils.enterAndroidPIPWindow(
+        width: controller.videoWidth <= 0 ? 16 : controller.videoWidth,
+        height: controller.videoHeight <= 0 ? 9 : controller.videoHeight,
+      );
+      if (!ok) _toast('画中画暂时不可用');
+      return;
+    }
+    if (Platform.isIOS) {
+      final confirmed = await showKzConfirm(
+        context: context,
+        title: '进入画中画',
+        message: '直连原盘需要先切换到系统转码内核，会重新加载当前进度。',
+      );
+      if (!confirmed || !mounted) return;
+      await controller.switchToPipByTranscode();
+    }
+  }
+
+  /// 截图：取当前帧 → 预览弹窗（分享 / 保存到相册）。
+  Future<void> _openScreenshot() async {
+    Uint8List? bytes;
+    try {
+      bytes = await controller.playback.screenshotPng();
+    } catch (_) {
+      bytes = null;
+    }
+    if (!mounted) return;
+    if (bytes == null || bytes.isEmpty) {
+      _toast('截图失败：当前内核不支持取帧');
+      return;
+    }
+    final Uint8List shot = bytes;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _ScreenshotDialog(
+        bytes: shot,
+        title: controller.current?.name ?? '截图',
+      ),
+    );
+  }
+  /// 弹幕菜单：本地导入 / 禁用 / 位置 / 设置 / 永久禁用。
+  Future<void> _openDanmaku() async {
+    _pauseAutoHide();
+    await _showMenuPage(
+      '弹幕',
+      (ctx) => AnimatedBuilder(
+        animation: danmaku,
+        builder: (context, _) => buildEmbyDanmakuPanel(
+          on: danmaku.on,
+          loading: danmaku.loading,
+          status: danmaku.status,
+          count: danmaku.count,
+          matchedTitle: danmaku.matchedTitle,
+          onImport: () async {
+            final n = await danmaku.importLocal();
+            KazumiDialog.showToast(
+                message: n > 0 ? '已导入 $n 条弹幕' : '没有解析到弹幕');
+          },
+          onToggle: () {
+            danmaku.setSessionOn(!danmaku.sessionOn);
+          },
+          onPosition: _openDanmakuPosition,
+          onSettings: () {
+            Navigator.of(ctx).pop();
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DanmakuSettingsPage()),
+            );
+          },
+          onDisableForever: () {
+            danmaku.setForeverDisabled(!danmaku.foreverDisabled);
+            KazumiDialog.showToast(
+                message: danmaku.foreverDisabled ? '弹幕已永久禁用' : '已恢复弹幕');
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDanmakuPosition() async {
+    _pauseAutoHide();
+    await _showMenuPage(
+      '弹幕位置',
+      (ctx) => buildEmbyDanmakuPositionPanel(
+        scroll: GStorage.getSetting(SettingsKeys.danmakuScroll),
+        top: GStorage.getSetting(SettingsKeys.danmakuTop),
+        bottom: GStorage.getSetting(SettingsKeys.danmakuBottom),
+        onToggle: (kind) {
+          danmaku.togglePosition(kind);
+          Navigator.of(ctx).pop();
+        },
+      ),
+    );
+  }
+
+  /// 切换线路（直连 / 转码 / 自动）：改完重开当前集生效。
+  Future<void> _openStreamMode() async {
+    _pauseAutoHide();
+    await _showMenuPage(
+      '切换线路',
+      (ctx) => buildEmbyStreamModePanel(
+        current: EmbyStreamPrefs.mode,
+        onSelect: (mode) {
+          Navigator.of(ctx).pop();
+          if (mode == EmbyStreamPrefs.mode) return;
+          EmbyStreamPrefs.setMode(mode);
+          controller.openIndex(controller.index);
         },
       ),
     );
@@ -956,7 +1108,17 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                     // 手势只铺在**画面**这一层：控件（按钮 / 进度条）在它上面，
                     // 点按钮不会顺带把控件收起来。
                     _buildCachedSurface(),
-                    if (!controller.loading &&
+                    // 弹幕层（mpv 内核）：在画面之上、控件之下。
+                    if (!controller.isAvBackend) _buildDanmakuLayer(),
+                    // AVPlayer 内核走系统原生控制条（AVKit 自带），不叠自绘
+                    // 播放控件；App 级入口（返回/标题/选集/锁定/更多）由
+                    // 顶部功能层补回，不能因为换内核而丢功能。
+                    if (controller.isAvBackend &&
+                        !controller.loading &&
+                        controller.error.isEmpty)
+                      _buildAvAppChrome(),
+                    if (!controller.isAvBackend &&
+                        !controller.loading &&
                         controller.error.isEmpty &&
                         !_chromeSettled) ...[
                       // 遮罩和控件共用一个 240ms 的曲线。以前遮罩淡 180ms、
@@ -967,7 +1129,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                         fill: true,
                       ),
                       _buildTopBar(),
-                      _buildCenterControls(),
                       _buildBottomBar(),
                     ],
                     if (controller.loading) _buildLoading(),
@@ -1073,6 +1234,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   Widget _buildGestureSurface() {
     final surface = _buildVideoSurface();
+    // AVPlayer 内核（iOS）：原生交互——点击呼出/隐藏系统控制条、滑动快进、
+    // 音轨字幕选择全是 AVKit 自带的，Flutter 手势层直接让路。
+    if (controller.isAvBackend) return surface;
     if (_isDesktop) {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -1088,6 +1252,28 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       onPointerUp: _onPointerUp,
       onPointerCancel: _onPointerCancel,
       child: surface,
+    );
+  }
+
+  /// 弹幕画布层：widget 缓存，显示设置变化（optionRev）才重建。
+  Widget _buildDanmakuLayer() {
+    Widget? child;
+    return AnimatedBuilder(
+      animation: danmaku,
+      builder: (context, _) {
+        if (!danmaku.on || danmaku.entries.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        if (_danmakuOptionRev != danmaku.optionRev || _danmakuChild == null) {
+          _danmakuOptionRev = danmaku.optionRev;
+          _danmakuChild = DanmakuScreen(
+            createdController: (DanmakuController c) => danmaku.canvas = c,
+            option: danmaku.option(),
+          );
+        }
+        child = _danmakuChild;
+        return child!;
+      },
     );
   }
 
@@ -1239,21 +1425,20 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         .trim();
   }
 
-  /// AVPlayer 内核的画面层：Texture 渲染 + 自绘字幕 overlay。  ///
+  /// AVPlayer 内核的画面层：系统 AVPlayerViewController（PlatformView）
+  /// + 自绘字幕 overlay。
   /// 字幕样式刻意和 mpv 路径的 [_subtitleViewConfig] 保持同一套
   /// （透明底 + 八向描边 + 缩放 + 垂直偏移），两条路径看起来是一个播放器。
   Widget _buildAvSurface(int textureId) {
     final double w = controller.videoWidth.toDouble();
     final double h = controller.videoHeight.toDouble();
-    final Widget video = (w > 0 && h > 0)
-        ? Center(
-            child: AspectRatio(
-              aspectRatio: w / h,
-              child: Texture(textureId: textureId),
-            ),
-          )
-        // 尺寸事件还没到：先全屏铺，第一帧到了自然按比例收。
-        : SizedBox.expand(child: Texture(textureId: textureId));
+    // v2：渲染交给系统 AVPlayerViewController（resizeAspect 自动信箱），
+    // 不再需要自研纹理按宽高比裁切——直接全屏铺即可。
+    final Widget video = UiKitView(
+      viewType: 'xl/avplayer_view',
+      creationParams: {'id': textureId},
+      creationParamsCodec: const StandardMessageCodec(),
+    );
 
     final s = controller.subtitleSettings;
     final hasSubtitle =
@@ -1422,6 +1607,25 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     final clock =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
+    // 弹幕：按秒投喂 + 首次起播时自动匹配（dandanplay）。
+    if (!controller.isAvBackend) {
+      danmaku.tick(controller.position, playing: controller.playing);
+      if (!danmaku.ready &&
+          !danmaku.loading &&
+          !danmaku.foreverDisabled &&
+          controller.playing) {
+        final item = controller.current;
+        if (item != null) {
+          unawaited(danmaku.autoMatch(
+            (item.seriesName?.trim().isNotEmpty ?? false)
+                ? item.seriesName!.trim()
+                : item.name.trim(),
+            controller.episodeLabel,
+          ));
+        }
+      }
+    }
+
     double? speed;
     if (controller.playing && _chromeShown) speed = await _readNetworkSpeed();
 
@@ -1452,20 +1656,41 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     });
   }
 
-  /// mpv 内核的实时网络读取速度（bytes/s）。`cache-speed` 在缓存未激活 /
-  /// 值未知时返回负数，按拿不到处理；AV 内核（AVPlayer）拿不到，返回 null。
+  /// mpv 内核的实时网络读取速度（bytes/s）。
+  ///
+  /// 优先 `cache-speed`（缓存激活时最准）；直连不缓存时它一直是 -1，退回
+  /// `demuxer-cache-state` 里的 `reader-bytes` 累计值按秒做差。AV 内核拿
+  /// 不到，返回 null。
   Future<double?> _readNetworkSpeed() async {
     if (controller.isAvBackend) return null;
     final platform = controller.playback.mediaPlayer?.platform;
     if (platform is! NativePlayer) return null;
     try {
       final value = double.tryParse(await platform.getProperty('cache-speed'));
-      if (value == null || value <= 0) return null;
-      return value;
+      if (value != null && value > 0) return value;
+    } catch (_) {}
+    // 直连（无缓存）：reader-bytes 每秒差分。
+    try {
+      final raw = await platform.getProperty('demuxer-cache-state');
+      final json = jsonDecode(raw);
+      final total = (json['reader-bytes'] as num?)?.toDouble() ?? 0;
+      final now = DateTime.now();
+      final lastBytes = _lastReaderBytes;
+      final lastAt = _lastReaderAt;
+      _lastReaderBytes = total;
+      _lastReaderAt = now;
+      if (lastBytes == null || lastAt == null) return null;
+      final dt = now.difference(lastAt).inMilliseconds / 1000.0;
+      if (dt <= 0) return null;
+      final delta = (total - lastBytes) / dt;
+      return delta > 0 ? delta : null;
     } catch (_) {
       return null;
     }
   }
+
+  double? _lastReaderBytes;
+  DateTime? _lastReaderAt;
 
   IconData _batteryIcon(int level, bool charging) {
     if (charging) return Icons.battery_charging_full_rounded;
@@ -1562,6 +1787,45 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   }
 
   Widget _buildTopBar() {
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: 0,
+      child: _chromeLayer(
+        slide: -16,
+        child: _topBarInner(),
+      ),
+    );
+  }
+
+  /// AVPlayer 内核（AVKit 系统控制条）下的 App 级功能层。
+  ///
+  /// AVKit 原生控制条负责播放控制（播放/进度/±10s/音轨字幕/画中画），但它
+  /// 给不了返回、选集、详情、锁定、更多这些 App 级入口——这里在顶部补一层。
+  /// 顶部唤起区（状态栏下一条）负责显隐本层：点它不会透给 AVKit，避免一次
+  /// 点击同时把两套控件都拉出来；点画面其余区域仍是 AVKit 自己的控制条。
+  Widget _buildAvAppChrome() {
+    final double topInset = MediaQuery.of(context).padding.top;
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: 0,
+      height: topInset + 108,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (controller.locked) return;
+          controller.setControlsVisible(!controller.controlsVisible);
+        },
+        child: _chromeLayer(
+          child: _topBarInner(),
+        ),
+      ),
+    );
+  }
+
+  /// 顶栏内容（标题状态行 + 按钮排），mpv 与 AV 两套内核共用。
+  Widget _topBarInner() {
     final item = controller.current;
     final series = item?.seriesName?.trim();
     // 居中标题：剧集 =「剧名 S01E06 单集名」，电影 = 片名。
@@ -1575,13 +1839,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         ? parts.join(' ')
         : (item?.name ?? widget.launch.title);
 
-    return Positioned(
-      left: 0,
-      right: 0,
-      top: 0,
-      child: _chromeLayer(
-        slide: -16,
-        child: SafeArea(
+    return SafeArea(
           bottom: false,
           child: Padding(
             padding: EdgeInsets.fromLTRB(
@@ -1598,11 +1856,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                 SizedBox(height: _isDesktop ? 12 : 8),
                 Row(
                   children: [
-                    // 短按先收起控件（视频里那颗按钮的手感），长按才真的退出。
-                    // 不想这样的话可以在「播放手势 → 长按返回键退出播放器」关掉。
+                    // 关闭：短按收起控件（长按返回手势开着时），长按才退出。
                     _CircleAction(
-                      icon: Icons.arrow_back_ios_new_rounded,
-                      iconSize: 17,
+                      icon: Icons.close_rounded,
+                      iconSize: 19,
                       onTap: _gesture.longPressExit
                           ? _toggleControls
                           : () => Navigator.of(context).maybePop(),
@@ -1610,150 +1867,70 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                           ? () => Navigator.of(context).maybePop()
                           : null,
                     ),
-                    const Spacer(),
-                    if (widget.launch.episodes.length > 1)
+                    const SizedBox(width: 12),
+                    // 投屏 / AirPlay：弹系统路由选择器。
+                    _CircleAction(
+                      icon: Platform.isIOS
+                          ? Icons.airplay
+                          : Icons.cast_rounded,
+                      iconSize: 17,
+                      onTap: _openAirplay,
+                    ),
+                    // 画面比例 / 重新加载：mpv 内核专属（AV 走系统控制条）。
+                    if (!controller.isAvBackend) ...[
+                      const SizedBox(width: 12),
                       _CircleAction(
-                        icon: Icons.menu_book_rounded,
-                        iconSize: 17,
-                        onTap: _openEpisodes,
+                        icon: Icons.aspect_ratio_rounded,
+                        iconSize: 16,
+                        onTap: _openAspect,
                       ),
-                    if (widget.launch.episodes.length > 1)
-                      const SizedBox(width: 8),
-                    _CircleAction(
-                      icon: Icons.info_outline_rounded,
-                      iconSize: 17,
-                      onTap: _openInfo,
-                    ),
-                    const SizedBox(width: 8),
-                    _CircleAction(
-                      icon: Icons.lock_open_rounded,
-                      iconSize: 17,
-                      onTap: controller.toggleLock,
-                    ),
-                    const SizedBox(width: 8),
-                    _CircleAction(
-                      icon: Icons.more_horiz_rounded,
-                      iconSize: 19,
-                      onTap: _openMore,
-                    ),
+                      const SizedBox(width: 12),
+                      _CircleAction(
+                        icon: Icons.refresh_rounded,
+                        iconSize: 17,
+                        onTap: _reloadStream,
+                      ),
+                    ],
+                    const Spacer(),
+                    if (_pipSupported) ...[
+                      _CircleAction(
+                        icon: Icons.picture_in_picture_alt_rounded,
+                        iconSize: 17,
+                        onTap: _togglePip,
+                      ),
+                      const SizedBox(width: 12),
+                    ],
+                    if (!controller.isAvBackend) ...[
+                      // 截图（mpv 才有取帧能力）。
+                      _CircleAction(
+                        icon: Icons.photo_camera_outlined,
+                        iconSize: 17,
+                        onTap: _openScreenshot,
+                      ),
+                      const SizedBox(width: 12),
+                      // 倍速。
+                      _CircleAction(
+                        icon: Icons.schedule_rounded,
+                        iconSize: 18,
+                        onTap: _openSpeed,
+                      ),
+                    ],
                   ],
                 ),
               ],
             ),
           ),
-        ),
-      ),
-    );
+      );
   }
 
   // ------------------------------------------------------------ 中央
-
-  Widget _buildCenterControls() {
-    final bool canPrev = controller.hasPrevious;
-    final bool canNext = controller.hasNext;
-    return _chromeLayer(
-      scaleFrom: 0.92,
-      child: Center(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _CenterAction(
-              onTap: () =>
-                  _seekBy(const Duration(seconds: -10), label: '快退 10 秒'),
-              child: const _SeekTenIcon(backward: true, size: 42),
-            ),
-            const SizedBox(width: 20),
-            _PlayPauseButton(
-              playing: controller.playing,
-              onTap: controller.togglePlay,
-            ),
-            const SizedBox(width: 20),
-            _CenterAction(
-              onTap: () =>
-                  _seekBy(const Duration(seconds: 10), label: '快进 10 秒'),
-              child: const _SeekTenIcon(backward: false, size: 42),
-            ),
-            if (canPrev || canNext) ...[
-              const SizedBox(width: 22),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _CircleAction(
-                    icon: Icons.skip_next_rounded,
-                    iconSize: 18,
-                    size: 38,
-                    enabled: canNext,
-                    onTap: canNext ? controller.playNext : null,
-                  ),
-                  const SizedBox(height: 8),
-                  _CircleAction(
-                    icon: Icons.skip_previous_rounded,
-                    iconSize: 18,
-                    size: 38,
-                    enabled: canPrev,
-                    onTap: canPrev ? controller.playPrevious : null,
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
 
   // ------------------------------------------------------------ 底栏
 
   Widget _buildBottomBar() {
     final Duration total = controller.duration;
     final Duration shown = _dragging ? _dragPosition : controller.position;
-
-    final List<Widget> leftTools = <Widget>[
-      _ToolChip(
-        icon: Icons.speed_rounded,
-        label: '${_speedText(controller.speed)}×',
-        onTap: _openSpeed,
-      ),
-      _ToolChip(icon: Icons.graphic_eq_rounded, label: '音轨', onTap: _openAudio),
-      _ToolChip(
-        icon: Icons.subtitles_outlined,
-        label: _currentSubtitleLabel().isEmpty ? '字幕' : _currentSubtitleLabel(),
-        selected: _currentSubtitleLabel().isNotEmpty,
-        onTap: _openSubtitle,
-      ),
-    ];
-
-    // 选集只留顶栏那一个入口：底栏以前还挂了一个，两个按钮干同一件事，
-    // 用户一眼看到两个「选集」只会以为是不同功能。
-    final List<Widget> rightTools = <Widget>[
-      _CircleAction(
-        icon: Icons.aspect_ratio_rounded,
-        iconSize: 16,
-        size: 34,
-        onTap: _openAspect,
-      ),
-      if (controller.chapters.isNotEmpty)
-        _CircleAction(
-          icon: Icons.bookmark_outline_rounded,
-          iconSize: 16,
-          size: 34,
-          onTap: _openChapters,
-        ),
-      // AirPlay：弹系统路由选择器（原生通道），AV / mpv 内核都能用。
-      if (Platform.isIOS)
-        _CircleAction(
-          icon: Icons.airplay,
-          iconSize: 16,
-          size: 34,
-          onTap: _openAirplay,
-        ),
-      _CircleAction(
-        icon: Icons.more_horiz_rounded,
-        iconSize: 18,
-        size: 34,
-        onTap: _openMore,
-      ),
-    ];
+    final bool hasEpisodes = widget.launch.episodes.length > 1;
 
     return Positioned(
       left: 0,
@@ -1774,8 +1951,46 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 时间分列两端、状态贴住总时长——比原来「时间 / 总时长 … 状态」
-                // 挤在左边更像播放器，也把进度条上方的空间用满了。
+                // 进度条上方：左「媒体信息」，右「音轨 / 字幕 / 弹幕 / 更多」。
+                Row(
+                  children: [
+                    _OutlineAction(
+                      icon: Icons.info_outline_rounded,
+                      onTap: _openInfo,
+                    ),
+                    const Spacer(),
+                    _OutlineAction(
+                      icon: Icons.multitrack_audio_rounded,
+                      onTap: _openAudio,
+                    ),
+                    const SizedBox(width: 12),
+                    _OutlineAction(
+                      icon: Icons.subtitles_outlined,
+                      onTap: _openSubtitle,
+                    ),
+                    const SizedBox(width: 12),
+                    _OutlineAction.custom(
+                      child: Text(
+                        'D',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          height: 1,
+                          color: Colors.white
+                              .withValues(alpha: danmaku.on ? 0.94 : 0.4),
+                        ),
+                      ),
+                      onTap: _openDanmaku,
+                    ),
+                    const SizedBox(width: 12),
+                    _OutlineAction(
+                      icon: Icons.more_horiz_rounded,
+                      onTap: _openMore,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // 时间分列两端。
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -1784,11 +1999,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                     Text(
                       total == Duration.zero ? '--:--' : _fmt(total),
                       style: _timeStyle(Colors.white.withValues(alpha: 0.55)),
-                    ),
-                    const SizedBox(width: 10),
-                    _StatusChip(
-                      label: controller.decodeLabel,
-                      value: controller.resolutionLabel,
                     ),
                   ],
                 ),
@@ -1821,40 +2031,49 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                     _pauseAutoHide();
                   },
                 ),
-                const SizedBox(height: 8),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    // 窄屏（手机竖屏）放不下就横向滚，不要挤成两行。
-                    if (constraints.maxWidth < 560) {
-                      return SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            ...leftTools,
-                            const SizedBox(width: 10),
-                            ...rightTools.map(
-                              (w) => Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: w,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    return Row(
-                      children: [
-                        ...leftTools,
-                        const Spacer(),
-                        ...rightTools.map(
-                          (w) => Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: w,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+                const SizedBox(height: 6),
+                // 底行：锁定 | 上一集 / 播放暂停 / 下一集 | 选集。
+                Row(
+                  children: [
+                    _CircleAction(
+                      icon: controller.locked
+                          ? Icons.lock_rounded
+                          : Icons.lock_open_rounded,
+                      iconSize: 17,
+                      onTap: controller.toggleLock,
+                    ),
+                    const Spacer(),
+                    _BareAction(
+                      icon: Icons.skip_previous_rounded,
+                      size: 30,
+                      enabled: controller.hasPrevious,
+                      onTap: controller.hasPrevious
+                          ? controller.playPrevious
+                          : null,
+                    ),
+                    const SizedBox(width: 24),
+                    _BareAction(
+                      icon: controller.playing
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      size: 34,
+                      onTap: controller.togglePlay,
+                    ),
+                    const SizedBox(width: 24),
+                    _BareAction(
+                      icon: Icons.skip_next_rounded,
+                      size: 30,
+                      enabled: controller.hasNext,
+                      onTap: controller.hasNext ? controller.playNext : null,
+                    ),
+                    const Spacer(),
+                    _CircleAction(
+                      icon: Icons.format_list_bulleted_rounded,
+                      iconSize: 18,
+                      enabled: hasEpisodes,
+                      onTap: hasEpisodes ? _openEpisodes : null,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -2985,6 +3204,171 @@ class _RexSeekBarState extends State<_RexSeekBar> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 描边圆钮：进度条上方「音轨 / 字幕 / 弹幕 / 更多」那排的形态
+///（白描边空心圆 + 细图标，参考 Infuse）。
+class _OutlineAction extends StatelessWidget {
+  const _OutlineAction({required this.icon, this.onTap, this.iconSize = 15})
+      : child = null;
+
+  const _OutlineAction.custom({required this.child, this.onTap})
+      : icon = null,
+        iconSize = 0;
+
+  final IconData? icon;
+  final Widget? child;
+  final double iconSize;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PressScale(
+      dim: true,
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.85),
+            width: 1.6,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x73000000),
+              blurRadius: 7,
+              offset: Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Center(
+          child: icon != null
+              ? Icon(
+                  icon,
+                  size: iconSize,
+                  color: Colors.white.withValues(alpha: 0.94),
+                )
+              : child,
+        ),
+      ),
+    );
+  }
+}
+
+/// 裸图标钮（无圆底无描边）：底行「上一集 / 播放暂停 / 下一集」的形态。
+class _BareAction extends StatelessWidget {
+  const _BareAction({
+    required this.icon,
+    required this.onTap,
+    this.size = 30,
+    this.enabled = true,
+  });
+
+  final IconData icon;
+  final VoidCallback? onTap;
+  final double size;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PressScale(
+      dim: true,
+      onTap: enabled && onTap != null ? onTap : null,
+      child: SizedBox(
+        width: size + 16,
+        height: size + 16,
+        child: Center(
+          child: Icon(
+            icon,
+            size: size,
+            color: Colors.white.withValues(alpha: enabled ? 0.94 : 0.32),
+            shadows: const [
+              Shadow(color: Color(0x73000000), blurRadius: 7, offset: Offset(0, 1)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 截图预览弹窗：左侧分享、右侧保存至相册。
+class _ScreenshotDialog extends StatelessWidget {
+  const _ScreenshotDialog({required this.bytes, required this.title});
+
+  final Uint8List bytes;
+  final String title;
+
+  String get _fileName =>
+      'LU_${DateTime.now().millisecondsSinceEpoch}.png';
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: Colors.black87,
+      contentPadding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.memory(bytes, fit: BoxFit.contain, width: 320),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton.icon(
+          icon: const Icon(Icons.ios_share_rounded, size: 18),
+          label: const Text('分享'),
+          onPressed: () async {
+            try {
+              await Share.shareXFiles(
+                [
+                  XFile.fromData(
+                    bytes,
+                    name: _fileName,
+                    mimeType: 'image/png',
+                  ),
+                ],
+              );
+            } catch (_) {
+              KazumiDialog.showToast(message: '分享失败');
+            }
+          },
+        ),
+        TextButton.icon(
+          icon: const Icon(Icons.save_alt_rounded, size: 18),
+          label: const Text('保存至相册'),
+          onPressed: () async {
+            try {
+              final r = await SaverGallery.saveImage(
+                bytes,
+                fileName: _fileName,
+                skipIfExists: false,
+              );
+              KazumiDialog.showToast(
+                message: r.isSuccess ? '已保存到相册' : '保存失败',
+              );
+            } catch (_) {
+              KazumiDialog.showToast(message: '保存失败');
+            }
+          },
+        ),
+      ],
     );
   }
 }

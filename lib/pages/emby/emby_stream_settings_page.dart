@@ -8,6 +8,8 @@ import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/player/cache_profile.dart';
 import 'package:XL/services/storage/storage.dart';
+import 'package:XL/services/url_parse/url_parse_service.dart';
+import 'package:XL/theme/ios_interaction.dart';
 
 /// 「转码与串流」：决定 Emby 这一条片子是原盘直连还是服务器转码。
 ///
@@ -56,6 +58,39 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
   Future<void> _setBitrate(int mbps) async {
     setState(() => _bitrate = mbps);
     await EmbyStreamPrefs.setBitrateMbps(mbps);
+  }
+
+  String get _parseApi => GStorage.getSetting(SettingsKeys.urlParseApi);
+
+  String get _parseJsonPath =>
+      GStorage.getSetting(SettingsKeys.urlParseJsonPath);
+
+  Future<void> _editParseApi() async {
+    final result = await showKzPrompt(
+      context: context,
+      title: '解析接口模板',
+      hint: 'https://api.example.com/parse?url={url_enc}',
+      initialValue: _parseApi.isEmpty ? null : _parseApi,
+      confirmLabel: '保存',
+    );
+    if (result == null) return;
+    setState(() {});
+    await GStorage.putSetting(SettingsKeys.urlParseApi, result.trim());
+    setState(() {});
+  }
+
+  Future<void> _editParseJsonPath() async {
+    final result = await showKzPrompt(
+      context: context,
+      title: 'JSON 字段路径',
+      hint: 'data.url（留空自动探测）',
+      initialValue: _parseJsonPath.isEmpty ? null : _parseJsonPath,
+      confirmLabel: '保存',
+    );
+    if (result == null) return;
+    await GStorage.putSetting(
+        SettingsKeys.urlParseJsonPath, result.trim());
+    setState(() {});
   }
 
   @override
@@ -198,6 +233,45 @@ class _EmbyStreamSettingsPageState extends State<EmbyStreamSettingsPage> {
               '结束进程（就是之前那种「看一分钟闪退」）。弱网、跨境线路建议'
               '调到「流畅」，局域网直连原盘可以上「极致」。\n'
               '改完对下一次起播生效，正在播的这一条也会在几秒内跟上。',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.6,
+                color: PvColors.ink3(context),
+              ),
+            ),
+          ),
+          const PvGroupLabel('资源解析接口'),
+          PvGroup(
+            children: [
+              PvRow(
+                icon: Icons.alt_route_rounded,
+                iconColor: const Color(0xFF5E9BE8),
+                title: '接口模板',
+                value: _parseApi.isEmpty ? '未配置' : '已配置',
+                subtitle: _parseApi.isEmpty
+                    ? '网盘/资源站链接先经它换直链再播'
+                    : _parseApi,
+                onTap: _editParseApi,
+              ),
+              PvRow(
+                icon: Icons.data_object_rounded,
+                iconColor: const Color(0xFF34C759),
+                title: 'JSON 字段路径',
+                value: _parseJsonPath.isEmpty ? '自动探测' : _parseJsonPath,
+                subtitle: '返回 JSON 时取哪个字段，如 data.url',
+                showDivider: false,
+                onTap: _editParseJsonPath,
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 2, 32, 18),
+            child: Text(
+              '模板占位符：{url} 原样、{url_enc} 编码后。例：'
+              'https://api.example.com/parse?url={url_enc}\n'
+              '解析形态自动判定：接口 302 重定向 / 返回 JSON（按字段路径或'
+              '常见字段探测）/ 返回纯文本（取第一个链接）。只作用于资源库的'
+              '「网络链接」；留空模板 = 不解析直连。',
               style: TextStyle(
                 fontSize: 12,
                 height: 1.6,
