@@ -543,8 +543,8 @@ class AvPlayerViewFactory: NSObject, FlutterPlatformViewFactory {
         AvPlayerPlatformView(plugin: plugin)
     }
 
-    func createArgsCodec() -> FlutterMessageCodec & FlutterMethodCodec {
-        FlutterStandardMethodCodec.sharedInstance()
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+        FlutterStandardMessageCodec.sharedInstance()
     }
 }
 
