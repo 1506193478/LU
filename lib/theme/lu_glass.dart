@@ -194,6 +194,7 @@ abstract final class LuGlass {
   }) {
     final LuGlassSpec s = spec(context, tone);
     final BorderRadius r = radius ?? BorderRadius.circular(12);
+    final bool isDarkMode = isDark(context);
 
     final Widget inner = DecoratedBox(
       decoration: BoxDecoration(
@@ -204,14 +205,42 @@ abstract final class LuGlass {
           colors: <Color>[s.top, s.bottom],
         ),
       ),
-      child: DecoratedBox(
-        // 边框画在内容之上：用 Border 会占据布局 1px，行高会整体漂移。
-        position: DecorationPosition.foreground,
-        decoration: BoxDecoration(
-          borderRadius: r,
-          border: Border.all(color: s.ring, width: 1),
-        ),
-        child: child,
+      child: Stack(
+        children: <Widget>[
+          // 液态玻璃的「光扫」层：左上角一束很淡的斜向高光，右下几乎全透。
+          // 静态渐变（不是动画）：满屏动渐变会让整模块掉帧，之前吃过亏；
+          // 这一层只画一次，视觉上已经有玻璃的通透层次。
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: r,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[
+                      const Color(0xFFFFFFFF)
+                          .withValues(alpha: isDarkMode ? 0.16 : 0.34),
+                      const Color(0xFFFFFFFF)
+                          .withValues(alpha: isDarkMode ? 0.04 : 0.10),
+                      const Color(0xFFFFFFFF).withValues(alpha: 0),
+                    ],
+                    stops: const <double>[0, 0.42, 1],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          DecoratedBox(
+            // 边框画在内容之上：用 Border 会占据布局 1px，行高会整体漂移。
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              borderRadius: r,
+              border: Border.all(color: s.ring, width: 1),
+            ),
+            child: child,
+          ),
+        ],
       ),
     );
 

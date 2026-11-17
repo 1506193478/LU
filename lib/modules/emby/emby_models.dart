@@ -13,6 +13,7 @@ class EmbyServer {
     required this.accessToken,
     this.allowBadCertificate = false,
     this.backupUrls = const <String>[],
+    this.reminderDays = 0,
   });
 
   /// 本地生成的稳定标识，用于去重和"当前选中服务器"。
@@ -37,6 +38,10 @@ class EmbyServer {
   /// 里，两边用同一个 server id 关联。
   final List<String> backupUrls;
 
+  /// 「未播放提醒」的天数：收藏了但这么多天没看完就提醒一次。
+  /// 0 = 关闭。只存偏好，提醒逻辑由调用方按这个值判断。
+  final int reminderDays;
+
   /// 写进 [PlaybackHistoryIdentity.pluginName] 的适配器名。
   ///
   /// 历史按 adapterName 分档（`History.key => scopedKey(adapterName, ...)`），
@@ -55,6 +60,7 @@ class EmbyServer {
     String? accessToken,
     bool? allowBadCertificate,
     List<String>? backupUrls,
+    int? reminderDays,
   }) {
     return EmbyServer(
       id: id ?? this.id,
@@ -65,6 +71,7 @@ class EmbyServer {
       accessToken: accessToken ?? this.accessToken,
       allowBadCertificate: allowBadCertificate ?? this.allowBadCertificate,
       backupUrls: backupUrls ?? this.backupUrls,
+      reminderDays: reminderDays ?? this.reminderDays,
     );
   }
 
@@ -77,6 +84,7 @@ class EmbyServer {
         'accessToken': accessToken,
         'allowBadCertificate': allowBadCertificate,
         'backupUrls': backupUrls,
+        'reminderDays': reminderDays,
       };
 
   factory EmbyServer.fromJson(Map<String, dynamic> json) => EmbyServer(
@@ -91,6 +99,8 @@ class EmbyServer {
           for (final item in (json['backupUrls'] as List<dynamic>? ?? const []))
             if (item?.toString().trim().isNotEmpty ?? false) item.toString(),
         ],
+        reminderDays:
+            int.tryParse(json['reminderDays']?.toString() ?? '') ?? 0,
       );
 }
 

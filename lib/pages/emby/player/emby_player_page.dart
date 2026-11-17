@@ -763,11 +763,10 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   /// （画面由 Flutter 继续渲染），iOS 直连原盘要先切转码内核。
   Future<void> _togglePip() async {
     if (controller.isAvBackend) {
-      // AVPlayer 内核：画中画由系统控制条自带（原生按钮，零自研）。
-      // 原生桥不自建 PiP controller（避免与系统控制条双实例冲突），
-      // 这里给出明确引导，不让用户以为按钮失效。
-      await controller.requestPip();
-      _toast('点播放器原生控制条上的画中画按钮即可进入小窗');
+      // AVPlayer 内核：原生桥自建 AVPlayerLayer + AVPictureInPictureController，
+      // 点一下就真的进系统小窗（不再让用户去点控制条上的按钮）。
+      final bool ok = await controller.requestPip();
+      if (!ok && mounted) _toast('画中画暂时不可用');
       return;
     }
     if (Platform.isAndroid) {

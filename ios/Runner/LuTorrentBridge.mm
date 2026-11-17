@@ -8,12 +8,22 @@
 //  刻意不照搬 SwiftyTorrent 的 TorrentKit 源码（那个仓库无 license）；
 //  这里只用 libtorrent 官方 API（BSD 许可），避免第三方源码版权风险。
 //
+//  ⚠️ 线程模型（4.2.3 重写，修闪退）：
+//   1. session 用 shared_ptr 持有：alert 泵只持一份副本，stop 时 reset 也不会
+//      use-after-free（旧版直接 delete 裸指针，泵线程还在 wait_for_alert → 崩）。
+//   2. alert 泵从「独立 NSThread + sleep」改成「串行 dispatch 队列 + 定时器」：
+//      stop 时 cancel + dispatch_sync 排空，绝不与 session 析构并发。
+//   3. **所有 libtorrent 调用一律用 C++ try/catch**（旧版用 @try/@catch，
+//      Objective-C 的 @catch 只捕 ObjC 异常，C++ 异常会穿透 → std::terminate
+//      直接闪退；这是「点播放就崩」的主因）。
+//   4. emit 一律切主线程（FlutterEventSink 不是线程安全的）。
+//
 
 #import "LuTorrentBridge.h"
 
 #import <Flutter/Flutter.h>
 
-// libtorrent 1.2.x（预制 xcframework + boost 头文件，路径见 Podfile/pbxproj）
+// libtorrent 1.2.x（预制 xcframework + boost 头文件，路径见 pbxproj）
 #import "libtorrent/session.hpp"
 #import "libtorrent/alert.hpp"
 #import "libtorrent/alert_types.hpp"
@@ -21,9 +31,11 @@
 #import "libtorrent/torrent_info.hpp"
 #import "libtorrent/add_torrent_params.hpp"
 #import "libtorrent/magnet_uri.hpp"
+#import "libtorrent/error_code.hpp"
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <vector>
 #include <string>
 #include <system_error>
@@ -31,10 +43,16 @@
 namespace lt = libtorrent;
 
 @implementation LuTorrentBridge {
-    lt::session *_session;
+    std::shared_ptr<lt::session> _session;
     lt::torrent_handle _handle;
+    std::mutex _mutex;
+
     FlutterMethodChannel *_methodChannel;
     FlutterEventSink _eventSink;
+
+    dispatch_queue_t _alertQueue;
+    dispatch_source_t _alertTimer;
+
     BOOL _gotMetadata;
     NSString *_mainFilePath;
     NSString *_mainFileName;
@@ -43,7 +61,6 @@ namespace lt = libtorrent;
     int _pieceLength;
     int _numPieces;
     int _mainFileIndex;
-    NSThread *_alertThread;
 }
 
 #pragma mark - 生命周期
@@ -65,13 +82,14 @@ namespace lt = libtorrent;
 - (instancetype)initWithMessenger:(NSObject<FlutterBinaryMessenger> *)messenger {
     self = [super init];
     if (self) {
-        _session = nullptr;
         _gotMetadata = NO;
         _mainFileIndex = -1;
         _mainFileOffset = 0;
         _mainFileSize = 0;
         _pieceLength = 0;
         _numPieces = 0;
+        _mainFileName = @"";
+        _mainFilePath = @"";
         [self bindMessenger:messenger];
     }
     return self;
@@ -110,10 +128,19 @@ namespace lt = libtorrent;
 }
 
 - (void)emit:(NSString *)event args:(NSDictionary *)args {
-    if (!_eventSink) return;
-    NSMutableDictionary *payload = [args mutableCopy] ?: [NSMutableDictionary dictionary];
+    NSMutableDictionary *payload = [(args ?: @{}) mutableCopy];
     payload[@"event"] = event;
-    _eventSink(payload);
+
+    void (^send)(void) = ^{
+        FlutterEventSink sink = self->_eventSink;
+        if (!sink) return;
+        sink(payload);
+    };
+    if ([NSThread isMainThread]) {
+        send();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), send);
+    }
 }
 
 #pragma mark - MethodChannel 分派
@@ -157,90 +184,159 @@ namespace lt = libtorrent;
     _pieceLength = 0;
     _numPieces = 0;
 
-    NSString *trimmed = [source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *trimmed = [source
+        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     BOOL isMagnet = [[trimmed lowercaseString] hasPrefix:@"magnet:"];
     BOOL isTorrentURL = [[trimmed lowercaseString] hasPrefix:@"http"] &&
                         [[[NSURL URLWithString:trimmed] path] hasSuffix:@".torrent"];
-    if (!isMagnet && !isTorrentURL) return NO;
+    if (!isMagnet && !isTorrentURL) {
+        [self emit:@"error" args:@{@"message": @"不是磁力链接或种子地址"}];
+        return NO;
+    }
 
-    @try {
-        _session = new lt::session();
-        _session->set_alert_mask(lt::alert::all_categories);
+    // 保存目录必须存在，否则 libtorrent 建文件失败会抛异常。
+    if (saveDirPath.length > 0) {
+        [[NSFileManager defaultManager] createDirectoryAtPath:saveDirPath
+                                 withIntermediateDirectories:YES
+                                                  attributes:nil
+                                                       error:NULL];
+    }
+
+    std::shared_ptr<lt::session> session;
+    lt::torrent_handle handle;
+
+    try {
+        session = std::make_shared<lt::session>();
+        session->set_alert_mask(lt::alert::all_categories);
 
         lt::add_torrent_params params;
-        params.save_path = [saveDirPath UTF8String];
+        params.save_path = std::string([saveDirPath UTF8String] ?: "");
         // 边下边播：顺序下载优先。
         params.flags |= lt::torrent_flags::sequential_download;
 
         if (isMagnet) {
             lt::error_code ec;
-            params = lt::parse_magnet_uri([trimmed UTF8String], ec);
+            params = lt::parse_magnet_uri(std::string([trimmed UTF8String] ?: ""), ec);
             if (ec) {
                 [self emit:@"error" args:@{@"message": @"磁力链接解析失败"}];
                 return NO;
             }
-            params.save_path = [saveDirPath UTF8String];
+            params.save_path = std::string([saveDirPath UTF8String] ?: "");
             params.flags |= lt::torrent_flags::sequential_download;
         } else {
             NSData *data = [NSData dataWithContentsOfURL:[NSURL URLWithString:trimmed]];
-            if (!data || data.length == 0) {
+            if (data.length == 0) {
                 [self emit:@"error" args:@{@"message": @"种子文件下载失败"}];
                 return NO;
             }
-            std::shared_ptr<lt::torrent_info> ti =
-                std::make_shared<lt::torrent_info>((const char *)data.bytes, (int)data.length);
+            lt::error_code ec;
+            // 带 error_code 的构造不会抛异常（旧版用的是会抛的版本）。
+            auto ti = std::make_shared<lt::torrent_info>(
+                (const char *)data.bytes, (int)data.length, ec);
+            if (ec) {
+                [self emit:@"error" args:@{@"message": @"种子文件解析失败"}];
+                return NO;
+            }
             params.ti = ti;
         }
 
-        _handle = _session->add_torrent(params);
-        if (!_handle.is_valid()) {
+        handle = session->add_torrent(params);
+        if (!handle.is_valid()) {
             [self emit:@"error" args:@{@"message": @"添加种子失败"}];
             return NO;
         }
-        [self emit:@"added" args:@{}];
-        [self startAlertLoop];
-        return YES;
-    } @catch (...) {
+    } catch (std::exception const &e) {
+        [self emit:@"error" args:@{@"message": [NSString stringWithFormat:@"种子会话异常：%s", e.what()]}];
+        return NO;
+    } catch (...) {
         [self emit:@"error" args:@{@"message": @"种子会话异常"}];
         return NO;
     }
+
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _session = session;
+        _handle = handle;
+    }
+
+    [self emit:@"added" args:@{}];
+    [self startAlertTimer];
+    return YES;
 }
 
-/// 后台线程轮询 alert：metadata_received_alert 里挑主文件。
-- (void)startAlertLoop {
-    _alertThread = [[NSThread alloc] initWithTarget:self
-                                           selector:@selector(alertLoop)
-                                             object:nil];
-    [_alertThread setName:@"lu.torrent.alerts"];
-    [_alertThread start];
+/// 串行队列 + 定时器泵 alert。比旧版「独立线程 sleep」好在能同步排空，
+/// stop 时绝不会和 session 析构并发。
+- (void)startAlertTimer {
+    [self stopAlertTimer];
+
+    _alertQueue = dispatch_queue_create("lu.torrent.alerts", DISPATCH_QUEUE_SERIAL);
+    _alertTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _alertQueue);
+    dispatch_source_set_timer(_alertTimer,
+                              dispatch_time(DISPATCH_TIME_NOW, 0),
+                              100ull * NSEC_PER_MSEC,
+                              20ull * NSEC_PER_MSEC);
+    __weak typeof(self) weakSelf = self;
+    dispatch_source_set_event_handler(_alertTimer, ^{
+        [weakSelf pumpAlerts];
+    });
+    dispatch_resume(_alertTimer);
 }
 
-- (void)alertLoop {
-    @autoreleasepool {
-        while (_session != nullptr) {
-            @autoreleasepool {
-                _session->wait_for_alert(std::chrono::milliseconds(300));
-                std::vector<lt::alert *> alerts;
-                _session->pop_alerts(&alerts);
-                for (lt::alert *a : alerts) {
-                    std::unique_ptr<lt::alert> holder(a);
-                    // 元数据就绪
-                    if (lt::alert_cast<lt::metadata_received_alert>(a)) {
-                        [self performSelectorOnMainThread:@selector(onMetadataReady)
-                                               withObject:nil waitUntilDone:NO];
-                    }
-                    if (lt::alert_cast<lt::metadata_failed_alert>(a)) {
-                        [self performSelectorOnMainThread:@selector(onMetadataFailed)
-                                               withObject:nil waitUntilDone:NO];
-                    }
-                    if (lt::alert_cast<lt::torrent_error_alert>(a)) {
-                        [self performSelectorOnMainThread:@selector(onTorrentError)
-                                               withObject:nil waitUntilDone:NO];
-                    }
-                }
-            }
-            [NSThread sleepForTimeInterval:0.1];
+- (void)stopAlertTimer {
+    if (_alertTimer) {
+        dispatch_source_cancel(_alertTimer);
+        _alertTimer = nil;
+    }
+    dispatch_queue_t q = _alertQueue;
+    _alertQueue = nil;
+    if (q) {
+        // 排空队列：等正在跑的 handler 结束（最多一次 wait_for_alert 的时间）。
+        dispatch_sync(q, ^{
+        });
+    }
+}
+
+- (void)pumpAlerts {
+    std::shared_ptr<lt::session> session;
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        session = _session;
+    }
+    if (!session) return;
+
+    BOOL gotMetadata = NO;
+    BOOL metadataFailed = NO;
+    BOOL torrentError = NO;
+
+    try {
+        session->wait_for_alert(std::chrono::milliseconds(30));
+        std::vector<lt::alert *> alerts;
+        session->pop_alerts(&alerts);
+        for (lt::alert *a : alerts) {
+            std::unique_ptr<lt::alert> holder(a);
+            if (lt::alert_cast<lt::metadata_received_alert>(a)) gotMetadata = YES;
+            if (lt::alert_cast<lt::metadata_failed_alert>(a)) metadataFailed = YES;
+            if (lt::alert_cast<lt::torrent_error_alert>(a)) torrentError = YES;
         }
+    } catch (...) {
+        // session 正在析构 / 内部异常：本轮直接跳过，下一轮再看。
+        return;
+    }
+
+    if (gotMetadata) {
+        [self performSelectorOnMainThread:@selector(onMetadataReady)
+                               withObject:nil
+                            waitUntilDone:NO];
+    }
+    if (metadataFailed) {
+        [self performSelectorOnMainThread:@selector(onMetadataFailed)
+                               withObject:nil
+                            waitUntilDone:NO];
+    }
+    if (torrentError) {
+        [self performSelectorOnMainThread:@selector(onTorrentError)
+                               withObject:nil
+                            waitUntilDone:NO];
     }
 }
 
@@ -253,56 +349,82 @@ namespace lt = libtorrent;
 }
 
 - (void)onMetadataReady {
-    if (_gotMetadata || !_handle.is_valid()) return;
-    std::shared_ptr<const lt::torrent_info> ti = _handle.torrent_file();
-    if (!ti) return;
+    if (_gotMetadata) return;
 
-    lt::file_storage files = ti->files();
-    int count = files.num_files();
-    long long bestSize = 0;
-    int best = 0;
-    for (int i = 0; i < count; i++) {
-        long long s = files.file_size(i);
-        if (s > bestSize) { bestSize = s; best = i; }
+    try {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_handle.is_valid()) return;
+        std::shared_ptr<const lt::torrent_info> ti = _handle.torrent_file();
+        if (!ti) return;
+
+        lt::file_storage files = ti->files();
+        int count = files.num_files();
+        if (count <= 0) return;
+
+        long long bestSize = 0;
+        int best = 0;
+        for (int i = 0; i < count; i++) {
+            long long s = files.file_size(i);
+            if (s > bestSize) {
+                bestSize = s;
+                best = i;
+            }
+        }
+        if (bestSize <= 0) return;
+
+        _gotMetadata = YES;
+        _mainFileIndex = best;
+        _mainFileSize = bestSize;
+        _mainFileOffset = files.file_offset(best);
+        _pieceLength = ti->piece_length();
+        _numPieces = ti->num_pieces();
+
+        lt::string_view nameView = files.file_name(best);
+        std::string name(nameView.begin(), nameView.end());
+        _mainFileName = [NSString stringWithUTF8String:name.c_str()] ?: @"video";
+
+        std::string relPath = files.file_path(best);
+        std::string savePathCpp(_handle.save_path());
+        NSString *savePath = [NSString stringWithUTF8String:savePathCpp.c_str()] ?: @"";
+        NSString *fullPath = [NSString stringWithFormat:@"%@/%@", savePath,
+                              [NSString stringWithUTF8String:relPath.c_str()] ?: @""];
+        _mainFilePath = [[fullPath stringByStandardizingPath] copy];
+
+        // 只下主文件，其余 IGNORE。
+        std::vector<lt::download_priority_t> priorities(ti->num_files(), lt::dont_download);
+        if (best < (int)priorities.size()) priorities[best] = lt::default_priority;
+        _handle.prioritize_files(priorities);
+    } catch (...) {
+        return;
     }
-    if (bestSize <= 0) return;
 
-    _gotMetadata = YES;
-    _mainFileIndex = best;
-    _mainFileSize = bestSize;
-    _mainFileOffset = files.file_offset(best);
-    _pieceLength = ti->piece_length();
-    _numPieces = ti->num_pieces();
-
-    lt::string_view nameView = files.file_name(best);
-    std::string name(nameView.begin(), nameView.end());
-    _mainFileName = [NSString stringWithUTF8String:name.c_str()] ?: @"video";
-    std::string relPath = files.file_path(best);
-    std::string savePathCpp(_handle.save_path());
-    NSString *savePath = [NSString stringWithUTF8String:savePathCpp.c_str()];
-    NSString *fullPath = [NSString stringWithFormat:@"%@/%@", savePath,
-                          [NSString stringWithUTF8String:relPath.c_str()]];
-    _mainFilePath = [[fullPath stringByStandardizingPath] copy];
-
-    // 只下主文件，其余 IGNORE。
-    std::vector<lt::download_priority_t> priorities(ti->num_files(), lt::dont_download);
-    if (best < (int)priorities.size()) priorities[best] = lt::default_priority;
-    _handle.prioritize_files(priorities);
-
-    // 1.2.x 没有 set_sequential_range（那是 2.x API）；
-    // sequential_download 标志已在 add_torrent 时设置，这里靠分片 deadline 引导。
-
-    [self emit:@"metadata" args:@{@"name": _mainFileName}];
+    [self emit:@"metadata" args:@{@"name": _mainFileName ?: @"video"}];
 }
 
 - (void)stopSession {
-    if (_session != nullptr) {
-        delete _session;
-        _session = nullptr;
+    // 顺序很关键：先停泵（含排空），再解引用 session。
+    [self stopAlertTimer];
+
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_session) {
+            try {
+                _session->abort();
+            } catch (...) {
+            }
+            _session.reset();
+        }
+        _handle = lt::torrent_handle();
     }
-    _handle = lt::torrent_handle();
+
     _gotMetadata = NO;
-    _alertThread = nil;
+    _mainFileName = @"";
+    _mainFilePath = @"";
+    _mainFileIndex = -1;
+    _mainFileOffset = 0;
+    _mainFileSize = 0;
+    _pieceLength = 0;
+    _numPieces = 0;
 }
 
 #pragma mark - 查询接口
@@ -310,20 +432,24 @@ namespace lt = libtorrent;
 - (NSDictionary *)fileInfo {
     if (!_gotMetadata) return @{};
     return @{
-        @"fileName": _mainFileName,
+        @"fileName": _mainFileName ?: @"video",
         @"fileSize": @(_mainFileSize),
         @"fileOffset": @(_mainFileOffset),
         @"pieceLength": @(_pieceLength),
         @"numPieces": @(_numPieces),
-        @"path": _mainFilePath,
+        @"path": _mainFilePath ?: @"",
     };
 }
 
 - (NSDictionary *)status {
-    if (!_handle.is_valid() || !_gotMetadata) {
+    if (!_gotMetadata) {
         return @{@"progress": @(0.0), @"speed": @(0), @"peers": @(0), @"state": @"fetching"};
     }
-    @try {
+    try {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_handle.is_valid()) {
+            return @{@"progress": @(0.0), @"speed": @(0), @"peers": @(0), @"state": @"fetching"};
+        }
         lt::torrent_status st = _handle.status();
         double progress = st.progress;
         if (progress < 0) progress = 0;
@@ -335,18 +461,19 @@ namespace lt = libtorrent;
             @"peers": @(st.num_peers),
             @"state": state,
         };
-    } @catch (...) {
+    } catch (...) {
         return @{@"progress": @(0.0), @"speed": @(0), @"peers": @(0), @"state": @"unknown"};
     }
 }
 
 - (NSArray<NSNumber *> *)piecesForStart:(long long)start end:(long long)end {
-    if (_pieceLength <= 0) return @[];
+    if (_pieceLength <= 0 || _numPieces <= 0) return @[];
     long long absStart = _mainFileOffset + start;
     long long absEnd = _mainFileOffset + end;
     int p0 = (int)(absStart / _pieceLength);
     int p1 = (int)(absEnd / _pieceLength);
     if (p1 < p0) p1 = p0;
+    if (p0 < 0) p0 = 0;
     if (p1 >= _numPieces) p1 = _numPieces - 1;
     NSMutableArray *out = [NSMutableArray array];
     for (int p = p0; p <= p1; p++) [out addObject:@(p)];
@@ -354,30 +481,34 @@ namespace lt = libtorrent;
 }
 
 - (BOOL)prioritizeFrom:(long long)start to:(long long)end {
-    if (!_handle.is_valid() || !_gotMetadata) return NO;
-    @try {
+    if (!_gotMetadata) return NO;
+    try {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_handle.is_valid()) return NO;
         for (NSNumber *n in [self piecesForStart:start end:end]) {
             int p = n.intValue;
             if (!_handle.have_piece(lt::piece_index_t(p))) {
                 // 1.2.x 签名：set_piece_deadline(piece_index_t, int, deadline_flags_t)
-                // 用默认 flags（0_bit 即 alert_when_available），避免类型歧义。
+                // 用默认 flags，避免类型歧义。
                 _handle.set_piece_deadline(lt::piece_index_t(p), 5000);
             }
         }
         return YES;
-    } @catch (...) {
+    } catch (...) {
         return NO;
     }
 }
 
 - (BOOL)isReadyFrom:(long long)start to:(long long)end {
-    if (!_handle.is_valid() || !_gotMetadata) return NO;
-    @try {
+    if (!_gotMetadata) return NO;
+    try {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_handle.is_valid()) return NO;
         for (NSNumber *n in [self piecesForStart:start end:end]) {
             if (!_handle.have_piece(lt::piece_index_t(n.intValue))) return NO;
         }
         return YES;
-    } @catch (...) {
+    } catch (...) {
         return NO;
     }
 }

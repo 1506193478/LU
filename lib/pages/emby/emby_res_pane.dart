@@ -1506,9 +1506,21 @@ class _LibCard extends StatelessWidget {
         ? Colors.white.withValues(alpha: 0.42)
         : const Color(0xFF8A8A8E);
 
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
+    return KzPressable(
+      // 卡片面积大：按下去轻微缩一点 + 几乎不透明，像 iOS 的实体卡片。
+      pressedScale: 0.972,
+      pressedOpacity: 0.92,
+      onTap: () {
+        KazumiHaptics.tap();
+        onTap();
+      },
+      onLongPress: onLongPress == null
+          ? null
+          : () {
+              // 长按进预览前给一记重一点的反馈，和 iOS 长按菜单一致。
+              KazumiHaptics.heavy();
+              onLongPress!();
+            },
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),

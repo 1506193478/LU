@@ -563,7 +563,9 @@ class SettingsKeys {
   );
   static const backgroundPlayback = SettingKey<bool>(
     _SettingBoxKey.backgroundPlayback,
-    false,
+    // 默认开：切到别的 App / 锁屏时继续出声，这是播放器该有的样子。
+    // 在意耗电或流量的用户可以到「播放设置」里关掉。
+    true,
     group: SettingGroup.player,
   );
   static const proxyEnable = SettingKey<bool>(

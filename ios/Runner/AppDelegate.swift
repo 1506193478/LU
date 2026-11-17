@@ -1,6 +1,7 @@
 import UIKit
 import Flutter
 import AVKit
+import AVFoundation
 import app_links
 
 @main
@@ -24,12 +25,33 @@ import app_links
     // 临时放大图层，结果退后台再回来会掉帧甚至闪退。现在自动小窗完全交给
     // 系统的 canStartPictureInPictureAutomaticallyFromInline，这里只负责
     // 恢复渲染，不碰播放状态。
+    /// 全局音频会话（playback + moviePlayback）。
+    ///
+    /// 三条播放链路（番剧 libmpv / Emby / HG 的 WKWebView）共用这一个会话：
+    ///   * `.playback` 才会在退后台后继续出声（默认是 `.ambient`，会被静音）；
+    ///   * `mode: .moviePlayback` 让系统按影片处理音量与音频路由；
+    ///   * 这里只在启动时配一次，播放中途不再反复 setActive，避免打断其它
+    ///     正在播放的音频源。
+    static func configureGlobalAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .moviePlayback)
+            try session.setActive(true)
+        } catch {
+            // 配失败只影响后台出声，前台播放不受影响。
+        }
+    }
+
     override func applicationDidBecomeActive(_ application: UIApplication) {
         super.applicationDidBecomeActive(application)
         AvPlayerEnginePlugin.appBecameActive()
     }
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+        // 全局音频会话：番剧（libmpv）、Emby、短剧 WebView 三条播放链路都靠它。
+        // 配成 playback 之后，切到别的 App / 锁屏才会继续出声；不配的话
+        // 系统按「环境音」处理，一退后台就被压掉。
+        AppDelegate.configureGlobalAudioSession()
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
         // AVPlayer 插件的 registrar 要从 engineBridge.pluginRegistry 取——这是
         // 引擎自己的注册表，返回真正的 FlutterPluginRegistrar。两个错误来源都
@@ -168,7 +190,9 @@ import app_links
 ///   * 画中画天然可用（AVPlayerLayer 就在视图层级里，不再需要 1x1 宿主）；
 ///   * MethodChannel `xl/avplayer` / EventChannel `xl/avplayer/events` 的
 ///     命令与事件形状保持不变，Dart 侧只是把 Texture 换成 PlatformView。
-@objcMembers public class AvPlayerEnginePlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
+@objcMembers public class AvPlayerEnginePlugin: NSObject, FlutterPlugin, FlutterStreamHandler,
+    AVPictureInPictureControllerDelegate
+{
     private static let channelName = "xl/avplayer"
     private static let eventChannelName = "xl/avplayer/events"
     private static let viewTypeName = "xl/avplayer_view"
@@ -177,6 +201,16 @@ import app_links
     private var player: AVPlayer?
     private var playerController: AVPlayerViewController?
     private var statusObservation: NSKeyValueObservation?
+
+    // ---- 画中画（自建 AVPlayerLayer + AVPictureInPictureController）----
+    //
+    // AVPlayerViewController 内部的 layer 是私有的，程序化启动 PiP 必须自己
+    // 有一层可见的 AVPlayerLayer。这里挂一个 4x4 的透明宿主视图到窗口上，
+    // 由 Apple 官方的 AVPictureInPictureController 接管小窗渲染与手势，
+    // 没有任何自研渲染代码。
+    private var pipController: AVPictureInPictureController?
+    private var pipLayer: AVPlayerLayer?
+    private var pipHost: UIView?
 
     private var timeObserver: Any?
     private var eventSink: FlutterEventSink?
@@ -297,7 +331,13 @@ import app_links
         case "startPip":
             startPip(result: result)
         case "stopPip":
-            // PiP 由系统控制条管理（用户点系统画中画按钮退出），Dart 不直接操控。
+            // 用户点 App 内的「退出画中画」：真的把小窗关掉。
+            if let pc = pipController, pc.isPictureInPictureActive {
+                pc.stopPictureInPicture()
+            } else {
+                playerController?.view.isHidden = false
+                teardownPipLayer()
+            }
             result(nil)
         case "dispose":
             teardown()
@@ -327,6 +367,11 @@ import app_links
         guard let uri = URL(string: urlString), !urlString.isEmpty else {
             result(FlutterError(code: "avplayer", message: "bad url", details: nil))
             return
+        }
+        // 换片源时把上一路的画中画图层清掉：AVPlayerLayer 绑的是旧 player。
+        if pipController?.isPictureInPictureActive != true {
+            teardownPipLayer()
+            playerController?.view.isHidden = false
         }
         teardownPlayerOnly()
         let vc = ensurePlayerController()
@@ -392,13 +437,129 @@ import app_links
     }
 
     private func startPip(result: @escaping FlutterResult) {
-        // PiP 由 AVPlayerViewController 的系统控制条提供（原生按钮，零自研）。
-        // Dart 侧命令仅返回可用性，实际进入画中画请点系统控制条的画中画按钮。
-        if #available(iOS 15.0, *), AVPictureInPictureController.isPictureInPictureSupported() {
-            result(nil)
-        } else {
-            result(FlutterError(code: "avplayer", message: "画中画暂时不可用", details: nil))
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            result(FlutterError(code: "avplayer", message: "这台设备不支持画中画", details: nil))
+            return
         }
+        guard let player else {
+            result(FlutterError(code: "avplayer", message: "播放器还没准备好", details: nil))
+            return
+        }
+        // 已经在小窗里：当成成功。
+        if let pc = pipController, pc.isPictureInPictureActive {
+            result(nil)
+            return
+        }
+        // 复用已有的 controller（layer 还在）：可用就直接起。
+        if let pc = pipController, pc.isPictureInPicturePossible {
+            pc.startPictureInPicture()
+            result(nil)
+            return
+        }
+
+        teardownPipLayer()
+
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 4, height: 4))
+        host.isUserInteractionEnabled = false
+        host.backgroundColor = .clear
+        // 完全透明（alpha 0）时系统认为 layer 不可见，会拒绝启动 PiP，
+        // 留一点点几乎看不出的透明度。
+        host.alpha = 0.02
+        let layer = AVPlayerLayer(player: player)
+        layer.frame = host.bounds
+        layer.videoGravity = .resizeAspect
+        host.layer.addSublayer(layer)
+        guard let window = pipWindow() else {
+            result(FlutterError(code: "avplayer", message: "找不到可用窗口", details: nil))
+            return
+        }
+        window.addSubview(host)
+        pipHost = host
+        pipLayer = layer
+
+        let pc: AVPictureInPictureController?
+        if #available(iOS 15.0, *) {
+            let source = AVPictureInPictureController.ContentSource(playerLayer: layer)
+            pc = AVPictureInPictureController(contentSource: source)
+        } else {
+            pc = AVPictureInPictureController(playerLayer: layer)
+        }
+        guard let controller = pc else {
+            teardownPipLayer()
+            result(FlutterError(code: "avplayer", message: "画中画初始化失败", details: nil))
+            return
+        }
+        controller.delegate = self
+        pipController = controller
+        // 新建的 layer 要等一帧才有内容，稍微等再启动，否则 isPictureInPicturePossible 还是 false。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            if controller.isPictureInPicturePossible {
+                controller.startPictureInPicture()
+            } else {
+                self.teardownPipLayer()
+                self.emitPipFailure("画中画启动失败（画面还没就绪）")
+            }
+        }
+        result(nil)
+    }
+
+    private func pipWindow() -> UIWindow? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        if let key = scenes.flatMap({ $0.windows }).first(where: { $0.isKeyWindow }) {
+            return key
+        }
+        if #available(iOS 15.0, *) {
+            return scenes.flatMap({ $0.windows }).first
+        }
+        return UIApplication.shared.windows.first
+    }
+
+    private func teardownPipLayer() {
+        pipController?.delegate = nil
+        pipController = nil
+        pipLayer?.removeFromSuperlayer()
+        pipLayer = nil
+        pipHost?.removeFromSuperview()
+        pipHost = nil
+    }
+
+    private func emitPipFailure(_ message: String) {
+        eventSink?(["event": "pip_error", "message": message])
+    }
+
+    // MARK: - AVPictureInPictureControllerDelegate
+
+    public func pictureInPictureControllerWillStartPictureInPicture(
+        _ controller: AVPictureInPictureController
+    ) {
+        // 小窗里已经在放了，App 内的画面先藏起来，避免同一路画面出现两份。
+        playerController?.view.isHidden = true
+    }
+
+    public func pictureInPictureControllerDidStopPictureInPicture(
+        _ controller: AVPictureInPictureController
+    ) {
+        playerController?.view.isHidden = false
+        teardownPipLayer()
+    }
+
+    public func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        playerController?.view.isHidden = false
+        teardownPipLayer()
+        emitPipFailure("画中画启动失败：\(error.localizedDescription)")
+    }
+
+    public func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        playerController?.view.isHidden = false
+        completionHandler(true)
     }
     private func seek(ms: Int64, result: @escaping FlutterResult) {
         let seconds = Double(ms) / 1000.0

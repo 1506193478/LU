@@ -9,6 +9,7 @@ import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_backup_lines.dart';
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/utils/motion.dart';
 import 'package:XL/pages/emby/emby_sheet_fields.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
 import 'package:XL/request/clients/emby_client.dart';
@@ -230,6 +231,9 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
   bool _https = false;
   bool _advanced = false;
   bool _strm = false;
+
+  /// 未播放提醒的天数：0 = 关闭（参考稿里的「未播放提醒」）。
+  int _reminderDays = 0;
   bool _passwordVisible = false;
   bool _busy = false;
   bool _failed = false;
@@ -251,6 +255,7 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
     _note = TextEditingController();
 
     if (server != null) {
+      _reminderDays = server.reminderDays;
       // 地址是拼好的基址，拆回「主机 / 端口 / 路径 / https」四个字段，
       // 否则用户看到一个整串地址、又没法单独改端口。
       final Uri? uri = Uri.tryParse(server.url);
@@ -283,6 +288,79 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
     _username.dispose();
     _password.dispose();
     super.dispose();
+  }
+
+  /// 「未播放提醒」天数选择。
+  ///
+  /// 参考稿是一个列表弹窗（关闭 / 3 天 / 7 天 / 14 天 / 30 天）。这里用系统
+  /// 底部操作表，选完立刻回显，不打断表单填写。
+  Future<void> _pickReminderDays() async {
+    const List<int> options = <int>[0, 3, 7, 14, 30];
+    final int? picked = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext ctx) {
+        final bool darkMode = PvColors.isDark(ctx);
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: darkMode
+                    ? const Color(0xF21F1F22)
+                    : const Color(0xF7FFFFFF),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+                    child: Text(
+                      '未播放提醒',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: PvColors.ink2(ctx),
+                      ),
+                    ),
+                  ),
+                  for (final int d in options)
+                    InkWell(
+                      onTap: () => Navigator.of(ctx).pop(d),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 14),
+                        child: Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                d == 0 ? '关闭' : '收藏后 $d 天未看提醒',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: PvColors.ink(ctx),
+                                ),
+                              ),
+                            ),
+                            if (d == _reminderDays)
+                              Icon(Icons.check_rounded,
+                                  size: 19, color: PvColors.blue),
+                          ],
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 6),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    KazumiHaptics.select();
+    setState(() => _reminderDays = picked);
   }
 
   Future<void> _openLines() async {
@@ -472,6 +550,7 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
           accessToken: auth.accessToken,
           allowBadCertificate: true,
           backupUrls: backupUrls,
+          reminderDays: _reminderDays,
         ),
         id: id,
         baseUrl: baseUrl,
@@ -639,6 +718,12 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
                   label: '备用线路',
                   value: _lines.isEmpty ? '未设置' : '${_lines.length} 条',
                   onTap: _busy ? () {} : _openLines,
+                ),
+                SheetArrowRow(
+                  dark: dark,
+                  label: '未播放提醒',
+                  value: _reminderDays <= 0 ? '未开启' : '$_reminderDays 天',
+                  onTap: _busy ? () {} : _pickReminderDays,
                 ),
                 SheetArrowRow(
                   dark: dark,

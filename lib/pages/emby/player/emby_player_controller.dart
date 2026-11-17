@@ -170,8 +170,12 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 进度条常显：控件不自动隐藏。
   bool progressAlwaysVisible = false;
 
-  /// 后台音频：退出播放器后继续在后台放声音（架构限制，见说明）。
-  bool backgroundAudio = false;
+  /// 后台音频：切到别的 App / 锁屏后继续出声。
+  ///
+  /// 初值跟「播放设置 → 后台播放」同一个开关：全局默认是开的，
+  /// 用户在那里关掉后，Emby 播放器也跟着不再后台出声。
+  bool backgroundAudio =
+      GStorage.getSetting(SettingsKeys.backgroundPlayback);
 
   /// 解码方式偏好。
   EmbyDecodeMode decodeMode = EmbyDecodeMode.hard;
@@ -1660,6 +1664,9 @@ class EmbyPlayerController extends ChangeNotifier {
 
   void setBackgroundAudio(bool value) {
     backgroundAudio = value;
+    // 写回全局开关：番剧和 Emby 共用同一个「后台播放」偏好，
+    // 免得用户在两处各关一次。
+    unawaited(GStorage.putSetting(SettingsKeys.backgroundPlayback, value));
     _notify();
   }
 

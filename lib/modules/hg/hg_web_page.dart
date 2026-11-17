@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview_platform_interface/flutter_inappwebview_platform_interface.dart';
 
 import 'hg_diag.dart';
+import 'hg_session.dart';
 import 'hg_proxy.dart';
 import 'hg_web_bridge.dart';
 
@@ -58,6 +59,15 @@ class _HgWebPageState extends State<HgWebPage> {
 
   @override
   Widget build(BuildContext context) {
+    // HG 前端自己画的浅/深底色（截图取色：浅 #F2F1ED / 深 #0E0E10）。
+    // 页面外层要跟它一致：顶部那一点下沉的留白才不会是突兀的黑边。
+    final String mode = HgStore.prefs.appearance;
+    final bool dark = mode == 'dark' ||
+        (mode == 'system' &&
+            MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+    final Color pageTint =
+        dark ? const Color(0xFF0E0E10) : const Color(0xFFF2F1ED);
+
     return PopScope<Object?>(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -70,10 +80,17 @@ class _HgWebPageState extends State<HgWebPage> {
         if (context.mounted) Navigator.of(context).pop();
       },
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: pageTint,
         body: SafeArea(
           top: false,
-          child: _url == null ? _buildLoading() : _buildWebView(),
+          child: _url == null
+              ? _buildLoading()
+              // 主底栏在短剧里是收起的，网页内容整体往上顶了一点；这里给
+              // 顶部留 12dp，让标题行与状态栏之间呼吸一下（用户反馈偏高）。
+              : Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: _buildWebView(),
+                ),
         ),
       ),
     );

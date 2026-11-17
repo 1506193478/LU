@@ -670,6 +670,7 @@ class KzPressable extends StatefulWidget {
     this.onTap,
     this.onLongPress,
     this.pressedOpacity = 0.55,
+    this.pressedScale = 1.0,
     this.behavior = HitTestBehavior.opaque,
   });
 
@@ -679,6 +680,10 @@ class KzPressable extends StatefulWidget {
 
   /// 按下时降到多少透明度。iOS 原生大约 0.4–0.6，卡片面积大就取高一点。
   final double pressedOpacity;
+
+  /// 按下时的缩放。大卡片用 0.97 左右最像 iOS（自带一点「压下去」的体积感）；
+  /// 小按钮保持 1.0，否则会显得抖。
+  final double pressedScale;
   final HitTestBehavior behavior;
 
   @override
@@ -714,11 +719,16 @@ class _KzPressableState extends State<KzPressable> {
       onTapCancel: () => _set(false),
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
-      child: AnimatedOpacity(
-        opacity: _pressed ? widget.pressedOpacity : 1,
-        duration: const Duration(milliseconds: 90),
-        curve: Curves.easeOut,
-        child: widget.child,
+      child: AnimatedScale(
+        scale: _pressed ? widget.pressedScale : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: AnimatedOpacity(
+          opacity: _pressed ? widget.pressedOpacity : 1,
+          duration: const Duration(milliseconds: 90),
+          curve: Curves.easeOut,
+          child: widget.child,
+        ),
       ),
     );
   }
