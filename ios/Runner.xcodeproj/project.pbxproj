@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1B2C3D40000000000000005 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000006 /* SystemConfiguration.framework */; };
 		A1B2C3D40000000000000001 /* LuTorrentBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000002 /* LuTorrentBridge.mm */; };
 		A1B2C3D40000000000000003 /* libtorrent.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000004 /* libtorrent.xcframework */; };
 		0A3B854714DEE820933F9E1F /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 93642BDEA3427C1CC11AB43F /* Pods_Runner.framework */; };
@@ -45,6 +46,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1B2C3D40000000000000006 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		A1B2C3D40000000000000002 /* LuTorrentBridge.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = LuTorrentBridge.mm; sourceTree = "<group>"; };
 		A1B2C3D40000000000000004 /* libtorrent.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = libtorrent.xcframework; path = Thirdparties/libtorrent.xcframework; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
@@ -79,6 +81,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D40000000000000003 /* libtorrent.xcframework in Frameworks */,
+				A1B2C3D40000000000000005 /* SystemConfiguration.framework in Frameworks */,
 				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				0A3B854714DEE820933F9E1F /* Pods_Runner.framework in Frameworks */,
 			);
@@ -170,6 +173,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D40000000000000004 /* libtorrent.xcframework */,
+				A1B2C3D40000000000000006 /* SystemConfiguration.framework */,
 				93642BDEA3427C1CC11AB43F /* Pods_Runner.framework */,
 				4B0D67DDC0C77E7C09BA11BB /* Pods_RunnerTests.framework */,
 			);
