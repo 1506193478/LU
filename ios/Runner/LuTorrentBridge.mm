@@ -22,9 +22,11 @@
 #import "libtorrent/add_torrent_params.hpp"
 #import "libtorrent/magnet_uri.hpp"
 
+#include <chrono>
 #include <memory>
 #include <vector>
 #include <string>
+#include <system_error>
 
 namespace lt = libtorrent;
 

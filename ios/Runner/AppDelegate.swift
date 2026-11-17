@@ -205,7 +205,7 @@ import app_links
             channel: FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger()))
         FlutterEventChannel(name: eventChannelName, binaryMessenger: registrar.messenger())
             .setStreamHandler(instance)
-        registrar.register(AvPlayerViewFactory(plugin: instance), withName: viewTypeName)
+        registrar.register(AvPlayerViewFactory(plugin: instance), withId: viewTypeName)
     }
 
     // ---- AVPlayerViewController（懒创建，整个 App 一份） ----
@@ -283,13 +283,13 @@ import app_links
         case "getDuration":
             result(cachedDurationMs)
         case "isPipAvailable":
-            var available = false
+            // PiP 由 AVPlayerViewController 系统控制条自带（allowsPictureInPicturePlayback），
+            // Dart 侧不自建 AVPictureInPictureController，避免与系统控制条双实例冲突。
             if #available(iOS 15.0, *) {
-                available = playerController?.pictureInPictureController != nil
+                result(AVPictureInPictureController.isPictureInPictureSupported())
             } else {
-                available = AVPictureInPictureController.isPictureInPictureSupported()
+                result(false)
             }
-            result(available)
         case "setAutoPip":
             AvPlayerEnginePlugin.autoPipEnabled = call.arguments as? Bool ?? true
             syncAutoPip()
@@ -297,9 +297,7 @@ import app_links
         case "startPip":
             startPip(result: result)
         case "stopPip":
-            if #available(iOS 15.0, *) {
-                playerController?.pictureInPictureController?.stopPictureInPicture()
-            }
+            // PiP 由系统控制条管理（用户点系统画中画按钮退出），Dart 不直接操控。
             result(nil)
         case "dispose":
             teardown()
@@ -394,18 +392,14 @@ import app_links
     }
 
     private func startPip(result: @escaping FlutterResult) {
-        var pip: AVPictureInPictureController?
-        if #available(iOS 15.0, *) {
-            pip = playerController?.pictureInPictureController
-        }
-        guard let pip = pip, pip.isPictureInPicturePossible else {
+        // PiP 由 AVPlayerViewController 的系统控制条提供（原生按钮，零自研）。
+        // Dart 侧命令仅返回可用性，实际进入画中画请点系统控制条的画中画按钮。
+        if #available(iOS 15.0, *), AVPictureInPictureController.isPictureInPictureSupported() {
+            result(nil)
+        } else {
             result(FlutterError(code: "avplayer", message: "画中画暂时不可用", details: nil))
-            return
         }
-        pip.startPictureInPicture()
-        result(nil)
     }
-
     private func seek(ms: Int64, result: @escaping FlutterResult) {
         let seconds = Double(ms) / 1000.0
         // HLS 向前 seek 可能要等切片，宽松一点别立刻放弃。
@@ -550,7 +544,7 @@ class AvPlayerViewFactory: NSObject, FlutterPlatformViewFactory {
     }
 
     func createArgsCodec() -> FlutterMessageCodec & FlutterMethodCodec {
-        FlutterStandardMessageCodec.sharedInstance()
+        FlutterStandardMethodCodec.sharedInstance()
     }
 }
 
