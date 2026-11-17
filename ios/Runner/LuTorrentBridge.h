@@ -16,13 +16,14 @@
 #import <Foundation/Foundation.h>
 
 @protocol FlutterBinaryMessenger;
+@protocol FlutterStreamHandler;
 @class FlutterMethodChannel;
 
 NS_ASSUME_NONNULL_BEGIN
 
 /// 注册 MethodChannel / EventChannel 到给定 engine。
 /// 在 configureFlutterEngine 里调用一次。
-@interface LuTorrentBridge : NSObject
+@interface LuTorrentBridge : NSObject <FlutterStreamHandler>
 
 /// messenger 传 flutterEngine.dartExecutor.binaryMessenger。
 + (void)registerWithMessenger:(NSObject<FlutterBinaryMessenger> *)messenger;

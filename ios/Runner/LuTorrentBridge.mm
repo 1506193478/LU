@@ -30,7 +30,7 @@
 
 namespace lt = libtorrent;
 
-@implementation LuTorrentBridge <FlutterStreamHandler> {
+@implementation LuTorrentBridge {
     lt::session *_session;
     lt::torrent_handle _handle;
     FlutterMethodChannel *_methodChannel;
