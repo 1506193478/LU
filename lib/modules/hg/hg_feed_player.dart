@@ -113,6 +113,9 @@ class _HgFeedPlayerState extends State<HgFeedPlayer> {
     final upstream = widget.upstreamUrl;
     final seq = ++_openSeq;
     if (upstream.isEmpty) {
+      // 空地址 = 上游没下发播放源：也落日志，和 play.resolve_fail 一起
+      // 把「只显示封面不播放」的完整现场串起来。
+      await HgDiag.trace('play.open_empty', {'line': HgNet.base});
       setState(() {
         _failed = true;
         _buffering = false;

@@ -314,7 +314,17 @@ class HgNet {
     final msg = value is Map && value['msg']?.toString().isNotEmpty == true
         ? value['msg'].toString()
         : '接口返回失败';
-    if (baseOverride == null) onApiFailure?.call(true);
+    if (baseOverride == null) {
+      onApiFailure?.call(true);
+      // 业务失败（status != 1）也要落日志：播放接口「暂无地址」时，
+      // 这里的 status/msg 是唯一现场证据（上游 debug.log 同款语义）。
+      await HgDiag.trace('api.biz_error', {
+        'origin': origin,
+        'path': path,
+        'status': value is Map ? value['status'] : null,
+        'msg': msg,
+      });
+    }
     throw HgApiError(msg);
     } on HgApiError {
       rethrow;

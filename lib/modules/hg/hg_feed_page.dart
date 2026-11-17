@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 
 import 'package:XL/modules/hg/hg_module.dart';
 import 'package:XL/modules/hg/hg_api.dart';
+import 'package:XL/modules/hg/hg_diag.dart';
 import 'package:XL/modules/hg/hg_discover_page.dart';
 import 'package:XL/modules/hg/hg_feed_player.dart';
 import 'package:XL/modules/hg/hg_models.dart';
@@ -223,9 +224,22 @@ class _HgFeedPageState extends State<HgFeedPage> with WidgetsBindingObserver {
     try {
       final info = await HgApi.play(id, ep);
       _playInfos[key] = info;
+      final url = _pickUrl(info);
+      await HgDiag.trace('play.resolve', {
+        'video_id': id,
+        'episode': ep,
+        'resolved': url.isNotEmpty,
+        'main': info.videoUrl.isNotEmpty,
+        'hevc': info.videoUrlHevc.isNotEmpty,
+      });
       if (mounted) setState(() {});
-      return _pickUrl(info);
-    } catch (_) {
+      return url;
+    } catch (e) {
+      await HgDiag.trace('play.resolve_fail', {
+        'video_id': id,
+        'episode': ep,
+        'error': e.toString(),
+      });
       return '';
     }
   }
