@@ -97,6 +97,16 @@ class HgProxy {
         await _handleStatic(request, path);
         return;
       }
+      // vite 默认 base 是 "/"，产物 index.html 里引用的是 /assets/xxx.js、
+      // /logo.svg 这类**绝对路径**。页面虽然从 /app/index.html 加载，浏览器
+      // 仍会去请求根路径 —— 不在这里接住就是 404，前端 JS 起不来（白屏）。
+      if (path.startsWith('/assets/') ||
+          path == '/logo.svg' ||
+          path == '/favicon.ico' ||
+          path == '/index.html') {
+        await _handleStatic(request, '/app$path');
+        return;
+      }
       final target = request.uri.queryParameters['u'] ?? '';
       if (target.isEmpty) {
         await _respond(request, 400, 'text/plain', _textBytes('missing u'),

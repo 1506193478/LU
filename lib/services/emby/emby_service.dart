@@ -158,6 +158,22 @@ class EmbyService {
     revision.value++;
   }
 
+  /// 按 id 顺序重排服务器列表（「调整顺序」用）。
+  Future<void> reorder(List<String> ids) async {
+    final map = {for (final s in _servers) s.id: s};
+    final next = <EmbyServer>[
+      for (final id in ids)
+        if (map.remove(id) != null) map[id]!,
+    ];
+    // 兜底：ids 里没提到的（理论上不会有）按原顺序补在后面。
+    next.addAll(map.values);
+    _servers
+      ..clear()
+      ..addAll(next);
+    await _persist();
+    revision.value++;
+  }
+
   void _disposeClient(String serverId) {
     _clients.remove(serverId)?.close();
   }

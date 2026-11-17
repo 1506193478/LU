@@ -6,6 +6,9 @@ import 'package:XL/pages/emby/emby_detail_page.dart';
 import 'package:XL/pages/emby/emby_library_page.dart';
 import 'package:XL/pages/emby/emby_page.dart';
 import 'package:XL/pages/emby/emby_search_page.dart';
+import 'package:XL/pages/emby/emby_line_manage_page.dart';
+import 'package:XL/pages/emby/emby_media_manage_page.dart';
+import 'package:XL/pages/emby/emby_provider_picker_page.dart';
 import 'package:XL/pages/emby/emby_server_page.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_page.dart';
@@ -76,6 +79,20 @@ final embyModule = createModule(
         },
       )
       ..route('/servers', child: (context, state) => const EmbyServerPage())
+      // 参考稿的「管理媒体库」/「添加提供商」/「备用线路」三条新路由。
+      ..route('/media', child: (context, state) => const EmbyMediaManagePage())
+      ..route(
+          '/providers',
+          child: (context, state) => const EmbyProviderPickerPage())
+      ..route(
+        '/lines',
+        child: (context, state) {
+          final args = state.arguments;
+          return args is EmbyServer
+              ? EmbyLineManagePage(server: args)
+              : const SizedBox.shrink();
+        },
+      )
       ..route(
         '/servers/edit',
         child: (context, state) {

@@ -110,6 +110,13 @@ class _HgWebPageState extends State<HgWebPage> {
         disableContextMenu: false,
         allowBackgroundAudioPlaying: false,
         cacheEnabled: true,
+        // 关键：iOS WKWebView 默认「不允许内联媒体播放」且「媒体播放需要用户
+        // 手势」。不打开这两项，<video> 在 WebView 里根本不出画面（hls.js 的
+        // video 标签、iOS 16 走原生 HLS 的 video.src 都一样），表现就是「播不
+        // 了」。前端的自动播放/续播也会被手势策略拒绝。
+        mediaPlaybackRequiresUserGesture: false,
+        allowsInlineMediaPlayback: true,
+        allowsAirPlayForMediaPlayback: true,
       ),
       onWebViewCreated: (c) {
         _controller = c;
@@ -136,6 +143,13 @@ class _HgWebPageState extends State<HgWebPage> {
       },
       onReceivedError: (_, __, error) {
         HgDiag.trace('web.error', {'desc': error.description.toString()});
+      },
+      onReceivedHttpError: (_, request, response) {
+        // 静态资源 404 会让整个前端起不来，必须留现场。
+        HgDiag.trace('web.http_error', {
+          'url': request.url.toString(),
+          'status': response.statusCode,
+        });
       },
     );
     final widget = PlatformInAppWebViewWidget(params);

@@ -11,6 +11,7 @@ import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_res_pane.dart';
+import 'package:XL/pages/emby/emby_home_panels.dart';
 import 'package:XL/pages/emby/emby_search_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/pages/emby/emby_detail_page.dart';
@@ -279,7 +280,8 @@ class _EmbyPageState extends State<EmbyPage> {
   }
 
   Future<void> _openServers() async {
-    await context.pushNamed('/emby/servers');
+    // 参考稿：胶囊面板「设置」/媒体库面板齿轮都进「管理媒体库」。
+    await context.pushNamed('/emby/media');
   }
 
   /// 首页右上角的搜索：只搜这台服务器上的影片。
@@ -404,6 +406,7 @@ class _EmbyPageState extends State<EmbyPage> {
             children: <Widget>[
               if (_built.contains(0))
                 _LibraryPane(
+                  onOpenDiscover: () => _pickPane(2),
                   future: _future,
                   server: _server,
                   onRetry: _onRevisionChanged,
@@ -637,6 +640,7 @@ class _LibraryPane extends StatelessWidget {
     required this.onOpenDetail,
     required this.onOpenLibrary,
     required this.onSearchServer,
+    required this.onOpenDiscover,
   });
 
   final Future<_HomeData>? future;
@@ -647,6 +651,9 @@ class _LibraryPane extends StatelessWidget {
   final ValueChanged<EmbyItem> onOpenDetail;
   final ValueChanged<EmbyLibrary> onOpenLibrary;
   final ValueChanged<EmbyServer> onSearchServer;
+
+  /// 胶囊面板的「发现」：跳到聚合搜索页签。
+  final VoidCallback onOpenDiscover;
 
   @override
   Widget build(BuildContext context) {
@@ -668,6 +675,7 @@ class _LibraryPane extends StatelessWidget {
             onRetry: onRetry,
             onOpenServers: onSwitchServer,
             onSearchServer: onSearchServer,
+            onOpenDiscover: onOpenDiscover,
           );
         },
       ),
@@ -684,6 +692,7 @@ class _HomeBody extends StatefulWidget {
     required this.onRetry,
     required this.onOpenServers,
     required this.onSearchServer,
+    required this.onOpenDiscover,
   });
 
   final _HomeData data;
@@ -695,6 +704,9 @@ class _HomeBody extends StatefulWidget {
 
   /// 右上角搜索：只搜这台服务器（另一个搜索页签是聚合所有服务器）。
   final ValueChanged<EmbyServer> onSearchServer;
+
+  /// 胶囊面板里的「发现」：跳到聚合搜索页签。
+  final VoidCallback onOpenDiscover;
 
   @override
   State<_HomeBody> createState() => _HomeBodyState();
@@ -777,7 +789,7 @@ class _HomeBodyState extends State<_HomeBody> {
             ],
           ),
         ),
-        // 常驻顶栏：液态玻璃胶囊，滚到哪都在，背景从下面透出来。
+        // 常驻顶栏：只剩右侧服务器胶囊（参考稿把胶囊挪到了右边）。
         Positioned(
           left: 0,
           right: 0,
@@ -786,7 +798,17 @@ class _HomeBodyState extends State<_HomeBody> {
             server: server,
             onManage: widget.onOpenServers,
             onSearch: () => widget.onSearchServer(server),
-            onFavorite: () => KazumiDialog.showToast(message: '已收藏这个服务器'),
+            onFavorite: () => widget.onSearchServer(server),
+            onOpenDiscover: widget.onOpenDiscover,
+            onRetry: widget.onRetry,
+          ),
+        ),
+        // 悬浮搜索：右下角圆形按钮，跟随内容浮在二级导航上方。
+        Positioned(
+          right: embyPagePadding(context),
+          bottom: MediaQuery.paddingOf(context).bottom + 62,
+          child: _HomeSearchFab(
+            onTap: () => widget.onSearchServer(server),
           ),
         ),
       ],
@@ -870,10 +892,19 @@ class PvSliverHead extends SliverToBoxAdapter {
 
 /// 服务器胶囊 + 页内下拉（预览稿 `.chip2` + `#chipDrop`）。
 class _ServerChipWithDrop extends StatefulWidget {
-  const _ServerChipWithDrop({required this.server, required this.onManage});
+  const _ServerChipWithDrop({
+    required this.server,
+    required this.onManage,
+    required this.onOpenDiscover,
+    required this.onSearch,
+    required this.onRetry,
+  });
 
   final EmbyServer server;
   final VoidCallback onManage;
+  final VoidCallback onOpenDiscover;
+  final VoidCallback onSearch;
+  final VoidCallback onRetry;
 
   @override
   State<_ServerChipWithDrop> createState() => _ServerChipWithDropState();
@@ -882,39 +913,30 @@ class _ServerChipWithDrop extends StatefulWidget {
 class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
   final GlobalKey _chipKey = GlobalKey();
 
+  /// 点胶囊：不再是「列出所有服务器」，而是当前服务器的线路面板
+  /// （参考稿：线路 + 延迟 + 发现/搜索/媒体库/设置）。
   Future<void> _openDrop() async {
-    final box = _chipKey.currentContext?.findRenderObject() as RenderBox?;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (box == null || overlay == null) return;
-    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final service = EmbyService.instance;
-    final servers = service.servers;
-    final active = service.activeServer;
-
-    await showPvMenu<Object>(
-      context: context,
-      minWidth: 250,
-      position: RelativeRect.fromLTRB(
-        origin.dx,
-        origin.dy + box.size.height + 6,
-        (overlay.size.width - origin.dx - 250).clamp(0.0, overlay.size.width),
-        0,
+    await showEmbyCapsulePanel(
+      context,
+      server: widget.server,
+      onOpenDiscover: widget.onOpenDiscover,
+      onOpenSearch: widget.onSearch,
+      onOpenMediaLibrary: () => showEmbyMediaLibraryPanel(
+        context,
+        onOpenManage: widget.onManage,
+        onAddProvider: () => _openAddProvider(context),
+        onSwitch: (server) async {
+          await EmbyService.instance.setActive(server.id);
+          widget.onRetry();
+        },
       ),
-      items: [
-        for (final server in servers)
-          PvMenuItem(
-            server.name,
-            checked: server.id == active?.id,
-            onTap: () async {
-              if (server.id == active?.id) return;
-              await EmbyService.instance.setActive(server.id);
-            },
-          ),
-        const PvMenuItem.divider(),
-        PvMenuItem('管理服务器…', onTap: widget.onManage),
-      ],
+      onOpenSettings: widget.onManage,
+      onOpenManage: widget.onManage,
     );
+  }
+
+  Future<void> _openAddProvider(BuildContext context) async {
+    await context.pushNamed('/emby/servers/edit', arguments: null);
   }
 
   @override
@@ -992,41 +1014,79 @@ class _GlassTopBar extends StatelessWidget {
     required this.onManage,
     required this.onSearch,
     required this.onFavorite,
+    required this.onOpenDiscover,
+    required this.onRetry,
   });
 
   final EmbyServer server;
   final VoidCallback onManage;
   final VoidCallback onSearch;
   final VoidCallback onFavorite;
+  final VoidCallback onOpenDiscover;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
+    // 参考稿：胶囊在右上，左边留空（大图自己顶到状态栏下）。
     return SafeArea(
       bottom: false,
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          embyPagePadding(context) - 6,
-          10,
           embyPagePadding(context),
+          10,
+          embyPagePadding(context) - 6,
           10,
         ),
         child: Row(
           children: [
-            _ServerChipWithDrop(server: server, onManage: onManage),
             const Spacer(),
-            _GlassIconButton(
-              icon: Icons.search_rounded,
-              hint: '搜索这台服务器的影片',
-              onTap: onSearch,
-            ),
-            const SizedBox(width: 8),
-            _GlassIconButton(
-              icon: Icons.favorite_rounded,
-              color: PvColors.red,
-              hint: '收藏',
-              onTap: onFavorite,
+            _ServerChipWithDrop(
+              server: server,
+              onManage: onManage,
+              onOpenDiscover: onOpenDiscover,
+              onSearch: onSearch,
+              onRetry: onRetry,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 右下角悬浮搜索按钮（参考稿的圆形放大镜）。
+class _HomeSearchFab extends StatelessWidget {
+  const _HomeSearchFab({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool dark = PvColors.isDark(context);
+    return KzPressable(
+      onTap: onTap,
+      pressedOpacity: 0.7,
+      child: Container(
+        width: 46,
+        height: 46,
+        decoration: BoxDecoration(
+          color: dark
+              ? const Color(0xF0202023)
+              : const Color(0xF7FFFFFF),
+          shape: BoxShape.circle,
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x26000000),
+              blurRadius: 16,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.search_rounded,
+          size: 22,
+          color: dark ? const Color(0xFFEDEDEF) : const Color(0xFF1B1B1F),
         ),
       ),
     );

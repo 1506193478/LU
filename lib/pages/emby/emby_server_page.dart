@@ -7,6 +7,7 @@ import 'package:XL/bean/widget/clay.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_backup_lines.dart';
+import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_sheet_fields.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
@@ -302,6 +303,105 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
     https: _https,
   );
 
+  /// 从剪贴板识别服务器信息（参考稿右上角剪贴板按钮）。
+  ///
+  /// 支持：一行一项（地址/用户名/密码），或者写在一段话里。
+  Future<void> _importFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = (data?.text ?? '').trim();
+    var host = '';
+    var port = '';
+    var path = '';
+    var https = false;
+    var user = '';
+    var pass = '';
+
+    // 1) 地址：优先带协议的 URL，其次裸 IP/域名。
+    final urlMatch =
+        RegExp('https?://[^\\s\"' + "'" + '<>，,、；;]+').firstMatch(text);
+    if (urlMatch != null) {
+      final uri = Uri.tryParse(urlMatch.group(0)!);
+      if (uri != null && uri.host.isNotEmpty) {
+        host = uri.host;
+        https = uri.scheme == 'https';
+        if (uri.hasPort) port = '${uri.port}';
+        final seg = uri.pathSegments.where((e) => e.isNotEmpty).join('/');
+        if (seg.isNotEmpty && !seg.contains('.')) path = '/$seg';
+      }
+    } else {
+      final bare = RegExp(
+        r'\b((?:\d{1,3}\.){3}\d{1,3}|[a-zA-Z0-9-]+\.[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})(?::(\d{2,5}))?',
+      ).firstMatch(text);
+      if (bare != null) {
+        host = bare.group(1)!;
+        port = bare.group(2) ?? '';
+      }
+    }
+
+    // 2) 用户名 / 密码：带标签的优先。
+    String grab(String pattern) {
+      final m = RegExp(pattern, caseSensitive: false).firstMatch(text);
+      return m?.group(1)?.trim() ?? '';
+    }
+
+    user = grab(r'(?:用户名|账号|账户|user(?:name)?)\s*[:：=]\s*(\S+)');
+    pass = grab(r'(?:密码|口令|pass(?:word)?)\s*[:：=]\s*(\S+)');
+
+    // 3) 没有标签：取「非地址行」里剩下的两项，短的当用户名。
+    if (user.isEmpty && pass.isEmpty) {
+      final tokens = <String>[];
+      for (final line in text.split(RegExp(r'[\r\n]+'))) {
+        final t = line.trim();
+        if (t.isEmpty) continue;
+        if (t.contains('://') || RegExp(r'^[\d.]+$').hasMatch(t)) continue;
+        tokens.add(t);
+      }
+      if (tokens.length >= 2) {
+        final a = tokens[tokens.length - 2];
+        final b = tokens[tokens.length - 1];
+        if (a.length <= b.length) {
+          user = a;
+          pass = b;
+        } else {
+          user = b;
+          pass = a;
+        }
+      }
+    }
+
+    if (host.isEmpty) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('没有识别到服务器信息'),
+          content: const Text(
+            '复制包含服务器地址、用户名和密码的文字后再试，每项一行或写在一段话里都可以。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('好'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _host.text = host;
+      if (port.isNotEmpty) _port.text = port;
+      if (path.isNotEmpty) _path.text = path;
+      _https = https;
+      if (user.isNotEmpty) _username.text = user;
+      if (pass.isNotEmpty) _password.text = pass;
+    });
+    KazumiDialog.showToast(
+      message: pass.isEmpty ? '已识别服务器地址' : '已识别地址、用户名和密码',
+    );
+  }
+
   Future<void> _save() async {
     if (_busy) return;
     FocusManager.instance.primaryFocus?.unfocus();
@@ -437,6 +537,13 @@ class _EmbyServerEditPageState extends State<EmbyServerEditPage> {
       canPop: !_busy,
       child: SettingsDetailScaffold(
         title: Text(isNew ? '添加服务器' : '编辑服务器'),
+        actions: [
+          IconButton(
+            tooltip: '从剪贴板识别',
+            onPressed: _busy ? null : _importFromClipboard,
+            icon: const Icon(Icons.content_paste_rounded),
+          ),
+        ],
         body: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
           children: [
