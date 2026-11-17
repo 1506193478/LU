@@ -30,7 +30,7 @@
 
 namespace lt = libtorrent;
 
-@implementation LuTorrentBridge {
+@implementation LuTorrentBridge <FlutterStreamHandler> {
     lt::session *_session;
     lt::torrent_handle _handle;
     FlutterMethodChannel *_methodChannel;
@@ -220,7 +220,8 @@ namespace lt = libtorrent;
         while (_session != nullptr) {
             @autoreleasepool {
                 _session->wait_for_alert(std::chrono::milliseconds(300));
-                std::vector<lt::alert *> alerts = _session->pop_alerts();
+                std::vector<lt::alert *> alerts;
+                _session->pop_alerts(&alerts);
                 for (lt::alert *a : alerts) {
                     std::unique_ptr<lt::alert> holder(a);
                     // 元数据就绪
@@ -253,7 +254,7 @@ namespace lt = libtorrent;
 
 - (void)onMetadataReady {
     if (_gotMetadata || !_handle.is_valid()) return;
-    std::shared_ptr<lt::torrent_info> ti = _handle.torrent_file();
+    std::shared_ptr<const lt::torrent_info> ti = _handle.torrent_file();
     if (!ti) return;
 
     lt::file_storage files = ti->files();
@@ -273,10 +274,12 @@ namespace lt = libtorrent;
     _pieceLength = ti->piece_length();
     _numPieces = ti->num_pieces();
 
-    std::string name = files.file_name(best);
+    lt::string_view nameView = files.file_name(best);
+    std::string name(nameView.begin(), nameView.end());
     _mainFileName = [NSString stringWithUTF8String:name.c_str()] ?: @"video";
     std::string relPath = files.file_path(best);
-    NSString *savePath = [NSString stringWithUTF8String:_handle.save_path().c_str()];
+    std::string savePathCpp(_handle.save_path());
+    NSString *savePath = [NSString stringWithUTF8String:savePathCpp.c_str()];
     NSString *fullPath = [NSString stringWithFormat:@"%@/%@", savePath,
                           [NSString stringWithUTF8String:relPath.c_str()]];
     _mainFilePath = [[fullPath stringByStandardizingPath] copy];
