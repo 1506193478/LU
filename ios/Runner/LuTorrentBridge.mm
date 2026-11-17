@@ -355,8 +355,8 @@ namespace lt = libtorrent;
             int p = n.intValue;
             if (!_handle.have_piece(lt::piece_index_t(p))) {
                 // 1.2.x 签名：set_piece_deadline(piece_index_t, int, deadline_flags_t)
-                _handle.set_piece_deadline(lt::piece_index_t(p), 5000,
-                                           lt::torrent_handle::alert_when_available);
+                // 用默认 flags（0_bit 即 alert_when_available），避免类型歧义。
+                _handle.set_piece_deadline(lt::piece_index_t(p), 5000);
             }
         }
         return YES;
