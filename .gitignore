@@ -60,3 +60,6 @@ android/build/reports/problems/
 android/key.properties
 *.jks
 *.keystore
+
+# iOS 磁力播放依赖（大件二进制，CI/本地由 scripts/ios_prepare_torrent.sh 下载）
+ios/Thirdparties/

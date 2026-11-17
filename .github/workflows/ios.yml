@@ -35,6 +35,14 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      # iOS 磁力播放依赖：libtorrent 1.2.17 xcframework + boost 头文件。
+      # 大件二进制不进 Git，CI 每次下载（有缓存加速）。
+      - name: Prepare torrent dependencies
+        run: |
+          chmod +x scripts/ios_prepare_torrent.sh
+          ./scripts/ios_prepare_torrent.sh
+          du -sh ios/Thirdparties/libtorrent.xcframework ios/Thirdparties/boost-1.69.0/boost
+
       # --no-codesign：没有签名证书也能出 .app，后续用 Sideloadly 自签。
       # 这里不单独跑 pod install —— Generated.xcconfig 要 flutter build 才生成，
       # 提前手动跑 pod install 会找不到它。

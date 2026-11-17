@@ -39,6 +39,11 @@ import app_links
         if let avRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "AvPlayerEnginePlugin") {
             AvPlayerEnginePlugin.register(with: avRegistrar)
         }
+        // 磁力播放桥（libtorrent iOS）：注册 lu/torrent 通道。
+        // messenger 从 registrar 拿，与 Android TorrentEngine.kt 同协议。
+        if let torrentRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "LuTorrentBridge") {
+            LuTorrentBridge.register(with: torrentRegistrar.messenger())
+        }
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",
@@ -153,166 +158,91 @@ import app_links
     }
 }
 
-/// iOS 上的 AVPlayer 播放引擎（方向 B：HLS 走原生硬解）。
+/// iOS 上的 AVPlayer 播放引擎（v2：系统组件方案）。
 ///
-/// 为什么要做它：libmpv 播 Emby 转码（HLS）时向前 seek 可能落到还没转出来的
-/// 切片上直接静默失败；而且 HDR / 画中画 / AirPlay 只有 AVPlayer 这条原生路。
-/// 所以 iOS 上转码流优先走这里，AVPlayer 吃不了的容器（MKV 内封字幕等）继续
-/// 回退到 media_kit。
-///
-/// 结构：
-///   * MethodChannel `xl/avplayer` —— 控制命令（open/play/pause/seek/...）；
-///   * EventChannel  `xl/avplayer/events` —— 状态回推（playing/position/...）；
-///   * `registerExternalTexture` —— AVPlayerItemVideoOutput 的 pixel buffer
-///     通过 CADisplayLink 拷给 Flutter Texture（videoTextureId 交给 Dart 侧
-///     的 Texture widget 渲染）。
-@objcMembers public class AvPlayerEnginePlugin: NSObject, FlutterPlugin, FlutterTexture, FlutterStreamHandler {
+/// v1 是自研渲染（AVPlayerItemVideoOutput + CADisplayLink + Flutter 纹理），
+/// 在 iOS 16 上存在起播失败（Emby 模块 mpv 能播、AVPlayer 播不了），且双路
+/// 渲染并存曾导致 4K 黑屏、掉帧。v2 整体换成系统 AVPlayerViewController：
+///   * PlatformView `xl/avplayer_view` 直接嵌入 AVKit 的 VC——苹果维护的
+///     HLS/AES-128/杜比视界/HDR 播放路径，零自研渲染代码；
+///   * 画中画天然可用（AVPlayerLayer 就在视图层级里，不再需要 1x1 宿主）；
+///   * MethodChannel `xl/avplayer` / EventChannel `xl/avplayer/events` 的
+///     命令与事件形状保持不变，Dart 侧只是把 Texture 换成 PlatformView。
+@objcMembers public class AvPlayerEnginePlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private static let channelName = "xl/avplayer"
     private static let eventChannelName = "xl/avplayer/events"
+    private static let viewTypeName = "xl/avplayer_view"
 
     private var registrar: FlutterPluginRegistrar?
     private var player: AVPlayer?
-    private var output: AVPlayerItemVideoOutput?
+    private var playerController: AVPlayerViewController?
+    private var statusObservation: NSKeyValueObservation?
 
-    /// `copyPixelBuffer` 跑在 Flutter 的 raster 线程，而 open/teardown 跑在
-    /// 主线程。两边同时读写 player / output 就是数据竞争——偶尔的闪退
-    /// （EXC_BAD_ACCESS）基本都出在这儿。所有跨线程访问都从这里过。
-    private let bufferLock = NSLock()
-    private var displayLink: CADisplayLink?
-    private var textureId: Int64 = -1
     private var timeObserver: Any?
-
     private var eventSink: FlutterEventSink?
-    private var lastReportedPositionMs: Int64 = -1
-
-    // 画中画：AVPictureInPictureController 必须吃一个「挂在视图层级里、
-    // 在屏幕上」的 AVPlayerLayer。我们渲染走的是 AVPlayerItemVideoOutput
-    // （Flutter 纹理），没有 layer，所以专门造一个宿主 view 给它。
-    //
-    // 宿主必须是**屏幕内、可见（alpha 1）**的：屏幕外/透明宿主手动
-    // startPictureInPicture 静默失败、退后台也不会自动触发。1x1 pt 贴在
-    // 窗口右下角落——肉眼不可见但系统认它在上屏播放，这也是 Flutter
-    // 社区视频插件通用的做法。
-    private var pipController: AVPictureInPictureController?
-    private var pipLayer: AVPlayerLayer?
-    private var pipHost: UIView?
-
-    /// 「自动开启画中画」开关（设置页下发），只影响自动触发，手动按钮不受限。
-    static var autoPipEnabled = true
-
-    /// 宿主平时的大小（1x1 贴右下角），退出小窗时缩回它。
-    private var pipHostSmallFrame: CGRect = .zero
-
-    /// 纹理取帧是否被挂起（进小窗前会挂起，避免和 AVPlayerLayer 抢渲染）。
-    private var textureSuspended = false
-
-    /// register 时存一份引用，App 回到前台时好找到它。
-    private static var shared: AvPlayerEnginePlugin?
-
-    /// 回到前台：确保取帧循环还在跑，并强制刷新一帧纹理。
-    ///
-    /// 之前「退出去再进来」会卡顿/黑屏：进小窗时把 displayLink 停了，但
-    /// 小窗被系统直接收掉时不一定回调 didStop，循环就一直停着——纹理停在
-    /// 最后一帧，看着就是严重掉帧，随后播放器状态错乱还会崩。
-    static func appBecameActive() {
-        shared?.resumeRenderingIfNeeded()
-    }
-
-    func resumeRenderingIfNeeded() {
-        guard player != nil else { return }
-        guard pipController?.isPictureInPictureActive != true else { return }
-        if displayLink == nil { startDisplayLink() }
-        if textureId >= 0, let registrar = registrar {
-            registrar.textures().textureFrameAvailable(textureId)
-        }
-    }
-
-    /// 进小窗前把宿主撑到全屏，并挂起纹理取帧。
-    ///
-    /// 系统只有在「屏幕上有一块足够大的 inline 视频」时才认
-    /// `isPictureInPicturePossible`；而 AVPlayerLayer 一旦真的开始显示，
-    /// 再让 videoOutput 同时取帧就会互相拖累。所以这两件事必须一起做：
-    /// 放大 + 停纹理。
-    private func preparePipHost() {
-        guard let host = pipHost, let window = host.superview else { return }
-        if host.frame.width > 100 { return }
-        textureSuspended = true
-        stopDisplayLink()
-        host.frame = window.bounds
-        pipLayer?.frame = host.bounds
-    }
-
-    /// 退出/失败时缩回宿主并恢复纹理。
-    private func restorePipHost() {
-        guard let host = pipHost else { return }
-        if pipHostSmallFrame != .zero { host.frame = pipHostSmallFrame }
-        pipLayer?.frame = host.bounds
-        textureSuspended = false
-        // 纹理挂起期间解码器可能被系统切走，回来必须重新解一帧，
-        // 否则画面会停在旧帧上（看着像卡死）。
-        if let player = player {
-            let t = player.currentTime()
-            player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
-            if player.timeControlStatus != .paused { startDisplayLink() }
-        }
-    }
-
-    private func startPipIfPossible(attempt: Int = 0) {
-        // 画中画已下线：直接告诉 Dart 侧不可用，不做任何图层操作。
-        eventSink?([
-            "type": "pip", "active": false,
-            "message": "画中画功能已移除",
-        ] as [String: Any])
-    }
+    private var isListening = false
+    private var lastStatusReportedFailed = false
 
     // 供 Dart 查询的缓存值（periodic observer 每 0.5s 刷一次）。
     private var cachedDurationMs: Int64 = 0
     private var cachedBufferedMs: Int64 = 0
 
+    /// 「自动开启画中画」开关（设置页下发），只影响自动触发，手动按钮不受限。
+    static var autoPipEnabled = true
+
+    private static var shared: AvPlayerEnginePlugin?
+
+    /// 回到前台：系统组件自管生命周期，无需恢复任何东西。
+    /// 保留方法以维持 AppDelegate 调用点不变。
+    static func appBecameActive() {}
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = AvPlayerEnginePlugin()
         shared = instance
         instance.registrar = registrar
-        registrar.addMethodCallDelegate(instance, channel: FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger()))
-        FlutterEventChannel(name: eventChannelName, binaryMessenger: registrar.messenger()).setStreamHandler(instance)
+        registrar.addMethodCallDelegate(
+            instance,
+            channel: FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger()))
+        FlutterEventChannel(name: eventChannelName, binaryMessenger: registrar.messenger())
+            .setStreamHandler(instance)
+        registrar.register(AvPlayerViewFactory(plugin: instance), withName: viewTypeName)
+    }
+
+    // ---- AVPlayerViewController（懒创建，整个 App 一份） ----
+
+    /// PlatformView 工厂与 create 命令都会走到这里；幂等。
+    func ensurePlayerController() -> AVPlayerViewController {
+        if let vc = playerController { return vc }
+        let newPlayer = AVPlayer()
+        let vc = AVPlayerViewController()
+        vc.player = newPlayer
+        // 系统原生控制条（进度/播放/音轨字幕选择/PiP 全是 AVKit 自带交互），
+        // Flutter 侧不再叠自绘控件——用户要求原生按钮与手势。
+        vc.showsPlaybackControls = true
+        vc.videoGravity = .resizeAspect
+        // 画中画：AVPlayerLayer 就在这个 VC 的视图层级里，天然可用。
+        vc.allowsPictureInPicturePlayback = true
+        if #available(iOS 14.2, *) {
+            vc.canStartPictureInPictureAutomaticallyFromInline = AvPlayerEnginePlugin.autoPipEnabled
+        }
+        player = newPlayer
+        playerController = vc
+        return vc
     }
 
     // ---- EventChannel ----
 
-    private var pendingResult: FlutterResult?
-    private var isListening = false
-
-    @objc public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         eventSink = events
         isListening = true
         addPeriodicObserver()
         return nil
     }
 
-    @objc public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         isListening = false
         eventSink = nil
         return nil
-    }
-
-    // ---- Texture ----
-
-    public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
-        // 只把「取引用」放在锁里：拿到强引用后即使主线程正在 teardown，
-        // 局部变量也能保证对象活到这次拷贝结束。
-        bufferLock.lock()
-        let output = self.output
-        let player = self.player
-        bufferLock.unlock()
-
-        guard let output = output, let player = player else { return nil }
-        let time = player.currentTime()
-        guard time.isNumeric else { return nil }
-        guard let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) else {
-            return nil
-        }
-        if CVPixelBufferGetWidth(buffer) == 0 { return nil }
-        return Unmanaged<CVPixelBuffer>.passRetained(buffer)
     }
 
     // ---- MethodChannel ----
@@ -320,19 +250,16 @@ import app_links
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "create":
-            createTexture(result)
+            // 视图由 PlatformView 工厂提供，这里只保证播放器存在并回个句柄。
+            ensurePlayerController()
+            result(Int64(0))
         case "open":
             open(arguments: call.arguments, result: result)
         case "play":
             player?.play()
-            // 暂停时把取帧循环停了省电，恢复播放要记得拉起来，否则画面
-            // 停在最后一帧（看上去就是「播放了但不动」）。
-            if displayLink == nil, player != nil { startDisplayLink() }
             result(nil)
         case "pause":
             player?.pause()
-            // 暂停后没有新帧，60/120Hz 的空转纯属浪费；后台时更是如此。
-            stopDisplayLink()
             result(nil)
         case "seek":
             seek(ms: (call.arguments as? NSNumber)?.int64Value ?? 0, result: result)
@@ -356,25 +283,22 @@ import app_links
         case "getDuration":
             result(cachedDurationMs)
         case "isPipAvailable":
-            // 画中画已下线。
-            result(false)
+            var available = false
+            if #available(iOS 15.0, *) {
+                available = playerController?.pictureInPictureController != nil
+            } else {
+                available = AVPictureInPictureController.isPictureInPictureSupported()
+            }
+            result(available)
         case "setAutoPip":
             AvPlayerEnginePlugin.autoPipEnabled = call.arguments as? Bool ?? true
-            if let pip = pipController {
-                pip.canStartPictureInPictureAutomaticallyFromInline =
-                    AvPlayerEnginePlugin.autoPipEnabled
-            }
+            syncAutoPip()
             result(nil)
         case "startPip":
-            guard pipController != nil else {
-                result(FlutterError(code: "avplayer", message: "画中画暂时不可用", details: nil))
-                return
-            }
-            startPipIfPossible()
-            result(nil)
+            startPip(result: result)
         case "stopPip":
-            if pipController?.isPictureInPictureActive == true {
-                pipController?.stopPictureInPicture()
+            if #available(iOS 15.0, *) {
+                playerController?.pictureInPictureController?.stopPictureInPicture()
             }
             result(nil)
         case "dispose":
@@ -383,16 +307,6 @@ import app_links
         default:
             result(FlutterMethodNotImplemented)
         }
-    }
-
-    private func createTexture(_ result: @escaping FlutterResult) {
-        teardown()
-        guard let registrar = registrar else {
-            result(FlutterError(code: "avplayer", message: "registrar unavailable", details: nil))
-            return
-        }
-        textureId = registrar.textures().register(self)
-        result(Int64(textureId))
     }
 
     private func open(arguments: Any?, result: @escaping FlutterResult) {
@@ -412,11 +326,16 @@ import app_links
     }
 
     private func open(urlString: String, headers: [String: String], result: @escaping FlutterResult) {
-        guard let registrar = registrar, textureId >= 0, let uri = URL(string: urlString) else {
-            result(FlutterError(code: "avplayer", message: "texture not created or bad url", details: nil))
+        guard let uri = URL(string: urlString), !urlString.isEmpty else {
+            result(FlutterError(code: "avplayer", message: "bad url", details: nil))
             return
         }
         teardownPlayerOnly()
+        let vc = ensurePlayerController()
+        guard let player = player else {
+            result(FlutterError(code: "avplayer", message: "player unavailable", details: nil))
+            return
+        }
 
         let asset: AVURLAsset
         if headers.isEmpty {
@@ -425,38 +344,36 @@ import app_links
             asset = AVURLAsset(url: uri, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
         }
         let item = AVPlayerItem(asset: asset)
-        let newPlayer = AVPlayer(playerItem: item)
-        bufferLock.lock()
-        player = newPlayer
-        bufferLock.unlock()
 
-        // 尽量少做格式转换：转码流出来就是能硬解的 H264/HEVC。
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: [kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA]
-        ])
-        item.add(output)
-        bufferLock.lock()
-        self.output = output
-        bufferLock.unlock()
+        // 失败诊断：status 走到 .failed 时把底层错误回传 Dart（触发回退 mpv）。
+        lastStatusReportedFailed = false
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] observedItem, _ in
+            guard let self = self else { return }
+            if observedItem.status == .failed && !self.lastStatusReportedFailed {
+                self.lastStatusReportedFailed = true
+                let message = observedItem.error?.localizedDescription ?? "播放失败"
+                self.eventSink?(["type": "error", "message": message] as [String: Any])
+            }
+        }
+
+        player.replaceCurrentItem(with: item)
 
         // 完成事件。
         NotificationCenter.default.addObserver(
             self, selector: #selector(itemDidEnd),
             name: .AVPlayerItemDidPlayToEndTime, object: item)
-
         // 失败事件。
         NotificationCenter.default.addObserver(
             self, selector: #selector(itemFailed(note:)),
             name: .AVPlayerItemFailedToPlayToEndTime, object: item)
 
-        newPlayer.volume = 1.0
-        newPlayer.play()
+        player.volume = 1.0
+        player.play()
         // 后台播放 / PiP / AirPlay 都依赖 playback 类别的音频会话，open 时
         // 就配好（配不成只影响这几样，不影响前台播放）。
         configureAudioSession()
-        setupPip(player: newPlayer)
+        syncAutoPip()
         addPeriodicObserver()
-        startDisplayLink()
         result(nil)
     }
 
@@ -470,30 +387,23 @@ import app_links
         }
     }
 
-    /// 画中画：**已整体下线**。
-    ///
-    /// 保留这个空方法只是为了不改调用点。这条链路（常驻 AVPlayerLayer +
-    /// Flutter 纹理取帧并存）的代价被反复验证过：
-    ///   · 两路同时渲染会互相拖累，4K 直接黑屏不出画；
-    ///   · 为了骗过系统的 `isPictureInPicturePossible` 又要临时放大图层，
-    ///     再把内存峰值顶高一层；
-    ///   · 直连原盘（mpv 内核）根本没有 AVPlayerLayer，永远用不了。
-    /// 收益远小于它对播放稳定性的破坏，所以整条移除，只留空壳。
-    private func setupPip(player newPlayer: AVPlayer) {
-        teardownPip()
+    private func syncAutoPip() {
+        guard #available(iOS 14.2, *) else { return }
+        playerController?.canStartPictureInPictureAutomaticallyFromInline =
+            AvPlayerEnginePlugin.autoPipEnabled
     }
 
-    private func teardownPip() {
-        pipController?.delegate = nil
-        if pipController?.isPictureInPictureActive == true {
-            // 换片 / 销毁时先把小窗收掉，别让它挂着旧画面。
-            pipController?.stopPictureInPicture()
+    private func startPip(result: @escaping FlutterResult) {
+        var pip: AVPictureInPictureController?
+        if #available(iOS 15.0, *) {
+            pip = playerController?.pictureInPictureController
         }
-        pipController = nil
-        pipLayer?.removeFromSuperlayer()
-        pipLayer = nil
-        pipHost?.removeFromSuperview()
-        pipHost = nil
+        guard let pip = pip, pip.isPictureInPicturePossible else {
+            result(FlutterError(code: "avplayer", message: "画中画暂时不可用", details: nil))
+            return
+        }
+        pip.startPictureInPicture()
+        result(nil)
     }
 
     private func seek(ms: Int64, result: @escaping FlutterResult) {
@@ -598,71 +508,25 @@ import app_links
         eventSink?(["type": "error", "message": message] as [String: Any])
     }
 
-    // ---- 渲染帧 ----
-
-    private func startDisplayLink() {
-        stopDisplayLink()
-        let link = CADisplayLink(target: self, selector: #selector(frameTick))
-        // 60fps 足够：超过片源帧率的回调纯属白跑，ProMotion 上 120Hz 更是
-        // 让主线程忙一倍。
-        if #available(iOS 15.0, *) {
-            link.preferredFrameRateRange = CAFrameRateRange(
-                minimum: 24, maximum: 60, preferred: 60
-            )
-        }
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-    }
-
-    private func stopDisplayLink() {
-        displayLink?.invalidate()
-        displayLink = nil
-    }
-
-    @objc private func frameTick() {
-        guard textureId >= 0, let registrar = registrar else { return }
-        // 有新帧才通知 Flutter 重画。
-        //
-        // 之前是每个 vsync 都 textureFrameAvailable：24fps 的片子也按 60/120Hz
-        // 让引擎去 copyPixelBuffer 拷一遍整帧（4K 一帧 ~12MB），白烧内存带宽，
-        // 掉帧就是这么来的——倍速播时帧率高，更明显。
-        guard let output = output, let player = player else { return }
-        let time = player.currentTime()
-        guard time.isNumeric else { return }
-        guard output.hasNewPixelBuffer(forItemTime: time) else { return }
-        registrar.textures().textureFrameAvailable(textureId)
-    }
-
     // ---- 清理 ----
 
     private func teardownPlayerOnly() {
-        teardownPip()
-        stopDisplayLink()
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil
         }
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: nil)
+        statusObservation = nil
+        lastStatusReportedFailed = false
         player?.pause()
-        // 先把引用换掉（加锁），再让 ARC 去释放：copyPixelBuffer 那头拿到
-        // 的是强引用，不会再踩到已释放的 output。
-        bufferLock.lock()
-        let oldPlayer = player
-        let oldOutput = output
-        player = nil
-        output = nil
-        bufferLock.unlock()
-        _ = oldPlayer
-        _ = oldOutput
+        player?.replaceCurrentItem(with: nil)
+        cachedDurationMs = 0
+        cachedBufferedMs = 0
     }
 
     private func teardown() {
         teardownPlayerOnly()
-        if textureId >= 0, let registrar = registrar {
-            registrar.textures().unregisterTexture(textureId)
-            textureId = -1
-        }
     }
 
     deinit {
@@ -670,47 +534,40 @@ import app_links
     }
 }
 
-// MARK: - AVPictureInPictureControllerDelegate
+// MARK: - PlatformView（AVPlayerViewController 宿主）
 
-extension AvPlayerEnginePlugin: AVPictureInPictureControllerDelegate {
-    // 注意：类是 public 的，public 协议的实现方法也必须显式 public，
-    // 否则 CI 上编译直接报错（本地不编 iOS 探不到）。
-    public func pictureInPictureControllerWillStartPictureInPicture(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) {
-        // 画面走系统小窗了，Flutter 纹理这一路先停掉省电（后台 displayLink
-        // 本来也会被系统挂起，主动停是让「PiP 期间回前台」也不空转）。
-        stopDisplayLink()
-        eventSink?(["type": "pip", "active": true] as [String: Any])
+/// 工厂：把 AVPlayerViewController 的视图嵌进 Flutter 视图树。
+class AvPlayerViewFactory: NSObject, FlutterPlatformViewFactory {
+    private let plugin: AvPlayerEnginePlugin
+
+    init(plugin: AvPlayerEnginePlugin) {
+        self.plugin = plugin
+        super.init()
     }
 
-    public func pictureInPictureControllerDidStopPictureInPicture(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) {
-        restorePipHost()
-        resumeRenderingIfNeeded()
-        eventSink?(["type": "pip", "active": false] as [String: Any])
+    func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+        AvPlayerPlatformView(plugin: plugin)
     }
 
-    public func pictureInPictureController(
-        _ pictureInPictureController: AVPictureInPictureController,
-        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
-    ) {
-        // 用户在小窗点了「还原」：Flutter 播放页还开着，直接认领。
-        completionHandler(true)
+    func createArgsCodec() -> FlutterMessageCodec & FlutterMethodCodec {
+        FlutterStandardMessageCodec.sharedInstance()
+    }
+}
+
+class AvPlayerPlatformView: NSObject, FlutterPlatformView {
+    private let container: UIView
+
+    init(plugin: AvPlayerEnginePlugin) {
+        container = UIView(frame: .zero)
+        container.backgroundColor = .black
+        super.init()
+        let vc = plugin.ensurePlayerController()
+        vc.view.frame = container.bounds
+        vc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(vc.view)
     }
 
-    public func pictureInPictureController(
-        _ pictureInPictureController: AVPictureInPictureController,
-        failedToStartPictureInPictureWithError error: Error
-    ) {
-        // 启动失败：宿主缩回去、纹理恢复，否则画面会停在最后一帧。
-        restorePipHost()
-        resumeRenderingIfNeeded()
-        // 注意不能发 "error" 类型——那会触发 Dart 侧的回退 mpv 逻辑。
-        eventSink?([
-            "type": "pip", "active": false,
-            "message": error.localizedDescription,
-        ] as [String: Any])
+    func view() -> UIView {
+        container
     }
 }
