@@ -144,18 +144,21 @@ class HgDial {
   ) async {
     final guard = hgCheckTarget(target);
     if (guard != null) throw HgApiError(guard);
-    var current = target;
-    for (var hop = 0; hop < 5; hop++) {
-      final response = await _open(
-        current,
-        refererBase,
-        via: null,
-      );
-      final next = await _redirectOrBody(response, current, refererBase);
-      if (next.$1) return next.$2!;
-      current = next.$3!;
+    final client = _newClient();
+    try {
+      var current = target;
+      for (var hop = 0; hop < 5; hop++) {
+        final response = await _open(client, current, refererBase);
+        // 读完正文/排水重定向后才轮换下一跳；client 在 body 消费完才关——
+        // 提前 close(force) 会掐断尚未读取的响应流。
+        final next = await _redirectOrBody(response, current, refererBase);
+        if (next.$1) return next.$2!;
+        current = next.$3!;
+      }
+      throw const HgApiError('重定向次数过多');
+    } finally {
+      client.close(force: true);
     }
-    throw const HgApiError('重定向次数过多');
   }
 
   /* ── 公共 DNS（阿里 DoH）解析 + IP 直连 ── */
@@ -168,19 +171,18 @@ class HgDial {
     // 逐个地址尝试（第一个失败换下一个）。
     Object? last;
     for (final addr in addrs.take(3)) {
+      final client = _newClient();
       try {
-        final response = await _open(
-          target,
-          refererBase,
-          via: addr,
-        );
+        final response = await _open(client, target, refererBase, via: addr);
         final next = await _redirectOrBody(response, target, refererBase);
         if (next.$1) return next.$2!;
         // 重定向换源：回退系统 DNS 语义，从新地址重新走常规路径。
-        return _fetchSystemDns(next.$3!, refererBase);
+        return await _fetchSystemDns(next.$3!, refererBase);
       } catch (e) {
         last = e;
         continue;
+      } finally {
+        client.close(force: true);
       }
     }
     throw last ?? HgApiError('备用 DNS 没有可用地址');
@@ -244,16 +246,18 @@ class HgDial {
 
   /* ── 底层请求 ── */
 
+  static HttpClient _newClient() => HttpClient()
+    ..connectionTimeout = const Duration(seconds: 15)
+    ..userAgent = kHgUserAgent
+    ..autoUncompress = true;
+
   static Future<HttpClientResponse> _open(
+    HttpClient client,
     Uri current,
     String refererBase, {
-    required InternetAddress? via,
+    InternetAddress? via,
   }) async {
     var url = current;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
-      ..userAgent = kHgUserAgent
-      ..autoUncompress = true;
     if (via != null) {
       // IP 直连：URL host 换成地址字面量，Host 头保留原域名；
       // 无 SNI 时证书校验按目标域名的 subject 人工确认（IP 直连证书
@@ -262,20 +266,16 @@ class HgDial {
           cert.subject.contains(current.host);
       url = current.replace(host: via.address);
     }
-    try {
-      final request = await client
-          .getUrl(url)
-          .timeout(const Duration(seconds: 20));
-      request.followRedirects = false;
-      request.maxRedirects = 0;
-      request.headers.set('Referer', '$refererBase/');
-      if (via != null) {
-        request.headers.set(HttpHeaders.hostHeader, current.host);
-      }
-      return await request.close().timeout(const Duration(seconds: 25));
-    } finally {
-      client.close(force: true);
+    final request = await client
+        .getUrl(url)
+        .timeout(const Duration(seconds: 20));
+    request.followRedirects = false;
+    request.maxRedirects = 0;
+    request.headers.set('Referer', '$refererBase/');
+    if (via != null) {
+      request.headers.set(HttpHeaders.hostHeader, current.host);
     }
+    return await request.close().timeout(const Duration(seconds: 25));
   }
 
   /// 处理响应：(true, body, null) = 已拿到正文；(false, _, next) = 需要跟随重定向。
