@@ -73,6 +73,8 @@ void main() async {
     final hivePath = '${(await getApplicationSupportDirectory()).path}/hive';
     await Hive.initFlutter(hivePath);
     await GStorage.init();
+    await _migrateBackgroundPlayback();
+    await _collectNativeCrashLog();
     // HG 短剧模块：会话存储 + 本地取流代理（循环回听，常驻无害）。
     await HgStore.init();
     await HgProxy.start();
@@ -162,4 +164,38 @@ void main() async {
       child: const AppWidget(),
     ),
   );
+}
+
+/// 一次性迁移：4.2.4 起「后台播放」默认开启。
+///
+/// 老版本默认是关的，用户哪怕没动过设置也可能在某个流程里被写成 false；
+/// 用户明确要求「切到别的 App 还能继续播」，这里强制打开一次，
+/// 之后仍然可以在「播放设置 → 后台播放」里关掉。
+Future<void> _migrateBackgroundPlayback() async {
+  try {
+    if (GStorage.getSetting(SettingsKeys.backgroundPlaybackMigrated)) return;
+    await GStorage.putSetting(SettingsKeys.backgroundPlayback, true);
+    await GStorage.putSetting(SettingsKeys.backgroundPlaybackMigrated, true);
+  } catch (_) {
+    // 迁移失败不影响启动。
+  }
+}
+
+/// 收走原生侧上一次崩溃的记录（磁力这类 C++ 崩溃只会闪退，
+/// 不落盘就完全查不动）。读走即删，并并入 HG 诊断日志。
+Future<void> _collectNativeCrashLog() async {
+  if (isDesktop()) return;
+  try {
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/lu_crash.txt');
+    if (!await file.exists()) return;
+    final text = await file.readAsString();
+    await file.delete();
+    if (text.trim().isEmpty) return;
+    await HgDiag.trace('native.crash', {
+      'detail': text.length > 1500 ? text.substring(0, 1500) : text,
+    });
+  } catch (_) {
+    // 收集失败不影响启动。
+  }
 }

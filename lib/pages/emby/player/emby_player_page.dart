@@ -2048,24 +2048,26 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                     const Spacer(),
                     _BareAction(
                       icon: Icons.skip_previous_rounded,
-                      size: 30,
+                      // 和顶栏那排（iconSize 17~19）视觉同一档：上一集/下一集
+                      // 取 20，主播放键 24，只比它们大半级，不再像两块大图标。
+                      size: 20,
                       enabled: controller.hasPrevious,
                       onTap: controller.hasPrevious
                           ? controller.playPrevious
                           : null,
                     ),
-                    const SizedBox(width: 24),
+                    const SizedBox(width: 20),
                     _BareAction(
                       icon: controller.playing
                           ? Icons.pause_rounded
                           : Icons.play_arrow_rounded,
-                      size: 34,
+                      size: 24,
                       onTap: controller.togglePlay,
                     ),
-                    const SizedBox(width: 24),
+                    const SizedBox(width: 20),
                     _BareAction(
                       icon: Icons.skip_next_rounded,
-                      size: 30,
+                      size: 20,
                       enabled: controller.hasNext,
                       onTap: controller.hasNext ? controller.playNext : null,
                     ),

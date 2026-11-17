@@ -568,6 +568,14 @@ class SettingsKeys {
     true,
     group: SettingGroup.player,
   );
+  /// 一次性迁移标记：4.2.4 起「后台播放」默认开启，
+  /// 老用户哪怕之前关过也强制打开一次（用户明确要求切后台继续播）。
+  static const backgroundPlaybackMigrated = SettingKey<bool>(
+    _SettingBoxKey.backgroundPlaybackMigrated,
+    false,
+    group: SettingGroup.player,
+  );
+
   static const proxyEnable = SettingKey<bool>(
     _SettingBoxKey.proxyEnable,
     false,
@@ -785,6 +793,7 @@ class SettingsKeys {
     useSystemFont,
     forceAdBlocker,
     backgroundPlayback,
+    backgroundPlaybackMigrated,
     proxyEnable,
     proxyConfigured,
     proxyUrl,
@@ -1030,6 +1039,7 @@ class _SettingBoxKey {
       useSystemFont = 'useSystemFont',
       forceAdBlocker = 'forceAdBlocker',
       backgroundPlayback = 'backgroundPlayback',
+      backgroundPlaybackMigrated = 'backgroundPlaybackMigrated',
       proxyEnable = 'proxyEnable',
       proxyConfigured = 'proxyConfigured',
       proxyUrl = 'proxyUrl',

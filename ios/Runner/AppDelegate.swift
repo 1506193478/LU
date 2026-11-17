@@ -35,11 +35,27 @@ import app_links
     static func configureGlobalAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .moviePlayback)
-            try session.setActive(true)
+            try session.setCategory(
+                .playback,
+                mode: .moviePlayback,
+                // 允许与其它 App 的音频混合控制的默认行为保持系统默认；
+                // 关键是 .playback：只有这个分类才会在后台继续出声。
+                options: []
+            )
+            try session.setActive(true, options: [])
         } catch {
             // 配失败只影响后台出声，前台播放不受影响。
         }
+    }
+
+    /// 退到后台前的最后一道保险。
+    ///
+    /// 有些插件（WebView / 录音类）会在运行中把 audio session 改成 `.ambient`，
+    /// 那样一退后台就被静音。这里在 App 进入后台的瞬间重新声明 playback，
+    /// 并且**不**暂停会话，让正在播的音频继续走。
+    override func applicationDidEnterBackground(_ application: UIApplication) {
+        super.applicationDidEnterBackground(application)
+        AppDelegate.configureGlobalAudioSession()
     }
 
     override func applicationDidBecomeActive(_ application: UIApplication) {
@@ -52,6 +68,7 @@ import app_links
         // 配成 playback 之后，切到别的 App / 锁屏才会继续出声；不配的话
         // 系统按「环境音」处理，一退后台就被压掉。
         AppDelegate.configureGlobalAudioSession()
+        AppDelegate.installCrashLogger()
         GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
         // AVPlayer 插件的 registrar 要从 engineBridge.pluginRegistry 取——这是
         // 引擎自己的注册表，返回真正的 FlutterPluginRegistrar。两个错误来源都
@@ -459,12 +476,12 @@ import app_links
 
         teardownPipLayer()
 
-        let host = UIView(frame: CGRect(x: 0, y: 0, width: 4, height: 4))
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 6, height: 6))
         host.isUserInteractionEnabled = false
         host.backgroundColor = .clear
-        // 完全透明（alpha 0）时系统认为 layer 不可见，会拒绝启动 PiP，
-        // 留一点点几乎看不出的透明度。
-        host.alpha = 0.02
+        // 完全透明时系统会判定「layer 不可见」而拒绝启动 PiP。
+        // 0.05 在屏幕角落几乎看不出来，但足以让 AVFoundation 认为它是活的。
+        host.alpha = 0.05
         let layer = AVPlayerLayer(player: player)
         layer.frame = host.bounds
         layer.videoGravity = .resizeAspect
@@ -476,6 +493,9 @@ import app_links
         window.addSubview(host)
         pipHost = host
         pipLayer = layer
+        // AVPlayerViewController 与 PiP layer 共享同一个 AVPlayer，
+        // 启动前先藏掉 App 内画面，避免小窗拿不到帧。
+        playerController?.view.isHidden = true
 
         let pc: AVPictureInPictureController?
         if #available(iOS 15.0, *) {
@@ -491,17 +511,28 @@ import app_links
         }
         controller.delegate = self
         pipController = controller
-        // 新建的 layer 要等一帧才有内容，稍微等再启动，否则 isPictureInPicturePossible 还是 false。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak controller] in
-            guard let self, let controller else { return }
-            if controller.isPictureInPicturePossible {
-                controller.startPictureInPicture()
-            } else {
-                self.teardownPipLayer()
-                self.emitPipFailure("画中画启动失败（画面还没就绪）")
-            }
-        }
+        // 新建的 layer 要等真的有帧（isReadyForDisplay）系统才允许进小窗。
+        // 这里轮询最多 3 秒，比固定等一帧稳（HLS 首帧可能慢）。
+        attemptStartPip(controller, attempt: 0)
         result(nil)
+    }
+
+    /// 等 PiP 就绪再启动；最多约 3 秒。
+    private func attemptStartPip(_ controller: AVPictureInPictureController, attempt: Int) {
+        guard pipController === controller else { return }
+        if controller.isPictureInPicturePossible {
+            controller.startPictureInPicture()
+            return
+        }
+        guard attempt < 30 else {
+            teardownPipLayer()
+            emitPipFailure("画中画启动失败：画面还没就绪，可点播放器控制条上的画中画按钮")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.attemptStartPip(controller, attempt: attempt + 1)
+        }
     }
 
     private func pipWindow() -> UIWindow? {
@@ -522,6 +553,8 @@ import app_links
         pipLayer = nil
         pipHost?.removeFromSuperview()
         pipHost = nil
+        // 不论成功还是失败，App 内画面都要恢复，不能留在黑屏。
+        playerController?.view.isHidden = false
     }
 
     private func emitPipFailure(_ message: String) {
@@ -724,5 +757,49 @@ class AvPlayerPlatformView: NSObject, FlutterPlatformView {
 
     func view() -> UIView {
         container
+    }
+}
+
+// MARK: - 崩溃落盘
+
+/// 把崩溃信号 / 未捕获异常写进 Documents/lu_crash.txt。
+///
+/// 磁力这种原生崩溃只会「闪退」，日志什么都留不下；写一份到磁盘，
+/// Dart 侧下次启动时读走并并入诊断日志，才查得动。
+private func luWriteCrash(_ text: String) {
+    guard
+        let dir = FileManager.default.urls(
+            for: .documentDirectory, in: .userDomainMask
+        ).first
+    else { return }
+    let url = dir.appendingPathComponent("lu_crash.txt")
+    let data = Data(text.utf8)
+    if let handle = try? FileHandle(forWritingTo: url) {
+        handle.seekToEndOfFile()
+        handle.write(data)
+        try? handle.close()
+    } else {
+        try? data.write(to: url)
+    }
+}
+
+private func luSignalHandler(_ sig: Int32) {
+    luWriteCrash("signal \(sig)\n")
+    signal(sig, SIG_DFL)
+    raise(sig)
+}
+
+extension AppDelegate {
+    static func installCrashLogger() {
+        NSSetUncaughtExceptionHandler { exception in
+            let stack = exception.callStackSymbols.prefix(16)
+                .joined(separator: "\n")
+            luWriteCrash(
+                "exception \(exception.name.rawValue): \(exception.reason ?? "")\n\(stack)\n"
+            )
+        }
+        for sig in [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE] {
+            signal(sig, luSignalHandler)
+        }
     }
 }

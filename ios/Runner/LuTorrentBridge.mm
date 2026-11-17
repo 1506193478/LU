@@ -31,6 +31,7 @@
 #import "libtorrent/torrent_info.hpp"
 #import "libtorrent/add_torrent_params.hpp"
 #import "libtorrent/magnet_uri.hpp"
+#import "libtorrent/settings_pack.hpp"
 #import "libtorrent/error_code.hpp"
 
 #include <chrono>
@@ -206,7 +207,20 @@ namespace lt = libtorrent;
     lt::torrent_handle handle;
 
     try {
-        session = std::make_shared<lt::session>();
+        // iOS 上把 libtorrent 的初始化路径压到最保守：
+        //   * 显式指定监听地址（默认会去绑 0.0.0.0/[::]，沙盒下容易出岔子）；
+        //   * 关掉 UPnP / NAT-PMP / LSD（iOS 不需要，且都要额外的系统权限）；
+        //   * DHT 保留（磁力靠它找 peer）。
+        // 这些设置一改，session 构造时不再碰路由器相关的系统 API。
+        lt::settings_pack pack;
+        pack.set_str(lt::settings_pack::listen_interfaces, "0.0.0.0:6881");
+        pack.set_bool(lt::settings_pack::enable_upnp, false);
+        pack.set_bool(lt::settings_pack::enable_natpmp, false);
+        pack.set_bool(lt::settings_pack::enable_lsd, false);
+        pack.set_bool(lt::settings_pack::enable_dht, true);
+        pack.set_int(lt::settings_pack::alert_mask, lt::alert::all_categories);
+
+        session = std::make_shared<lt::session>(pack);
         session->set_alert_mask(lt::alert::all_categories);
 
         lt::add_torrent_params params;

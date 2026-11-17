@@ -70,6 +70,10 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   bool _showWatchedTime = true;
   bool _showMediaStats = true;
   bool _showConnState = true;
+
+  /// true = 两列卡片网格（默认）；false = 一行一条的列表。
+  /// 和参考稿的「切换排列」按钮对应，只记在页面内，不落盘。
+  bool _gridMode = true;
   bool _glass = true;
 
   /// 每张卡一个 GlobalKey：长按菜单要以卡片本身为锚点浮起预览。
@@ -902,6 +906,16 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
           PvPageHead(
             title: '资源库',
             actions: [
+              PvIconBtn(
+                icon: _gridMode
+                    ? Icons.view_list_rounded
+                    : Icons.grid_view_rounded,
+                onTap: () {
+                  KazumiHaptics.select();
+                  setState(() => _gridMode = !_gridMode);
+                },
+              ),
+              const SizedBox(width: 6),
               PvIconBtn(icon: Icons.add_rounded, onTap: _openAddMenu),
               const SizedBox(width: 6),
               // 有隐藏/加密的卡片时才出现：点它过面容/密码，验证通过后
@@ -933,6 +947,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
             child: _EntryGrid(
               dark: dark,
+              grid: _gridMode,
               showStats: _showMediaStats,
               showWatched: _showWatchedTime,
               servers: [
@@ -1065,6 +1080,7 @@ class _ServerEntry {
 /// 资源库的两列网格：四个本地来源 + 已添加的服务器 / 网盘。
 class _EntryGrid extends StatelessWidget {
   const _EntryGrid({
+    this.grid = true,
     required this.dark,
     required this.servers,
     required this.showStats,
@@ -1081,6 +1097,9 @@ class _EntryGrid extends StatelessWidget {
   });
 
   final bool dark;
+
+  /// true = 两列卡片网格；false = 一行一条的列表（参考稿的列表样式）。
+  final bool grid;
   final List<_ServerEntry> servers;
   final bool showStats;
   final bool showWatched;
@@ -1116,8 +1135,9 @@ class _EntryGrid extends StatelessWidget {
       required VoidCallback onTap,
       bool withKey = true,
     }) {
-      final Widget card = _LibCard(
-        title: title,
+      final Widget card = grid
+          ? _LibCard(
+              title: title,
         footLeft: footLeft,
         footRight: footRight,
         glyph: glyph,
@@ -1127,42 +1147,77 @@ class _EntryGrid extends StatelessWidget {
         customIconPath: resCustomImagePath(
           ResCardPrefs.instance.icon(prefKey),
         ),
-        onTap: onTap,
-        onLongPress: () => onLocalMenu(
-          prefKey,
-          localCard(
-            prefKey: prefKey,
-            title: title,
-            footLeft: footLeft,
-            footRight: footRight,
-            glyph: glyph,
-            tone: tone,
-            onTap: onTap,
-            withKey: false,
-          ),
-        ),
-      );
+              onTap: onTap,
+              onLongPress: () => onLocalMenu(
+                prefKey,
+                localCard(
+                  prefKey: prefKey,
+                  title: title,
+                  footLeft: footLeft,
+                  footRight: footRight,
+                  glyph: glyph,
+                  tone: tone,
+                  onTap: onTap,
+                  withKey: false,
+                ),
+              ),
+            )
+          : _LibRow(
+              title: title,
+              footLeft: footLeft,
+              footRight: footRight,
+              glyph: glyph,
+              tone: tone,
+              dark: dark,
+              onTap: onTap,
+              onLongPress: () => onLocalMenu(
+                prefKey,
+                localCard(
+                  prefKey: prefKey,
+                  title: title,
+                  footLeft: footLeft,
+                  footRight: footRight,
+                  glyph: glyph,
+                  tone: tone,
+                  onTap: onTap,
+                  withKey: false,
+                ),
+              ),
+            );
       if (!withKey) return card;
       return KeyedSubtree(key: cardKeyFor(prefKey), child: card);
     }
 
     Widget serverCard(_ServerEntry s, {bool withKey = true}) {
-      final Widget card = _LibCard(
-        title: s.title,
-        footLeft: s.subtitle,
-        footRight: s.online ? '刚刚' : '未连接',
-        glyph: _Glyph.emby,
-        tone: _Tone.green,
-        dark: dark,
-        customIcon: resIconByName(ResCardPrefs.instance.icon(s.prefKey)),
-        customIconPath: resCustomImagePath(
-          ResCardPrefs.instance.icon(s.prefKey),
-        ),
-        onlineDot: s.online,
-        stats: showStats ? s.stats : null,
-        onTap: () => onServer(s),
-        onLongPress: () => onServerMenu(s, serverCard(s, withKey: false)),
-      );
+      final Widget card = grid
+          ? _LibCard(
+              title: s.title,
+              footLeft: s.subtitle,
+              footRight: s.online ? '刚刚' : '未连接',
+              glyph: _Glyph.emby,
+              tone: _Tone.green,
+              dark: dark,
+              customIcon: resIconByName(ResCardPrefs.instance.icon(s.prefKey)),
+              customIconPath: resCustomImagePath(
+                ResCardPrefs.instance.icon(s.prefKey),
+              ),
+              onlineDot: s.online,
+              stats: showStats ? s.stats : null,
+              onTap: () => onServer(s),
+              onLongPress: () => onServerMenu(s, serverCard(s, withKey: false)),
+            )
+          : _LibRow(
+              title: s.title,
+              footLeft: s.subtitle,
+              footRight: s.online ? '在线' : '未连接',
+              glyph: _Glyph.emby,
+              tone: _Tone.green,
+              dark: dark,
+              onlineDot: s.online,
+              stats: showStats ? s.stats : null,
+              onTap: () => onServer(s),
+              onLongPress: () => onServerMenu(s, serverCard(s, withKey: false)),
+            );
       if (!withKey) return card;
       return KeyedSubtree(key: cardKeyFor(s.prefKey), child: card);
     }
@@ -1235,6 +1290,18 @@ class _EntryGrid extends StatelessWidget {
     // 严格两列。之前用 Wrap + 手算宽度，浮点误差会让第二列挤不下去，
     // 实际渲染成一大列（用户截图里就是这个样子）。GridView 的 delegate
     // 自己算宽度，不会再出现这种问题。
+    if (!grid) {
+      // 列表模式：一行一条，间距比网格更紧，和参考稿一致。
+      return Column(
+        children: <Widget>[
+          for (final Widget card in cards.whereType<Widget>())
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: card,
+            ),
+        ],
+      );
+    }
     return GridView.builder(
       padding: EdgeInsets.zero,
       shrinkWrap: true,
@@ -2120,6 +2187,161 @@ class _MagnetProgressDialogState extends State<_MagnetProgressDialog> {
             child: const Text('取消'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 列表模式下的一行（参考稿：绿色方块 + 名称/副标题 + 尾部状态）。
+class _LibRow extends StatelessWidget {
+  const _LibRow({
+    required this.title,
+    required this.footLeft,
+    required this.footRight,
+    required this.glyph,
+    required this.tone,
+    required this.dark,
+    required this.onTap,
+    this.onLongPress,
+    this.stats,
+    this.onlineDot = false,
+  });
+
+  final String title;
+  final String footLeft;
+  final String footRight;
+  final _Glyph glyph;
+  final _Tone tone;
+  final bool dark;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final (String, String)? stats;
+  final bool onlineDot;
+
+  IconData get _icon {
+    switch (glyph) {
+      case _Glyph.folder:
+        return Icons.folder_rounded;
+      case _Glyph.folderLock:
+        return Icons.lock_rounded;
+      case _Glyph.album:
+        return Icons.photo_library_rounded;
+      case _Glyph.link:
+        return Icons.link_rounded;
+      case _Glyph.magnet:
+        return Icons.bolt_rounded;
+      case _Glyph.emby:
+        return Icons.play_arrow_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Color tint = _toneDark[tone] ?? PvColors.blue;
+    final Color ink = PvColors.ink(context);
+    final Color sub = PvColors.ink2(context);
+    return KzPressable(
+      pressedScale: 0.985,
+      pressedOpacity: 0.94,
+      onTap: () {
+        KazumiHaptics.tap();
+        onTap();
+      },
+      onLongPress: onLongPress == null
+          ? null
+          : () {
+              KazumiHaptics.heavy();
+              onLongPress!();
+            },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: dark
+              ? const Color(0xFF23252B).withValues(alpha: 0.9)
+              : Colors.white.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(14),
+          border: Border(
+            top: BorderSide(
+              color: dark
+                  ? Colors.white.withValues(alpha: 0.16)
+                  : Colors.white.withValues(alpha: 0.9),
+              width: 0.8,
+            ),
+          ),
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    Color.lerp(tint, Colors.white, 0.22)!,
+                    tint,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              alignment: Alignment.center,
+              child: Icon(_icon, size: 19, color: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: ink,
+                          ),
+                        ),
+                      ),
+                      if (onlineDot) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF34C759),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    stats == null
+                        ? footLeft
+                        : '${stats!.$1} 部电影 · ${stats!.$2} 集',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: sub),
+                  ),
+                ],
+              ),
+            ),
+            if (footRight.isNotEmpty)
+              Text(
+                footRight,
+                style: TextStyle(fontSize: 12, color: sub),
+              ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded, size: 18, color: sub),
+          ],
+        ),
       ),
     );
   }
