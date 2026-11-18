@@ -77,7 +77,7 @@ jobs:
           {
             echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo "== error lines =="
-            grep -n "error:" build.log | head -80
+            grep -n -B2 -A8 "error:" build.log | head -160
             echo "== tail =="
             tail -60 build.log
           } > ../ci-logs/ios-native-errors.txt || true
