@@ -69,6 +69,31 @@ jobs:
           path: ios_native/LU-native-unsigned.ipa
           if-no-files-found: error
 
+      - name: Publish to Release (ios-native-latest)
+        if: success()
+        working-directory: ios_native
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/Build/Products/Release-iphoneos/LU.app/Info.plist)
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/Build/Products/Release-iphoneos/LU.app/Info.plist)
+          {
+            echo "## LU iOS 原生端 · 无签名 IPA（自动构建）"
+            echo ""
+            echo "- 构建时间：$(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo "- 提交：${{ github.sha }}"
+            echo "- 版本：$VERSION ($BUILD)"
+            echo ""
+            echo "### 安装说明（无签名，任选其一）"
+            echo ""
+            echo "1. Sideloadly / AltStore：连电脑用 Apple ID 签名后侧载（免费证书 7 天有效）"
+            echo "2. Xcode：clone 仓库后 cd ios_native && xcodegen generate，用自己的证书打包"
+            echo "3. TrollStore（如系统版本支持）：直接安装"
+          } > release-notes.md
+          gh release create ios-native-latest --title "LU iOS 原生端（无签名）" --notes-file release-notes.md --clobber || true
+          gh release upload ios-native-latest LU-native-unsigned.ipa --clobber
+          echo "release done"
+
       - name: Collect error lines
         if: failure()
         working-directory: ios_native
