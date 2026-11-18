@@ -18,6 +18,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:XL/modules/hg/hg_diag.dart';
+
 /// 磁力播放相关异常（消息直接展示给用户）。
 class LuTorrentException implements Exception {
   const LuTorrentException(this.message);
@@ -135,10 +137,18 @@ class LuTorrent {
     final saveDir = '${dir.path}${Platform.pathSeparator}torrent';
 
     try {
+      // 逐步打点：原生崩溃时进程直接没了，只能靠「崩前最后一步」定位。
+      // 重启 App 后看「播放诊断日志」里的 torrent.step。
+      await HgDiag.trace('torrent.step', {
+        'at': 'before_start',
+        'ios': Platform.isIOS,
+        'len': trimmed.length,
+      });
       await _method.invokeMethod<dynamic>('start', {
         'magnet': trimmed,
         'saveDir': saveDir,
       });
+      await HgDiag.trace('torrent.step', {'at': 'after_start'});
     } on PlatformException catch (e) {
       await stop();
       throw LuTorrentException('磁力任务启动失败：${e.message ?? e.code}');
@@ -158,8 +168,14 @@ class LuTorrent {
       throw LuTorrentException('磁力任务失败：${e.toString().split('\n').first}');
     }
 
+    await HgDiag.trace('torrent.step', {'at': 'after_metadata'});
+
     // 拉文件信息。
     final info = await _method.invokeMethod<dynamic>('fileInfo');
+    await HgDiag.trace('torrent.step', {
+      'at': 'after_fileinfo',
+      'size': (info is Map ? info['fileSize'] : null),
+    });
     if (info is! Map || (info['fileSize'] as num?) == null) {
       await stop();
       throw const LuTorrentException('种子元数据异常（没有文件信息）');
@@ -196,9 +212,15 @@ class LuTorrent {
       });
     }
 
+    await HgDiag.trace('torrent.step', {'at': 'before_server'});
+
     // 本地供流服务。
     try {
       task.server = await _startServer(task);
+      await HgDiag.trace('torrent.step', {
+        'at': 'after_server',
+        'port': task.server?.port,
+      });
     } catch (e) {
       await stop();
       throw LuTorrentException('本地流服务启动失败：${e.toString().split('\n').first}');

@@ -1966,12 +1966,12 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                       icon: Icons.multitrack_audio_rounded,
                       onTap: _openAudio,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 9),
                     _OutlineAction(
                       icon: Icons.subtitles_outlined,
                       onTap: _openSubtitle,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 9),
                     _OutlineAction.custom(
                       child: Text(
                         'D',
@@ -3216,7 +3216,7 @@ class _RexSeekBarState extends State<_RexSeekBar> {
 /// 描边圆钮：进度条上方「音轨 / 字幕 / 弹幕 / 更多」那排的形态
 ///（白描边空心圆 + 细图标，参考 Infuse）。
 class _OutlineAction extends StatelessWidget {
-  const _OutlineAction({required this.icon, this.onTap, this.iconSize = 15})
+  const _OutlineAction({required this.icon, this.onTap, this.iconSize = 14})
       : child = null;
 
   const _OutlineAction.custom({required this.child, this.onTap})
@@ -3234,13 +3234,15 @@ class _OutlineAction extends StatelessWidget {
       dim: true,
       onTap: onTap,
       child: Container(
-        width: 36,
-        height: 36,
+        // 和顶栏那排裸图标同一档视觉尺寸：圆框 30、图标 14、细描边，
+        // 不再是一排明显更大的「描边大圆」。
+        width: 30,
+        height: 30,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
             color: Colors.white.withValues(alpha: 0.85),
-            width: 1.6,
+            width: 1.3,
           ),
           boxShadow: const [
             BoxShadow(

@@ -936,7 +936,7 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
   }
 
   Future<void> _openAddProvider(BuildContext context) async {
-    await context.pushNamed('/emby/servers/edit', arguments: null);
+    await context.pushNamed('/emby/providers');
   }
 
   @override

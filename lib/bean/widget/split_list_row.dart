@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/utils/motion.dart';
 
 const double splitListOuterRadius = 16;
@@ -130,32 +131,33 @@ class SplitListGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Pv 的分组是一张整卡 + 行间发丝线，不是「一块块粘土砖拼起来」：
-    // 砖块之间的 4px 缝在 Pv 上会读成碎裂，分隔要靠线而不是缝。
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: PvColors.card(context),
+    // 全局统一：设置分组卡从「纯白/纯深色实底」换成磨砂渐变玻璃。
+    // 整张卡（含设置页所有分组）都走 LuGlass：半透明渐变 + 顶部高光 +
+    // 液态光扫层，背后的渐变背景能透上来，不再是一块死白的板。
+    return LuGlass.box(
+      context: context,
+      radius: BorderRadius.circular(outerRadius),
+      child: ClipRRect(
         borderRadius: BorderRadius.circular(outerRadius),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (int i = 0; i < children.length; i++) ...[
-            if (i > 0)
-              Container(
-                height: 0.8,
-                margin: const EdgeInsets.only(left: 16),
-                color: PvColors.hair(context),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (int i = 0; i < children.length; i++) ...[
+              if (i > 0)
+                Container(
+                  height: 0.8,
+                  margin: const EdgeInsets.only(left: 16),
+                  color: PvColors.hair(context),
+                ),
+              SplitListRow(
+                topRadius: 0,
+                bottomRadius: 0,
+                pressedRadius: outerRadius,
+                child: children[i],
               ),
-            SplitListRow(
-              topRadius: 0,
-              bottomRadius: 0,
-              pressedRadius: outerRadius,
-              child: children[i],
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

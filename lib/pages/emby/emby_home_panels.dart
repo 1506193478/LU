@@ -123,9 +123,11 @@ class _PanelShell extends StatelessWidget {
             filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
             child: Container(
               decoration: BoxDecoration(
+                // 磨砂玻璃：留 12~14% 透明让背后的海报/渐变透上来
+                // （原来是 97% 不透明，看起来就是一块白板）。
                 color: dark
-                    ? const Color(0xF21C1C1F)
-                    : const Color(0xF7F4F2EE),
+                    ? const Color(0xE01B1B1F)
+                    : const Color(0xE8F7F5F1),
                 borderRadius: BorderRadius.circular(22),
                 border: Border.all(
                   color: dark

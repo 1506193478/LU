@@ -28,9 +28,14 @@ class PvColors {
   static Color page(BuildContext context) =>
       isDark(context) ? const Color(0xFF000000) : const Color(0xFFF2F2F7);
 
-  /// 卡片底：iOS `secondarySystemGroupedBackground`（浅 #FFFFFF / 深 #1C1C1E）。
-  static Color card(BuildContext context) =>
-      isDark(context) ? const Color(0xFF1C1C1E) : Colors.white;
+  /// 卡片底：iOS `secondarySystemGroupedBackground`。
+  ///
+  /// 浅色不再用纯白：改成 84% 白，背后的渐变能透一点上来（用户明确要求
+  /// 「整个 App 都不要死白背景」）。84% 是文字对比度和通透感的平衡点——
+  /// 再低黑字在粉紫背景上会发灰。
+  static Color card(BuildContext context) => isDark(context)
+      ? const Color(0xE01C1C1E)
+      : const Color(0xD6FFFFFF);
 
   /// `--ink` 主文字。
   static Color ink(BuildContext context) =>
@@ -752,11 +757,17 @@ Future<T?> showPvMenu<T>({
   return showMenu<T>(
     context: context,
     position: position,
-    elevation: 18,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-    // 不再是死白/死黑：留一点透明度，让背后渐变的方向透上来。
-    // 不透明度过低会透出下面的卡片文字，反而更花，所以停在 96%。
-    color: dark ? const Color(0xF026252A) : const Color(0xF7FFFFFF),
+    elevation: 24,
+    // 磨砂玻璃感：圆角 + 一圈很淡的白高光边（截图里那种浮起卡片）。
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+      side: BorderSide(
+        color: Colors.white.withValues(alpha: dark ? 0.18 : 0.75),
+        width: 0.8,
+      ),
+    ),
+    // 留 10% 透明度让背后渐变透上来；再低会透出下面的卡片文字反而更花。
+    color: dark ? const Color(0xE81E1D22) : const Color(0xE6FFFFFF),
     constraints: BoxConstraints(minWidth: minWidth, maxWidth: 320),
     items: [
       for (final item in items)
@@ -779,7 +790,7 @@ Future<T?> showPvMenu<T>({
                       color: PvColors.ink(context),
                     )
                   else if (item.icon != null)
-                    Icon(item.icon, size: 21, color: const Color(0xFF3B4252))
+                    Icon(item.icon, size: 18, color: PvColors.ink(context))
                   else
                     const SizedBox(width: 21),
                   if (item.icon != null || item.checked)

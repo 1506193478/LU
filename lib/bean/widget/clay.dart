@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:XL/theme/lu_glass.dart';
 
 import 'package:XL/utils/immersive_theme.dart';
 import 'package:XL/utils/motion.dart';
@@ -1447,10 +1448,17 @@ class ClayDialog extends StatelessWidget {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        child: ClayPanel(
-          radius: 28,
-          padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-          child: Column(
+        // 弹窗底板统一换成磨砂玻璃：背后内容高斯模糊 + 半透明渐变 + 高光边。
+        // 用户要求「能点开的设置项弹窗」都要这种玻璃质感，ClayDialog 是
+        // 全 App 弹窗的公共入口，改这里一处即可覆盖。
+        child: LuGlass.box(
+          context: context,
+          radius: BorderRadius.circular(28),
+          blur: true,
+          sigma: 26,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1470,6 +1478,7 @@ class ClayDialog extends StatelessWidget {
                 ),
               ],
             ],
+            ),
           ),
         ),
       ),

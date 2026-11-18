@@ -822,23 +822,10 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   }
 
   Future<void> _openAddMenu() async {
-    // 按最新要求：只留前四项（WebDAV / SMB / FTP / Emby），
-    // Jellyfin 和各路网盘都从菜单里撤掉了。
-    const entries = <(String, String)>[
-      ('WebDAV', 'webdav'),
-      ('SMB', 'smb'),
-      ('FTP', 'ftp'),
-      ('Emby', 'emby'),
-    ];
-    await showPvMenu<Object>(
-      context: context,
-      position: const RelativeRect.fromLTRB(120, 110, 20, 200),
-      minWidth: 240,
-      items: [
-        for (final (label, type) in entries)
-          PvMenuItem(label, onTap: () => _openForm(type)),
-      ],
-    );
+    // 参考稿：点「+」进整页「添加提供商」（Emby / Jellyfin / SMB / WebDAV /
+    // FTP / 本地 六宫格），不再弹一个小菜单。
+    await context.pushNamed('/emby/providers');
+    if (mounted) setState(() {});
   }
 
   Future<void> _openForm(String type, {LuVaultServer? existing}) async {
@@ -1834,7 +1821,7 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                   iconColor: PvColors.green,
                   title: '添加服务器',
                   subtitle: '连接 Emby / Jellyfin',
-                  onTap: () => context.pushNamed('/emby/servers'),
+                  onTap: () => context.pushNamed('/emby/media'),
                 ),
             ],
           ),
@@ -1846,7 +1833,7 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 iconColor: const Color(0xFFFF9F0A),
                 title: '媒体库管理',
                 value: '${widget.libraryCount} 个库',
-                onTap: () => context.pushNamed('/emby/servers'),
+                onTap: () => context.pushNamed('/emby/media'),
               ),
               PvRow(
                 icon: Icons.favorite_rounded,
@@ -1988,7 +1975,7 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 iconColor: const Color(0xFF3ED177),
                 title: '添加服务器',
                 subtitle: '连接 Emby / Jellyfin',
-                onTap: () => context.pushNamed('/emby/servers'),
+                onTap: () => context.pushNamed('/emby/media'),
               ),
               PvRow(
                 icon: Icons.settings_rounded,
