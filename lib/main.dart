@@ -167,8 +167,8 @@ Future<void> _migrateBackgroundPlayback() async {
   }
 }
 
-/// 收走原生侧上一次崩溃的记录（磁力这类 C++ 崩溃只会闪退，
-/// 不落盘就完全查不动）。读走即删，并并入 HG 诊断日志。
+/// 收走原生侧上一次崩溃的记录（原生 C++ 崩溃只会闪退，
+/// 不落盘就完全查不动）。读走即删，并入应用日志。
 Future<void> _collectNativeCrashLog() async {
   if (isDesktop()) return;
   try {
