@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:flutter/cupertino.dart'
+    show CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -101,7 +103,7 @@ class EmbyMenuRow extends StatelessWidget {
         child: Row(
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 18, color: ink),
+              Icon(icon, size: 20, color: ink),
               const SizedBox(width: 12),
             ],
             Expanded(
@@ -153,16 +155,17 @@ class EmbyMenuRow extends StatelessWidget {
             ],
             if (checked) ...[
               const SizedBox(width: 10),
-              const Icon(
-                Icons.check_rounded,
+              // 用 Cupertino 的勾：线条更细，和 iOS 菜单一致。
+              Icon(
+                CupertinoIcons.checkmark,
                 size: 18,
                 color: embyMenuAccent,
               ),
             ] else if (chevron) ...[
               const SizedBox(width: 8),
               const Icon(
-                Icons.chevron_right_rounded,
-                size: 16,
+                CupertinoIcons.chevron_forward,
+                size: 15,
                 color: embyMenuInkTertiary,
               ),
             ],

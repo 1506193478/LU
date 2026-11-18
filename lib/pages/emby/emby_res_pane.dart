@@ -409,38 +409,93 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
     final String key = entry.prefKey;
     final KzContextMenuController ctrl = KzContextMenuController();
 
+    // 折叠分组：外观 / 隐私 / 服务。展开状态放在菜单外，靠重算 items 实现，
+    // 菜单高度和 hover 命中会自动跟着变。
+    final Set<String> openGroups = <String>{};
+
     List<KzContextMenuItem> buildItems() {
       final bool isHome = prefs.defaultHome == key;
       final bool agg = prefs.aggregated(key);
+      bool isOpen(String g) => openGroups.contains(g);
+      void toggle(String g) {
+        if (!openGroups.remove(g)) openGroups.add(g);
+        KazumiHaptics.select();
+        ctrl.updateItems(buildItems());
+      }
+
       return <KzContextMenuItem>[
         KzContextMenuItem(
-          label: '服务配置',
-          icon: Icons.edit_rounded,
-          onTap: () async {
-            if (entry.emby != null) {
-              widget.onEditServer();
-            } else if (entry.cloud != null) {
-              await showLuCloudSheet(
-                context,
-                type: entry.cloud!.type,
-                existing: entry.cloud!,
-              );
-            } else if (entry.vault != null) {
-              await _openForm(entry.vault!.type, existing: entry.vault!);
-            }
-          },
+          label: '外观',
+          expandable: true,
+          expanded: isOpen('look'),
+          keepOpen: true,
+          onTap: () => toggle('look'),
         ),
-        if (entry.emby != null)
+        if (isOpen('look'))
           KzContextMenuItem(
-            label: agg ? '禁用聚合' : '启用聚合',
-            icon: agg ? Icons.content_paste_off_rounded : Icons.copy_rounded,
-            keepOpen: true,
-            onTap: () {
-              prefs.setAggregated(key, !agg);
-              ctrl.updateItems(buildItems());
-              _toast(agg ? '已停用聚合搜索' : '已启用聚合搜索');
+            label: '修改图标',
+            indent: true,
+            onTap: () async {
+              await _openIconPicker(key);
             },
           ),
+        KzContextMenuItem(
+          label: '隐私',
+          expandable: true,
+          expanded: isOpen('privacy'),
+          keepOpen: true,
+          onTap: () => toggle('privacy'),
+        ),
+        if (isOpen('privacy')) ...[
+          KzContextMenuItem(
+            label: '加密',
+            indent: true,
+            onTap: () async {
+              await _encryptCard(key);
+            },
+          ),
+          KzContextMenuItem(
+            label: '隐藏',
+            indent: true,
+            onTap: () async {
+              prefs.setHidden(key, true);
+            },
+          ),
+        ],
+        KzContextMenuItem(
+          label: '服务',
+          expandable: true,
+          expanded: isOpen('service'),
+          keepOpen: true,
+          onTap: () => toggle('service'),
+        ),
+        if (isOpen('service')) ...[
+          KzContextMenuItem(
+            label: '服务配置',
+            indent: true,
+            onTap: () async {
+              if (entry.emby != null) {
+                widget.onEditServer();
+              } else if (entry.cloud != null) {
+                await showLuCloudSheet(
+                  context,
+                  type: entry.cloud!.type,
+                  existing: entry.cloud!,
+                );
+              } else if (entry.vault != null) {
+                await _openForm(entry.vault!.type, existing: entry.vault!);
+              }
+            },
+          ),
+          if (entry.vault != null)
+            KzContextMenuItem(
+              label: '修改密码',
+              indent: true,
+              onTap: () async {
+                await _changeVaultPassword(entry.vault!);
+              },
+            ),
+        ],
         KzContextMenuItem(
           label: isHome ? '取消默认首页' : '设为默认首页',
           icon: Icons.home_rounded,
@@ -456,28 +511,17 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
             ctrl.updateItems(buildItems());
           },
         ),
-        if (entry.vault != null)
+        if (entry.emby != null)
           KzContextMenuItem(
-            label: '修改密码',
-            icon: Icons.key_rounded,
-            onTap: () async {
-              await _changeVaultPassword(entry.vault!);
+            label: agg ? '禁用聚合' : '启用聚合',
+            icon: agg ? Icons.content_paste_off_rounded : Icons.copy_rounded,
+            keepOpen: true,
+            onTap: () {
+              prefs.setAggregated(key, !agg);
+              ctrl.updateItems(buildItems());
+              _toast(agg ? '已停用聚合搜索' : '已启用聚合搜索');
             },
           ),
-        KzContextMenuItem(
-          label: '修改图标',
-          icon: Icons.person_rounded,
-          onTap: () async {
-            await _openIconPicker(key);
-          },
-        ),
-        KzContextMenuItem(
-          label: '加密',
-          icon: Icons.lock_rounded,
-          onTap: () async {
-            await _encryptCard(key);
-          },
-        ),
         KzContextMenuItem(
           label: '删除',
           icon: Icons.delete_rounded,

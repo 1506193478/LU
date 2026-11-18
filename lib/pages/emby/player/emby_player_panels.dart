@@ -414,11 +414,7 @@ class _EpisodeRow extends StatelessWidget {
             ),
             if (selected) ...[
               const SizedBox(width: 10),
-              const Icon(
-                Icons.check_rounded,
-                size: 18,
-                color: embyMenuAccent,
-              ),
+              const Icon(Icons.check_rounded, size: 18, color: embyMenuAccent),
             ],
           ],
         ),
@@ -606,43 +602,62 @@ Widget buildEmbySubtitlePanel({
                 expanded = open ? _SubtitleSection.none : which;
               }),
             ),
-            if (open) ...[
-              if (which == _SubtitleSection.secondary)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
-                  child: Text(
-                    '选中的这条会和主字幕同时显示在画面上（也就是「双字幕」），'
-                    '副字幕比主字幕小一号。',
-                    style: TextStyle(
-                      color: _inkTertiary,
-                      fontSize: 12,
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-              _SubOptionRow(
-                label: '禁用',
-                checked: selected == null || selected.id == 'no',
-                onTap: () => onPick(SubtitleTrack.no()),
-              ),
-              if (tracks.isEmpty)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(20, 10, 20, 6),
-                  child: Text(
-                    '这条视频没有内封字幕',
-                    style: TextStyle(color: _inkSecondary, fontSize: 12.5),
-                  ),
-                ),
-              for (final track in tracks)
-                _SubOptionRow(
-                  label: track.title?.trim().isNotEmpty == true
-                      ? track.title!.trim()
-                      : _languageName(track.language),
-                  // 视频里这一行只有名字，没有「简体中文 · SRT」这种副标题。
-                  checked: track.id == selected?.id && selected?.id != 'no',
-                  onTap: () => onPick(track),
-                ),
-            ],
+            // 展开/收起加高度动画：原来是瞬间插入，点一下「主字幕」
+            // 内容直接跳出来，手感很硬。iOS 的折叠是带缓动的。
+            AnimatedSize(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: open
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        if (which == _SubtitleSection.secondary)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+                            child: Text(
+                              '选中的这条会和主字幕同时显示在画面上（也就是「双字幕」），'
+                              '副字幕比主字幕小一号。',
+                              style: TextStyle(
+                                color: _inkTertiary,
+                                fontSize: 12,
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                        _SubOptionRow(
+                          label: '禁用',
+                          checked: selected == null || selected.id == 'no',
+                          onTap: () => onPick(SubtitleTrack.no()),
+                        ),
+                        if (tracks.isEmpty)
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(20, 10, 20, 6),
+                            child: Text(
+                              '这条视频没有内封字幕',
+                              style: TextStyle(
+                                color: _inkSecondary,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ),
+                        for (final track in tracks)
+                          _SubOptionRow(
+                            label: track.title?.trim().isNotEmpty == true
+                                ? track.title!.trim()
+                                : _languageName(track.language),
+                            // 视频里这一行只有名字，没有「简体中文 · SRT」这种副标题。
+                            checked:
+                                track.id == selected?.id &&
+                                selected?.id != 'no',
+                            onTap: () => onPick(track),
+                          ),
+                      ],
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
           ],
         );
       }
@@ -804,11 +819,7 @@ class _SubOptionRow extends StatelessWidget {
             ),
             if (checked) ...[
               const SizedBox(width: 10),
-              const Icon(
-                Icons.check_rounded,
-                size: 18,
-                color: embyMenuAccent,
-              ),
+              const Icon(Icons.check_rounded, size: 18, color: embyMenuAccent),
             ],
           ],
         ),
@@ -1269,31 +1280,11 @@ Widget buildEmbyDanmakuPanel({
         icon: Icons.sports_esports_outlined,
         onTap: null,
       ),
-      _PanelRow(
-        title: '禁用弹幕',
-        selected: !on,
-        onTap: onToggle,
-      ),
-      _PanelRow(
-        title: '本地导入',
-        chevron: true,
-        onTap: onImport,
-      ),
-      _PanelRow(
-        title: '弹幕位置',
-        chevron: true,
-        onTap: onPosition,
-      ),
-      _PanelRow(
-        title: '弹幕设置',
-        chevron: true,
-        onTap: onSettings,
-      ),
-      _PanelRow(
-        title: '永久禁用',
-        chevron: true,
-        onTap: onDisableForever,
-      ),
+      _PanelRow(title: '禁用弹幕', selected: !on, onTap: onToggle),
+      _PanelRow(title: '本地导入', chevron: true, onTap: onImport),
+      _PanelRow(title: '弹幕位置', chevron: true, onTap: onPosition),
+      _PanelRow(title: '弹幕设置', chevron: true, onTap: onSettings),
+      _PanelRow(title: '永久禁用', chevron: true, onTap: onDisableForever),
       const SizedBox(height: 8),
     ],
   );

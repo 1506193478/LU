@@ -33,6 +33,9 @@ class KzContextMenuItem {
     this.destructive = false,
     this.keepOpen = false,
     this.onTap,
+    this.expandable = false,
+    this.expanded = false,
+    this.indent = false,
   });
 
   final String label;
@@ -50,6 +53,19 @@ class KzContextMenuItem {
 
   /// 激活回调，异步执行、异常只记日志不冒泡。
   final VoidCallback? onTap;
+
+  /// 这是一行「可折叠分组头」：右侧画 ⌄/›，点它是展开/收起而不是执行动作。
+  ///
+  /// 折叠不靠菜单组件的状态：展开时用 `controller.updateItems()` 把子项
+  /// 插进列表，收起时再拿掉——菜单高度、hover 命中都会自动跟着重算，
+  /// 不用改浮层布局。
+  final bool expandable;
+
+  /// 分组当前是否展开（决定箭头方向）。
+  final bool expanded;
+
+  /// 子项：左侧缩进一级，字号略小。
+  final bool indent;
 }
 
 class KzContextMenuController {
@@ -506,7 +522,7 @@ class _MenuRow extends StatelessWidget {
     return Container(
       height: 44,
       color: highlighted ? hover : Colors.transparent,
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+      padding: EdgeInsets.fromLTRB(item.indent ? 34 : 14, 0, 14, 0),
       child: Row(
         children: [
           Expanded(
@@ -522,7 +538,16 @@ class _MenuRow extends StatelessWidget {
               ),
             ),
           ),
-          if (item.icon != null)
+          if (item.expandable)
+            // 折叠指示：展开是 ⌄，收起是 ›（和 iOS 设置里的展开分组一致）。
+            Icon(
+              item.expanded
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+              size: 20,
+              color: item.destructive ? color : sub,
+            )
+          else if (item.icon != null)
             Icon(item.icon, size: 18, color: item.destructive ? color : sub),
         ],
       ),
