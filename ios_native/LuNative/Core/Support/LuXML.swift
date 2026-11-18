@@ -39,15 +39,23 @@ final class LuXMLDocument {
             nodes(expression).first?.stringValue
         }
 
-        /// 按名字取属性值（遍历 properties 链，不产生需要释放的内存）。
+        /// 按名字取属性值（遍历 properties 链读属性值节点，不产生需要释放的内存）。
         func attribute(_ name: String) -> String? {
             var attr = pointer.pointee.properties
             while let current = attr {
                 if let raw = current.pointee.name,
                    String(cString: charPointer(raw)) == name {
-                    let value = Self.collectText(current)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    return value.isEmpty ? nil : value
+                    // 属性值挂在 attr 的 children（XML_ATTRIBUTE_NODE）上
+                    var value = ""
+                    var cursor = current.pointee.children
+                    while let valueNode = cursor {
+                        if let content = valueNode.pointee.content {
+                            value += String(cString: charPointer(content))
+                        }
+                        cursor = valueNode.pointee.next
+                    }
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return trimmed.isEmpty ? nil : trimmed
                 }
                 attr = current.pointee.next
             }
@@ -60,14 +68,13 @@ final class LuXMLDocument {
             var result = ""
             var cursor = start.pointee.children
             while let current = cursor {
-                let kind = current.pointee.type.rawValue
-                // XML_TEXT_NODE = 3, XML_CDATA_SECTION_NODE = 4
-                if kind == 3 || kind == 4 {
+                // XML_TEXT_NODE=3 / XML_CDATA_SECTION_NODE=4 / XML_ELEMENT_NODE=1
+                let kind = current.pointee.type
+                if kind == XML_TEXT_NODE || kind == XML_CDATA_SECTION_NODE {
                     if let content = current.pointee.content {
                         result += String(cString: charPointer(content))
                     }
-                } else if kind == 1 {
-                    // XML_ELEMENT_NODE：递归收集
+                } else if kind == XML_ELEMENT_NODE {
                     result += collectText(current)
                 }
                 cursor = current.pointee.next
@@ -91,15 +98,13 @@ final class LuXMLDocument {
         var doc: UnsafeMutablePointer<xmlDoc>?
         bytes.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }
-            if isHTML {
-                // HTML_PARSE_RECOVER | NOERROR | NOWARNING | NONET
-                let options: Int32 = (1 << 0) | (1 << 5) | (1 << 6) | (1 << 11)
-                doc = htmlReadMemory(base, size, nil, nil, options)
-            } else {
-                // XML_PARSE_RECOVER | NOERROR | NOWARNING | NONET
-                let options: Int32 = (1 << 0) | (1 << 5) | (1 << 6) | (1 << 11)
-                doc = xmlReadMemory(base, size, nil, nil, options)
-            }
+            // C 接口要 const char*，UInt8 指针显式重绑
+            let text = UnsafeRawPointer(base).assumingMemoryBound(to: CChar.self)
+            // RECOVER | NOERROR | NOWARNING | NONET
+            let options: Int32 = (1 << 0) | (1 << 5) | (1 << 6) | (1 << 11)
+            doc = isHTML
+                ? htmlReadMemory(text, size, nil, nil, options)
+                : xmlReadMemory(text, size, nil, nil, options)
         }
         guard let doc else { return nil }
         self.doc = doc
@@ -129,7 +134,15 @@ final class LuXMLDocument {
         if let contextNode {
             context.pointee.node = contextNode
         }
-        guard let object = xmlXPathEvalExpression(expression, context) else { return [] }
+        // xmlChar 是 unsigned char，String 不会自动桥接，手动转指针
+        let cExpression = Array(expression.utf8CString)
+        var object: UnsafeMutablePointer<xmlXPathObject>?
+        cExpression.withUnsafeBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            let xmlBase = UnsafeRawPointer(base).assumingMemoryBound(to: xmlChar.self)
+            object = xmlXPathEvalExpression(xmlBase, context)
+        }
+        guard let object else { return [] }
         defer { xmlXPathFreeObject(object) }
 
         guard let nodeSet = object.pointee.nodesetval,
