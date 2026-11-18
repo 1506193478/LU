@@ -2,79 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/widget/content_section.dart';
-import 'package:XL/modules/hg/hg_lines.dart';
-import 'package:XL/modules/hg/hg_session.dart';
 import 'package:XL/pages/about/about_widgets.dart';
 import 'package:XL/request/config/api_endpoints.dart';
-import 'package:XL/utils/motion.dart';
-
-/// 「关于」标题：连点 3 次（1.5 秒窗口内）解锁隐藏的 HG 短剧底栏入口。
-/// 解锁一次永久生效（存 Hive）。
-class _HgUnlockTitle extends StatefulWidget {
-  const _HgUnlockTitle();
-
-  @override
-  State<_HgUnlockTitle> createState() => _HgUnlockTitleState();
-}
-
-class _HgUnlockTitleState extends State<_HgUnlockTitle> {
-  int _taps = 0;
-  DateTime _firstTapAt = DateTime.now();
-
-  void _onTap() {
-    final now = DateTime.now();
-    if (now.difference(_firstTapAt).inMilliseconds > 1500) {
-      _taps = 0;
-    }
-    if (_taps == 0) _firstTapAt = now;
-    _taps++;
-    KazumiHaptics.select();
-    if (_taps >= 3) {
-      _taps = 0;
-      _unlock();
-    }
-  }
-
-  Future<void> _unlock() async {
-    // 已解锁状态下再连点 3 次 = 重新隐藏入口（登录/片库数据保留）。
-    if (HgStore.unlocked) {
-      await HgStore.lock();
-      HgAutoLine.stop();
-      KazumiHaptics.heavy();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('已隐藏「短剧」入口，再连点 3 次本标题可重新开启'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      if (mounted) setState(() {});
-      return;
-    }
-    await HgStore.unlock();
-    // 解锁后启动 HG 自动选线（镜像探测 + 健康检查）。
-    HgAutoLine.start();
-    KazumiHaptics.heavy();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已解锁「短剧」入口，回到主页看底栏'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _onTap,
-      child: const Text('关于'),
-    );
-  }
-}
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key, required this.onCheckUpdate});
@@ -83,7 +12,7 @@ class AboutPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SettingsDetailScaffold(
-        title: const _HgUnlockTitle(),
+        title: const Text('关于'),
         body: AboutContent(
           children: [
             _ProjectHeader(onCheckUpdate: onCheckUpdate),

@@ -42,7 +42,6 @@ class MainActivity: AudioServiceFragmentActivity() {
     private var pipChannel: MethodChannel? = null
     private var downloadDirectoryChannel: MethodChannel? = null
     private var downloadDirectoryHandler: DownloadDirectoryHandler? = null
-    private var torrentEngine: TorrentEngine? = null
 
     private var pipIsPlaying = false
     private var pipDanmakuEnabled = false
@@ -85,8 +84,6 @@ class MainActivity: AudioServiceFragmentActivity() {
         downloadDirectoryChannel = null
         downloadDirectoryHandler?.dispose()
         downloadDirectoryHandler = null
-        torrentEngine?.dispose()
-        torrentEngine = null
         unregisterPipActionReceiverIfNeeded()
         // audio_service stays bound for the whole activity lifetime, so its
         // own stopSelf() never destroys a service started for playback.
@@ -119,8 +116,6 @@ class MainActivity: AudioServiceFragmentActivity() {
             flutterEngine.dartExecutor.binaryMessenger, DownloadDirectoryHandler.CHANNEL
         )
         downloadDirectoryChannel?.setMethodCallHandler(downloadDirectoryHandler)
-        torrentEngine = TorrentEngine(this)
-        torrentEngine?.attach(flutterEngine.dartExecutor.binaryMessenger)
         intentChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         intentChannel?.setMethodCallHandler { call, result ->
             if (call.method == "openWithMime") {

@@ -98,11 +98,18 @@ class PvColors {
   static Color chev(BuildContext context) =>
       isDark(context) ? const Color(0xFF55555C) : const Color(0xFFC4C4C9);
 
-  /// 搜索条底 #EFEFF3。
   /// 搜索框/浅色填充：半透明白，背后的渐变能透上来。
+  /// 浅色 30% 白——之前 55% 在浅色渐变上白得像块板子，压到 30% 才有玻璃感。
   static Color searchFill(BuildContext context) => isDark(context)
       ? Colors.white.withValues(alpha: 0.08)
-      : const Color(0x8CFFFFFF);
+      : Colors.white.withValues(alpha: 0.30);
+
+  /// 列表行叠在 LuGlass 分组卡上的薄纱罩色。
+  /// 分组卡本身是玻璃（见 [PvGroup] / SplitListGroup），
+  /// 行再铺一层 84% 白就把玻璃全盖死了——这就是「设置页白色框」的来源。
+  static Color glassRow(BuildContext context) => isDark(context)
+      ? Colors.white.withValues(alpha: 0.06)
+      : Colors.white.withValues(alpha: 0.14);
 
   /// 搜索占位字 #8A8A8E。
   static Color searchHint(BuildContext context) =>
@@ -748,72 +755,92 @@ class PvLibCard extends StatelessWidget {
 /// 弹出菜单（预览稿 `.popmenu`）：白底圆角 14、行高 46、字 16.5。
 ///
 /// 用 [showMenu] 实现，锚点由调用方给。
+/// 全局统一的弹出菜单：真·磨砂玻璃。
+///
+/// 之前是 `showMenu` 铺一块 90% 白——看起来就是白板。现在_surface 透明，
+/// 内容整体包在 [LuGlass.box]（blur: true，BackdropFilter 26）里，
+/// 背后的渐变会被真的磨砂糊掉，和长按菜单、播放器浮层同一套材质。
+/// 条目点击用 InkWell + `Navigator.pop`，返回值语义与原来一致。
 Future<T?> showPvMenu<T>({
   required BuildContext context,
   required RelativeRect position,
   required List<PvMenuItem> items,
   double minWidth = 200,
 }) {
-  final dark = PvColors.isDark(context);
+  final rows = <Widget>[];
+  for (final item in items) {
+    if (item.isDivider) {
+      rows.add(Container(
+        height: 0.8,
+        margin: const EdgeInsets.symmetric(horizontal: 14),
+        color: PvColors.hair(context),
+      ));
+      continue;
+    }
+    rows.add(Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          item.onTap?.call();
+          Navigator.of(context).pop(item.value is T ? item.value as T : null);
+        },
+        child: SizedBox(
+          height: 46,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                if (item.checked)
+                  Icon(Icons.check_rounded, size: 17, color: PvColors.ink(context))
+                else if (item.icon != null)
+                  Icon(item.icon, size: 18, color: PvColors.ink(context))
+                else
+                  const SizedBox(width: 21),
+                if (item.icon != null || item.checked) const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    item.label,
+                    style: TextStyle(
+                      fontSize: 16.5,
+                      fontWeight: FontWeight.w500,
+                      color: item.destructive ? PvColors.red : PvColors.ink(context),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
+
   return showMenu<T>(
     context: context,
     position: position,
-    elevation: 24,
-    // 磨砂玻璃感：圆角 + 一圈很淡的白高光边（截图里那种浮起卡片）。
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(16),
-      side: BorderSide(
-        color: Colors.white.withValues(alpha: dark ? 0.18 : 0.75),
-        width: 0.8,
-      ),
-    ),
-    // 留 10% 透明度让背后渐变透上来；再低会透出下面的卡片文字反而更花。
-    color: dark ? const Color(0xE81E1D22) : const Color(0xE6FFFFFF),
+    // surface 透明、无阴影，玻璃卡自带阴影与高光边
+    elevation: 0,
+    color: Colors.transparent,
+    surfaceTintColor: Colors.transparent,
+    shadowColor: Colors.transparent,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    clipBehavior: Clip.none,
     constraints: BoxConstraints(minWidth: minWidth, maxWidth: 320),
     items: [
-      for (final item in items)
-        if (item.isDivider)
-          const PopupMenuDivider()
-        else
-          PopupMenuItem<T>(
-            height: 46,
-            padding: EdgeInsets.zero,
-            onTap: item.onTap,
-            value: item.value is T ? item.value as T : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                children: [
-                  if (item.checked)
-                    Icon(
-                      Icons.check_rounded,
-                      size: 17,
-                      color: PvColors.ink(context),
-                    )
-                  else if (item.icon != null)
-                    Icon(item.icon, size: 18, color: PvColors.ink(context))
-                  else
-                    const SizedBox(width: 21),
-                  if (item.icon != null || item.checked)
-                    const SizedBox(width: 11),
-                  Expanded(
-                    child: Text(
-                      item.label,
-                      style: TextStyle(
-                        fontSize: 16.5,
-                        fontWeight: FontWeight.w500,
-                        color: item.destructive
-                            ? PvColors.red
-                            : (dark
-                                  ? const Color(0xFFEDEDEF)
-                                  : const Color(0xFF17171B)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+      PopupMenuItem<T>(
+        enabled: true,
+        padding: EdgeInsets.zero,
+        child: LuGlass.box(
+          context: context,
+          blur: true,
+          radius: BorderRadius.circular(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: rows,
           ),
+        ),
+      ),
     ],
   );
 }

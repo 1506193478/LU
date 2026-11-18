@@ -18,7 +18,6 @@ import 'package:XL/pages/syncplay/syncplay_module.dart';
 import 'package:XL/pages/timeline/timeline_controller.dart';
 import 'package:XL/pages/timeline/timeline_module.dart';
 import 'package:XL/pages/video/video_module.dart';
-import 'package:XL/modules/hg/hg_module.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/plugins/plugins_controller.dart';
 import 'package:XL/pages/collect/collect_controller.dart';
@@ -67,8 +66,7 @@ final tabModule = createModule(
             ..module(collectModule)
             ..module(syncPlayModule)
             ..module(embyTabModule)
-            ..module(myModule)
-            ..module(hgModule);
+            ..module(myModule);
         },
       );
   },

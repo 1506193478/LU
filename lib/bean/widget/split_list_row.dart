@@ -88,9 +88,11 @@ class _SplitListRowState extends State<SplitListRow> {
         ..scale(_pressed ? 0.992 : 1.0),
       transformAlignment: Alignment.center,
       decoration: BoxDecoration(
+        // 行本身只铺一层薄纱（14% 白），玻璃质感由外层 SplitListGroup
+        // 的 LuGlass 卡提供——之前这里铺 84% 白，直接把玻璃盖成白板。
         color: _pressed
             ? PvColors.searchFill(context)
-            : PvColors.card(context),
+            : PvColors.glassRow(context),
         borderRadius: radius,
       ),
       child: Material(

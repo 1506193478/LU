@@ -1,7 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart'
-    show CupertinoContextMenu, CupertinoContextMenuAction, CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
@@ -9,7 +7,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'package:XL/services/torrent/lu_torrent.dart';
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/services/url_parse/url_parse_service.dart';
 import 'package:XL/theme/ios_interaction.dart';
@@ -363,39 +360,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
     await LuMediaVault.instance.addEntries('link', [(name: name, source: playUrl)]);
     if (!mounted) return;
     luPlay(context, title: name, url: playUrl);
-  }
-
-  /// 「磁力播放」：粘贴磁力链接/种子地址，libtorrent 边下边播。
-  Future<void> _addMagnet() async {
-    final url = await showKzPrompt(
-      context: context,
-      title: '磁力播放',
-      hint: '粘贴磁力链接或种子地址，例如 magnet:?xt=...',
-      confirmLabel: '播放',
-    );
-    if (url == null || url.isEmpty) return;
-    if (!LuTorrent.looksLikeMagnet(url)) {
-      _toast('不是磁力链接（magnet:?xt=...）或种子地址（.torrent）');
-      return;
-    }
-    if (!LuTorrent.supported) {
-      _toast('磁力播放目前支持 Android / iOS，其他平台将在后续版本接入');
-      return;
-    }
-    if (!mounted) return;
-    // 进度弹窗：等元数据 + 显示下载进度；完成弹出流地址，取消则终止任务。
-    final result = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _MagnetProgressDialog(source: url),
-    );
-    if (!mounted) return;
-    if (result == null) return; // 用户取消
-    if (result.startsWith('http')) {
-      luPlay(context, title: LuTorrent.fileName, url: result);
-    } else {
-      _toast(result);
-    }
   }
 
   // ------------------------------------------------------------ 添加来源
@@ -1031,7 +995,6 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
               onPrivate: _importPrivate,
               onGallery: _importGallery,
               onLink: _addLink,
-              onMagnet: _addMagnet,
               onServer: (entry) {
                 if (entry.emby != null) {
                   widget.onSwitchServer(entry.emby!);
@@ -1122,7 +1085,6 @@ class _EntryGrid extends StatelessWidget {
     required this.onPrivate,
     required this.onGallery,
     required this.onLink,
-    required this.onMagnet,
     required this.onServer,
     required this.onServerMenu,
     required this.onLocalMenu,
@@ -1148,8 +1110,6 @@ class _EntryGrid extends StatelessWidget {
   final VoidCallback onGallery;
   final VoidCallback onLink;
 
-  /// 「磁力播放」卡片：粘贴磁力/种子 → libtorrent 边下边播。
-  final VoidCallback onMagnet;
   final ValueChanged<_ServerEntry> onServer;
   @override
   Widget build(BuildContext context) {
@@ -1208,9 +1168,17 @@ class _EntryGrid extends StatelessWidget {
 
       // 预览渲染（withKey=false）不再包一层菜单，避免套娃。
       if (!withKey) return card;
+      // 长按直接弹自定义菜单（CupertinoContextMenu 的「更多操作」
+      // 二段跳转在真机上卡顿，按用户要求换回旧版直弹）。
       return KeyedSubtree(
         key: cardKeyFor(prefKey),
-        child: _withContextMenu(context, card, openMenu),
+        child: GestureDetector(
+          onLongPress: () {
+            KazumiHaptics.heavy();
+            openMenu();
+          },
+          child: card,
+        ),
       );
     }
 
@@ -1247,7 +1215,13 @@ class _EntryGrid extends StatelessWidget {
       if (!withKey) return card;
       return KeyedSubtree(
         key: cardKeyFor(s.prefKey),
-        child: _withContextMenu(context, card, openMenu),
+        child: GestureDetector(
+          onLongPress: () {
+            KazumiHaptics.heavy();
+            openMenu();
+          },
+          child: card,
+        ),
       );
     }
 
@@ -1304,14 +1278,6 @@ class _EntryGrid extends StatelessWidget {
         glyph: _Glyph.link,
         tone: _Tone.sky,
         onTap: onLink,
-      ),
-      maybeLocal(
-        prefKey: 'local:magnet',
-        title: '磁力播放',
-        footLeft: '磁力',
-        glyph: _Glyph.magnet,
-        tone: _Tone.mint,
-        onTap: onMagnet,
       ),
       for (final s in servers) serverCard(s),
     ].whereType<Widget>().toList();
@@ -1388,7 +1354,7 @@ const Map<_Tone, Color> _toneDark = {
 };
 
 /// 右上角那枚彩色图标（预览稿里的 folder / folderlock / album / link / emby）。
-enum _Glyph { folder, folderLock, album, link, magnet, emby }
+enum _Glyph { folder, folderLock, album, link, emby }
 
 /// 「修改图标」的图标库。名字进 [ResCardPrefs] 存储，别改动已有序目的
 /// 名字（老配置按名字找回图标）。
@@ -1474,20 +1440,6 @@ class _LibGlyph extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
           ),
           child: const Icon(Icons.link_rounded, color: Colors.white, size: 19),
-        );
-      case _Glyph.magnet:
-        return Container(
-          width: 31,
-          height: 31,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF8FD9C4), Color(0xFF3FB39B)],
-            ),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 19),
         );
       case _Glyph.album:
         return ShaderMask(
@@ -2130,97 +2082,6 @@ class _IconPickImageCell extends StatelessWidget {
   }
 }
 
-/// 磁力播放进度弹窗：等元数据 → 显示进度 → 返回本地流地址。
-///
-/// pop 值约定：`http://...` = 成功；其它字符串 = 错误消息；null = 用户取消。
-class _MagnetProgressDialog extends StatefulWidget {
-  const _MagnetProgressDialog({required this.source});
-
-  final String source;
-
-  @override
-  State<_MagnetProgressDialog> createState() => _MagnetProgressDialogState();
-}
-
-class _MagnetProgressDialogState extends State<_MagnetProgressDialog> {
-  @override
-  void initState() {
-    super.initState();
-    LuTorrent.stream(widget.source).then((streamUrl) {
-      if (mounted) Navigator.of(context).pop(streamUrl);
-    }).catchError((Object e) {
-      final msg = e is LuTorrentException
-          ? e.message
-          : '磁力播放失败：${e.toString().split('\n').first}';
-      if (mounted) Navigator.of(context).pop(msg);
-    });
-  }
-
-  String _fmtSpeed(int bps) {
-    if (bps <= 0) return '0 B/s';
-    if (bps < 1024) return '$bps B/s';
-    if (bps < 1024 * 1024) return '${(bps / 1024).toStringAsFixed(1)} KB/s';
-    return '${(bps / 1024 / 1024).toStringAsFixed(1)} MB/s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      child: AlertDialog(
-        title: const Text('磁力播放'),
-        content: ValueListenableBuilder<LuTorrentProgress>(
-          valueListenable: LuTorrent.progress,
-          builder: (context, p, _) {
-            final name = LuTorrent.fileName;
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (name.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Text(
-                      name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                LinearProgressIndicator(
-                  value: p.state == LuTorrentState.fetching ? null : p.progress,
-                  minHeight: 4,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  p.state == LuTorrentState.fetching
-                      ? '正在获取种子信息（找 peer 中）…'
-                      : '${(p.progress * 100).toStringAsFixed(1)}% · '
-                          '${_fmtSpeed(p.downloadSpeed)} · ${p.peers} 个节点',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).textTheme.bodySmall?.color,
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await LuTorrent.stop();
-              if (context.mounted) Navigator.of(context).pop(null);
-            },
-            child: const Text('取消'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 列表模式下的一行（参考稿：绿色方块 + 名称/副标题 + 尾部状态）。
 class _LibRow extends StatelessWidget {
   const _LibRow({
@@ -2257,8 +2118,6 @@ class _LibRow extends StatelessWidget {
         return Icons.photo_library_rounded;
       case _Glyph.link:
         return Icons.link_rounded;
-      case _Glyph.magnet:
-        return Icons.bolt_rounded;
       case _Glyph.emby:
         return Icons.play_arrow_rounded;
     }
@@ -2376,29 +2235,3 @@ class _LibRow extends StatelessWidget {
   }
 }
 
-/// 长按预览：Apple 官方 CupertinoContextMenu。
-///
-/// 长按卡片 → 卡片放大浮起 + 背后整片模糊（系统自带）→ 松手弹「更多操作」。
-/// 点它再调用原本的自定义菜单（改图标 / 隐藏 / 加密 / 删除等都在里面），
-/// 这样既有 iOS 原生长按手感，也没丢掉任何一项功能。
-Widget _withContextMenu(
-  BuildContext context,
-  Widget card,
-  VoidCallback openMenu,
-) {
-  return CupertinoContextMenu(
-    actions: <Widget>[
-      CupertinoContextMenuAction(
-        trailingIcon: CupertinoIcons.ellipsis_circle,
-        onPressed: () {
-          Navigator.of(context).pop();
-          KazumiHaptics.heavy();
-          // 等官方菜单收起动画走完再弹自定义菜单，避免两层叠加。
-          Future<void>.delayed(const Duration(milliseconds: 220), openMenu);
-        },
-        child: const Text('更多操作'),
-      ),
-    ],
-    child: card,
-  );
-}

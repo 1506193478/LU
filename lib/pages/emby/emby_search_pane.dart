@@ -7,6 +7,7 @@ import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/emby/emby_records_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/services/emby/emby_service.dart';
@@ -351,15 +352,13 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
             if (_scope == 0)
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-                child: Container(
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: dark
-                        ? Colors.white.withValues(alpha: 0.10)
-                        : const Color(0xFFF1F1F4),
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: Row(
+                child: LuGlass.box(
+                  context: context,
+                  blur: true,
+                  radius: BorderRadius.circular(11),
+                  child: SizedBox(
+                    height: 38,
+                    child: Row(
                     children: [
                       const SizedBox(width: 11),
                       Icon(
@@ -411,6 +410,7 @@ class _EmbySearchPaneState extends State<EmbySearchPane> {
                   ),
                 ),
               ),
+            ),
             if (_scope == 0 && keyword.isEmpty && _history.isNotEmpty)
               _HistoryChips(
                 history: _history,
@@ -845,7 +845,7 @@ class _ScopeSwitch extends StatelessWidget {
     final dark = PvColors.isDark(context);
     final bg = dark
         ? Colors.white.withValues(alpha: 0.10)
-        : const Color(0xFFEDEDF2);
+        : PvColors.searchFill(context);
 
     return Container(
       height: 30,
