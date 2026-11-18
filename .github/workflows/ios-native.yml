@@ -1,0 +1,78 @@
+name: iOS Native Build
+
+# 原生 SwiftUI 端（ios_native/）的编译校验 + 无签名 IPA。
+# 和 ios.yml（Flutter 线）互不影响。
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios_native/**"
+      - ".github/workflows/ios-native.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          sw_vers
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        working-directory: ios_native
+        run: |
+          xcodegen generate
+          ls -la
+
+      - name: Build
+        working-directory: ios_native
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project LU.xcodeproj \
+            -scheme LU \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build 2>&1 | tee build.log
+
+      - name: Package unsigned IPA
+        working-directory: ios_native
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          echo "app: $APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry LU-native-unsigned.ipa Payload
+          ls -lh LU-native-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LU-native-ipa
+          path: ios_native/LU-native-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios_native/build.log
+          if-no-files-found: ignore
