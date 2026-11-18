@@ -76,6 +76,25 @@ struct AnimeSubject: Identifiable, Hashable, Codable {
         case totalEpisodes = "total_episodes"
     }
 
+    /// 显式编码：CodingKeys 里有仅用于解码兜底的 case（date/rating/totalEpisodes），
+    /// 合成 encode 会因为「键与存储属性不对应」而失败。
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(nameCN, forKey: .nameCN)
+        try c.encode(summary, forKey: .summary)
+        try c.encode(images, forKey: .images)
+        try c.encode(airDate, forKey: .airDate)
+        try c.encode(airWeekday, forKey: .airWeekday)
+        try c.encode(eps, forKey: .eps)
+        try c.encode(platform, forKey: .platform)
+        try c.encode(ratingScore, forKey: .rating)
+        try c.encode(ratingRank, forKey: .rating)
+        try c.encode(ratingTotal, forKey: .rating)
+        try c.encode(tags, forKey: .tags)
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? c.decode(Int.self, forKey: .id)) ?? 0
@@ -296,6 +315,31 @@ struct EmbyItem: Identifiable, Hashable, Codable {
         case runTimeTicks = "RunTimeTicks"
         case userData = "UserData"
         case imageTag = "ImageTag"
+    }
+
+    private enum UserDataKeys: String, CodingKey {
+        case played = "Played"
+        case ticks = "PlaybackPositionTicks"
+    }
+
+    /// 显式编码：CodingKeys 里的 imageTags / userData 只是解码入口，
+    /// 存储属性是拍平后的 imageTag / userDataPlayed / userDataPositionTicks。
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(type, forKey: .type)
+        try c.encodeIfPresent(seriesID, forKey: .seriesID)
+        try c.encodeIfPresent(seriesName, forKey: .seriesName)
+        try c.encodeIfPresent(seasonName, forKey: .seasonName)
+        try c.encodeIfPresent(indexNumber, forKey: .indexNumber)
+        try c.encodeIfPresent(parentIndexNumber, forKey: .parentIndexNumber)
+        try c.encode(overview, forKey: .overview)
+        try c.encodeIfPresent(imageTag, forKey: .imageTag)
+        try c.encodeIfPresent(runTimeTicks, forKey: .runTimeTicks)
+        var userData = c.nestedContainer(keyedBy: UserDataKeys.self, forKey: .userData)
+        try userData.encode(userDataPlayed, forKey: .played)
+        try userData.encode(userDataPositionTicks ?? 0, forKey: .ticks)
     }
 
     init(from decoder: Decoder) throws {

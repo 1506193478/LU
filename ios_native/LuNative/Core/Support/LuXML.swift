@@ -1,6 +1,11 @@
 import Foundation
 import libxml2
 
+/// xmlChar(unsigned char) 转 CChar 指针，供 String(cString:) 使用。
+private func luXMLCharPointer(_ raw: UnsafePointer<xmlChar>) -> UnsafePointer<CChar> {
+    UnsafeRawPointer(raw).assumingMemoryBound(to: CChar.self)
+}
+
 /// 系统自带 libxml2 的薄封装。
 ///
 /// 之前用 Foundation 的 `XMLDocument`，但 Xcode 26 起显式模块构建不再把
@@ -32,7 +37,7 @@ final class LuXMLDocument {
 
         /// 相对当前节点的 XPath（支持 `./*[local-name()='xxx']` 这类写法）。
         func nodes(_ expression: String) -> [Node] {
-            document.evaluate(expression, contextNode: pointer, owner: self)
+            document.evaluate(expression, contextNode: pointer)
         }
 
         func string(_ expression: String) -> String? {
@@ -44,13 +49,13 @@ final class LuXMLDocument {
             var attr = pointer.pointee.properties
             while let current = attr {
                 if let raw = current.pointee.name,
-                   String(cString: charPointer(raw)) == name {
+                   String(cString: luXMLCharPointer(raw)) == name {
                     // 属性值挂在 attr 的 children（XML_ATTRIBUTE_NODE）上
                     var value = ""
                     var cursor = current.pointee.children
                     while let valueNode = cursor {
                         if let content = valueNode.pointee.content {
-                            value += String(cString: charPointer(content))
+                            value += String(cString: luXMLCharPointer(content))
                         }
                         cursor = valueNode.pointee.next
                     }
@@ -72,7 +77,7 @@ final class LuXMLDocument {
                 let kind = current.pointee.type
                 if kind == XML_TEXT_NODE || kind == XML_CDATA_SECTION_NODE {
                     if let content = current.pointee.content {
-                        result += String(cString: charPointer(content))
+                        result += String(cString: luXMLCharPointer(content))
                     }
                 } else if kind == XML_ELEMENT_NODE {
                     result += collectText(current)
@@ -82,9 +87,6 @@ final class LuXMLDocument {
             return result
         }
 
-        private static func charPointer(_ raw: UnsafePointer<xmlChar>) -> UnsafePointer<CChar> {
-            UnsafeRawPointer(raw).assumingMemoryBound(to: CChar.self)
-        }
     }
 
     private let doc: UnsafeMutablePointer<xmlDoc>
@@ -121,15 +123,14 @@ final class LuXMLDocument {
 
     /// 从文档级上下文执行 XPath（`//xxx` / `/xxx` 都可用）。
     func nodes(_ expression: String) -> [Node] {
-        evaluate(expression, contextNode: nil, owner: self)
+        evaluate(expression, contextNode: nil)
     }
 
     // MARK: 内部
 
     private func evaluate(_ expression: String,
-                          contextNode: UnsafeMutablePointer<xmlNode>?,
-                          owner: Node) -> [Node] {
-        let context = xmlXPathNewContext(doc)
+                          contextNode: UnsafeMutablePointer<xmlNode>?) -> [Node] {
+        guard let context = xmlXPathNewContext(doc) else { return [] }
         defer { xmlXPathFreeContext(context) }
         if let contextNode {
             context.pointee.node = contextNode

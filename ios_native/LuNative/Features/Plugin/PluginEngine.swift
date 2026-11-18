@@ -37,6 +37,31 @@ struct PluginManifest: Codable, Identifiable, Hashable {
         case chapterApi, chapterApiConfig
     }
 
+    /// 显式编码：CodingKeys 里的 searchApiConfig / chapterApiConfig 只是导入兼容别名，
+    /// 合成 encode 会因「键与存储属性不对应」失败。
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(version, forKey: .version)
+        try c.encode(author, forKey: .author)
+        try c.encode(baseURL, forKey: .baseURL)
+        try c.encode(searchURL, forKey: .searchURL)
+        try c.encode(searchList, forKey: .searchList)
+        try c.encode(searchName, forKey: .searchName)
+        try c.encode(searchResult, forKey: .searchResult)
+        try c.encode(chapterRoads, forKey: .chapterRoads)
+        try c.encode(chapterResult, forKey: .chapterResult)
+        try c.encodeIfPresent(userAgent, forKey: .userAgent)
+        try c.encodeIfPresent(referer, forKey: .referer)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(searchMode, forKey: .searchMode)
+        try c.encode(chapterMode, forKey: .chapterMode)
+        try c.encode(usePost, forKey: .usePost)
+        try c.encodeIfPresent(searchApi, forKey: .searchApi)
+        try c.encodeIfPresent(chapterApi, forKey: .chapterApi)
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = (try? c.decode(String.self, forKey: .id)) ?? UUID().uuidString
