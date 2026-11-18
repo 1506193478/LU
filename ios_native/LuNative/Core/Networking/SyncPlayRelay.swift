@@ -104,7 +104,7 @@ final class SyncPlayRelay: ObservableObject {
         if pendingCreate {
             sendRaw(SyncPlayMessage(type: "create", name: userName))
         } else if let code = pendingJoinCode {
-            sendRaw(SyncPlayMessage(type: "join", code: code, name: userName))
+            sendRaw(SyncPlayMessage(type: "join", name: userName, code: code))
         }
         startKeepAlive()
         luLogInfo("SyncPlay", "中继连接 \(relayURL.absoluteString)")

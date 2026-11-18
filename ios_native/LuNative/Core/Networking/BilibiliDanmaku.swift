@@ -113,15 +113,15 @@ final class BilibiliDanmaku {
 
     func fetch(bangumiID: Int?, title: String, originalTitle: String?,
                episode: Double) async throws -> [DanmakuComment] {
-        var seasonID: Int?
+        var resolvedSeason: Int?
         if let bangumiID, bangumiID > 0 {
-            seasonID = await seasonID(forBangumi: bangumiID)
+            resolvedSeason = await seasonID(forBangumi: bangumiID)
         }
-        if seasonID == nil {
+        if resolvedSeason == nil {
             let seasons = try await searchSeasons(title)
-            seasonID = pickSeason(seasons, title: title, originalTitle: originalTitle)?.seasonID
+            resolvedSeason = pickSeason(seasons, title: title, originalTitle: originalTitle)?.seasonID
         }
-        guard let seasonID else { throw DanmakuError.noSeason }
+        guard let seasonID = resolvedSeason else { throw DanmakuError.noSeason }
 
         let list = try await episodes(seasonID: seasonID)
         guard !list.isEmpty else { throw DanmakuError.noEpisode }

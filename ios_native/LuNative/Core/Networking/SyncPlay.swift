@@ -213,8 +213,8 @@ final class SyncPlayServer: ObservableObject {
                                position: current,
                                paused: paused,
                                episodeKey: episodeKey,
-                               members: peers.count,
                                code: code,
+                               members: peers.count,
                                timestamp: Date().timeIntervalSince1970)
     }
 
@@ -770,8 +770,9 @@ final class SyncPlaySession: ObservableObject {
 
     private func stateMessage(position: Double) -> SyncPlayMessage {
         SyncPlayMessage(type: "state", position: position, paused: lastPaused,
-                        episodeKey: lastEpisodeKey, members: max(relay.members, 1),
-                        code: roomCode, timestamp: Date().timeIntervalSince1970)
+                        episodeKey: lastEpisodeKey, code: roomCode,
+                        members: max(relay.members, 1),
+                        timestamp: Date().timeIntervalSince1970)
     }
 
     private func rememberRemote(_ message: SyncPlayMessage) {

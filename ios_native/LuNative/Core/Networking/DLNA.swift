@@ -1,4 +1,5 @@
 import Foundation
+import FoundationXML
 import Darwin
 
 // MARK: - 设备模型

@@ -17,17 +17,17 @@ struct SubtitleSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if let track {
+                    if let current = track {
                         LuGroup(title: "当前字幕") {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(track.name)
+                                Text(current.name)
                                     .font(.system(size: 15, weight: .medium))
                                     .foregroundStyle(LuTheme.label)
-                                Text("\(track.cues.count) 条 · \(track.url.lastPathComponent)")
+                                Text("\(current.cues.count) 条 · \(current.url.lastPathComponent)")
                                     .font(LuTheme.caption())
                                     .foregroundStyle(LuTheme.secondary)
                                     .lineLimit(1)
-                                if let first = track.cues.first {
+                                if let first = current.cues.first {
                                     Text("首条：\(first.text.replacingOccurrences(of: "\n", with: " "))")
                                         .font(.system(size: 11))
                                         .foregroundStyle(LuTheme.tertiary)

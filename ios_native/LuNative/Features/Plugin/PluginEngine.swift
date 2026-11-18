@@ -1,4 +1,5 @@
 import Foundation
+import FoundationXML
 import Combine
 
 /// 采集源插件清单。字段对齐 Kazumi 的 XPath 插件格式（`api`/`type` 之外的
