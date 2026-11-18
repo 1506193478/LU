@@ -88,7 +88,7 @@ class _EmbyDisplayPrefsPageState extends State<EmbyDisplayPrefsPage> {
               ),
             ],
             bottomInfo: const Text(
-              '「适应宽高」会按视频比例决定横竖：2.35:1 的电影横屏，竖屏短剧保持竖屏。\n'
+              '「适应宽高」会按视频比例决定横竖：2.35:1 的电影横屏，竖屏视频保持竖屏。\n'
               '退出播放器会还原进入前的方向，不会把列表页卡成横屏。\n'
               '桌面端（Windows / macOS / Linux）不锁定方向，这一页只在手机上生效。',
             ),

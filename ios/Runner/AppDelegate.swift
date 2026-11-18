@@ -78,11 +78,6 @@ import app_links
         if let avRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "AvPlayerEnginePlugin") {
             AvPlayerEnginePlugin.register(with: avRegistrar)
         }
-        // 磁力播放桥（libtorrent iOS）：注册 lu/torrent 通道。
-        // messenger 从 registrar 拿，与 Android TorrentEngine.kt 同协议。
-        if let torrentRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "LuTorrentBridge") {
-            LuTorrentBridge.register(with: torrentRegistrar.messenger())
-        }
 
         let channel = FlutterMethodChannel(
             name: "com.predidit.kazumi/intent",

@@ -1,4 +1,3 @@
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
@@ -12,16 +11,11 @@ import 'package:XL/bean/widget/embedded_native_control_area.dart';
 import 'package:XL/navigation.dart';
 import 'package:XL/pages/download/download_controller.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
-import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/menu/route_visibility.dart';
 import 'package:XL/pages/router.dart';
-import 'package:XL/modules/hg/hg_session.dart';
 import 'package:XL/utils/device.dart';
 
 /// 底部导航的目标，顺序与 `menu.getPath` 一致。
-///
-/// 第 6 项（HG 短剧）是隐藏入口：连点「关于」标题 3 次解锁后，
-/// 组装底栏时才追加（见 [_ScaffoldMenu._tabs]）。
 const List<KazumiTabItem> kKazumiTabs = [
   KazumiTabItem(
     icon: Icons.home_outlined,
@@ -52,12 +46,6 @@ const List<KazumiTabItem> kKazumiTabs = [
   ),
 ];
 
-const KazumiTabItem kHgTabItem = KazumiTabItem(
-  icon: Icons.live_tv_outlined,
-  selectedIcon: Icons.live_tv,
-  label: '短剧',
-);
-
 class ScaffoldMenu extends StatefulWidget {
   const ScaffoldMenu({super.key, required this.location});
 
@@ -72,50 +60,9 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   late int _selectedIndex = menu.indexForPath(widget.location);
   DateTime? _lastExitPromptAt;
 
-  /// 底栏 tab 组装：隐藏入口解锁后才追加 HG 短剧。
-  ///
-  /// 解锁发生在「关于」页，底栏通过 [HgStore.unlockedNotifier] 收到通知
-  /// 后重建；回退路径（didPopNext setState）只是兜底。
-  List<KazumiTabItem> get _tabs => [
-        ...kKazumiTabs,
-        if (HgStore.unlocked) kHgTabItem,
-      ];
-
-  @override
-  void initState() {
-    super.initState();
-    HgStore.unlockedNotifier.addListener(_onUnlockedChanged);
-  }
-
-  void _onUnlockedChanged() {
-    if (mounted) setState(() {});
-  }
-
   /// The shell sits at the bottom of the root stack and stays mounted while
   /// other pages cover it, so it publishes that state for its subtree.
   bool _isCovered = false;
-
-  /// HG 短剧是沉浸页（页面自己带一套底 tab），进去后要把 LU 的底栏收起来，
-  /// 否则两条低栏会上下叠在一起。收起来后底部留一根细手柄：点一下（或上滑）
-  /// 把底栏临时唤回来，3 秒没动自动收起。
-  bool _hgBarPeek = false;
-  Timer? _hgPeekTimer;
-
-  /// 当前是否正停在 HG 短剧这个 tab（桌面端有侧栏，不需要收）。
-  bool get _inHgTab =>
-      HgStore.unlocked &&
-      !isDesktop() &&
-      _selectedIndex == kKazumiTabs.length;
-
-  void _toggleHgBar([bool? value]) {
-    _hgPeekTimer?.cancel();
-    setState(() => _hgBarPeek = value ?? !_hgBarPeek);
-    if (_hgBarPeek) {
-      _hgPeekTimer = Timer(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _hgBarPeek = false);
-      });
-    }
-  }
 
   @override
   void didUpdateWidget(covariant ScaffoldMenu oldWidget) {
@@ -136,8 +83,6 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
 
   @override
   void dispose() {
-    _hgPeekTimer?.cancel();
-    HgStore.unlockedNotifier.removeListener(_onUnlockedChanged);
     rootRouteObserver.unsubscribe(this);
     super.dispose();
   }
@@ -160,9 +105,6 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     if (index == _selectedIndex) {
       return;
     }
-    // 换 tab 时把手柄的临时展开状态清掉，免得回来还留着。
-    _hgPeekTimer?.cancel();
-    _hgBarPeek = false;
     final outlet = _outletKey.currentState;
     if (outlet == null) return;
     outlet.navigate('/tab${menu.getPath(index)}/');
@@ -248,14 +190,12 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   }
 
   Widget _bottomMenu(BuildContext context, int selectedIndex) {
-    final tabs = _tabs;
-    // 短剧沉浸：底栏整条收起来，只留底部一根细手柄。
-    final bool immersive = _inHgTab && !_hgBarPeek;
+    const tabs = kKazumiTabs;
     return Scaffold(
       // 底栏是浮起来的：内容从下面滚过去。
       // 页面底部留白统一按 immersiveTabBarInset 算。
       backgroundColor: Colors.transparent,
-      extendBody: !immersive,
+      extendBody: true,
       // 内容容器的底也要跟着拟态走，否则切页时会闪一下 primaryContainer 色带。
       // 背景由壳层统一画（MaterialApp.builder 里的 LuBackdrop）。
       // 这里只管透明出口，不要再叠一层——叠了就是两份全屏渐变。
@@ -277,25 +217,20 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
             child: FadeTransition(opacity: animation, child: child),
           );
         },
-        child: immersive
-            ? _HgBarHandle(
-                key: const ValueKey<String>('hg-handle'),
-                onReveal: () => _toggleHgBar(true),
-              )
-            : Column(
-                key: const ValueKey<String>('nav-bar'),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 下载中给一条细进度条：下载管理在「我的」第二层，原来没有任何
-                  // 常驻指示，正在下什么、下到哪了完全看不见。
-                  _DownloadActivityStrip(onTap: _openDownloads),
-                  KazumiTabBar(
-                    items: tabs,
-                    selectedIndex: selectedIndex.clamp(0, tabs.length - 1),
-                    onSelected: _selectDestination,
-                  ),
-                ],
-              ),
+        child: Column(
+          key: const ValueKey<String>('nav-bar'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 下载中给一条细进度条：下载管理在「我的」第二层，原来没有任何
+            // 常驻指示，正在下什么、下到哪了完全看不见。
+            _DownloadActivityStrip(onTap: _openDownloads),
+            KazumiTabBar(
+              items: tabs,
+              selectedIndex: selectedIndex.clamp(0, tabs.length - 1),
+              onSelected: _selectDestination,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -720,45 +655,3 @@ class _DownloadActivityStrip extends StatelessWidget {
   }
 }
 
-/// 短剧沉浸态底部手柄。
-///
-/// 底栏收起后不能把用户困在短剧里：这里留一根 home indicator 样式的细条，
-/// 点一下或往上滑就把 LU 底栏临时唤回来（3 秒后自动收起）。
-class _HgBarHandle extends StatelessWidget {
-  const _HgBarHandle({super.key, required this.onReveal});
-
-  final VoidCallback onReveal;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool dark = PvColors.isDark(context);
-    // 手柄区域只占底部一小条，不挡短剧内容（网页底部通常还有留白）。
-    return SafeArea(
-      top: false,
-      minimum: const EdgeInsets.only(bottom: 2),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onReveal,
-        onVerticalDragEnd: (DragEndDetails details) {
-          // 往上滑（速度为负）唤出底栏。
-          if ((details.primaryVelocity ?? 0) < 0) onReveal();
-        },
-        child: SizedBox(
-          height: 30,
-          child: Center(
-            child: Container(
-              width: 72,
-              height: 5,
-              decoration: BoxDecoration(
-                color: dark
-                    ? Colors.white.withValues(alpha: 0.55)
-                    : Colors.black.withValues(alpha: 0.28),
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
