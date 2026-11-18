@@ -10,7 +10,7 @@ on:
       - ".github/workflows/ios-native.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -68,6 +68,29 @@ jobs:
           name: LU-native-ipa
           path: ios_native/LU-native-unsigned.ipa
           if-no-files-found: error
+
+      - name: Collect error lines
+        if: failure()
+        working-directory: ios_native
+        run: |
+          mkdir -p ../ci-logs
+          {
+            echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "== error lines =="
+            grep -n "error:" build.log | head -80
+            echo "== tail =="
+            tail -60 build.log
+          } > ../ci-logs/ios-native-errors.txt || true
+          wc -l ../ci-logs/ios-native-errors.txt
+
+      - name: Commit error log to repo
+        if: failure()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ci-logs/ios-native-errors.txt
+          git commit -m "ci: ios-native 构建错误日志（自动提交）" || echo "nothing to commit"
+          git push || true
 
       - name: Upload build log on failure
         if: failure()
