@@ -26,13 +26,29 @@ class SettingsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.only(top: 4, bottom: 24),
-      itemCount: sections.length,
-      itemBuilder: (context, index) => Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: sections[index],
+    // 滚动到顶部/底部时内容不是硬切，而是淡出到背景里（iOS 的分组列表手感）。
+    // 用 ShaderMask 只做一层渐变遮罩，不重建列表，滚动成本几乎为零。
+    return ShaderMask(
+      shaderCallback: (Rect bounds) => const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: <Color>[
+          Color(0x00000000),
+          Color(0xFF000000),
+          Color(0xFF000000),
+          Color(0x00000000),
+        ],
+        stops: <double>[0, 0.022, 0.955, 1],
+      ).createShader(bounds),
+      blendMode: BlendMode.dstIn,
+      child: ListView.builder(
+        padding: const EdgeInsets.only(top: 4, bottom: 24),
+        itemCount: sections.length,
+        itemBuilder: (context, index) => Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: sections[index],
+          ),
         ),
       ),
     );

@@ -70,13 +70,13 @@ class KazumiTabBar extends StatelessWidget {
     // 有渐变才像材质。深色额外垫一层暗底，否则光球透上来会变成彩色玻璃片。
     final Color surfaceTint = dark
         ? const Color(0x800A0C12)
-        : const Color(0xFFFFFFFF).withValues(alpha: 0.92);
+        : const Color(0xFFFFFFFF).withValues(alpha: 0.80);
     final LinearGradient surfaceGradient = LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: dark
           ? const <Color>[Color(0x2BFFFFFF), Color(0x0DFFFFFF)]
-          : const <Color>[Color(0xE8FFFFFF), Color(0xD9FFFFFF)],
+          : const <Color>[Color(0xCFFFFFFF), Color(0xB8FFFFFF)],
     );
     final Color highlight = dark
         ? Colors.white.withValues(alpha: 0.22)

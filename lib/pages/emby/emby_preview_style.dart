@@ -99,9 +99,10 @@ class PvColors {
       isDark(context) ? const Color(0xFF55555C) : const Color(0xFFC4C4C9);
 
   /// 搜索条底 #EFEFF3。
+  /// 搜索框/浅色填充：半透明白，背后的渐变能透上来。
   static Color searchFill(BuildContext context) => isDark(context)
       ? Colors.white.withValues(alpha: 0.08)
-      : const Color(0xFFEFEFF3);
+      : const Color(0x8CFFFFFF);
 
   /// 搜索占位字 #8A8A8E。
   static Color searchHint(BuildContext context) =>

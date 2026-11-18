@@ -63,36 +63,46 @@ class ClayToneColors {
     final bool darkMode = theme.brightness == Brightness.dark;
     final ColorScheme scheme = theme.colorScheme;
     return switch (tone) {
-      ClayTone.accent =>
-        ClayToneColors.fromSeed(scheme.primary, darkMode: darkMode),
-      ClayTone.danger =>
-        ClayToneColors.fromSeed(scheme.error, darkMode: darkMode),
-      ClayTone.success =>
-        ClayToneColors.fromSeed(scheme.tertiary, darkMode: darkMode),
-      ClayTone.info =>
-        ClayToneColors.fromSeed(scheme.secondary, darkMode: darkMode),
-      ClayTone.subtle => darkMode
-          ? const ClayToneColors(
-              light: Color(0xFF1F222A),
-              dark: Color(0xFF14161B),
-              fg: Color(0xFFD6D6DD),
-            )
-          : const ClayToneColors(
-              light: Color(0xFFF7F8FB),
-              dark: Color(0xFFE3E5EC),
-              fg: Color(0xFF3A3B44),
-            ),
-      ClayTone.surface => darkMode
-          ? const ClayToneColors(
-              light: clayLight,
-              dark: clayDark,
-              fg: Color(0xFFEDEDF2),
-            )
-          : const ClayToneColors(
-              light: Color(0xFFFFFFFF),
-              dark: Color(0xFFE9EAF0),
-              fg: Color(0xFF1B1C22),
-            ),
+      ClayTone.accent => ClayToneColors.fromSeed(
+        scheme.primary,
+        darkMode: darkMode,
+      ),
+      ClayTone.danger => ClayToneColors.fromSeed(
+        scheme.error,
+        darkMode: darkMode,
+      ),
+      ClayTone.success => ClayToneColors.fromSeed(
+        scheme.tertiary,
+        darkMode: darkMode,
+      ),
+      ClayTone.info => ClayToneColors.fromSeed(
+        scheme.secondary,
+        darkMode: darkMode,
+      ),
+      ClayTone.subtle =>
+        darkMode
+            ? const ClayToneColors(
+                light: Color(0xFF1F222A),
+                dark: Color(0xFF14161B),
+                fg: Color(0xFFD6D6DD),
+              )
+            : const ClayToneColors(
+                light: Color(0xFFF7F8FB),
+                dark: Color(0xFFE3E5EC),
+                fg: Color(0xFF3A3B44),
+              ),
+      ClayTone.surface =>
+        darkMode
+            ? const ClayToneColors(
+                light: clayLight,
+                dark: clayDark,
+                fg: Color(0xFFEDEDF2),
+              )
+            : const ClayToneColors(
+                light: Color(0xFFFFFFFF),
+                dark: Color(0xFFE9EAF0),
+                fg: Color(0xFF1B1C22),
+              ),
     };
   }
 
@@ -129,9 +139,8 @@ class ClayToneColors {
   }
 
   /// 落地阴影的颜色。浅色下用冷灰，用纯黑会脏。
-  Color get shadow => light.computeLuminance() > 0.5
-      ? const Color(0xFF8A90A0)
-      : Colors.black;
+  Color get shadow =>
+      light.computeLuminance() > 0.5 ? const Color(0xFF8A90A0) : Colors.black;
 
   /// 用这个色调染一块底，保证正文色（`onSurface`）压上去还看得清。
   ///
@@ -556,10 +565,7 @@ class _ClayCompleteButtonState extends State<ClayCompleteButton> {
                   ),
                   if (_burst)
                     Positioned.fill(
-                      child: _ParticleBurst(
-                        color: light,
-                        onDone: _onBurstDone,
-                      ),
+                      child: _ParticleBurst(color: light, onDone: _onBurstDone),
                     ),
                 ],
               ),
@@ -627,10 +633,7 @@ class _ParticleBurstState extends State<_ParticleBurst>
                   child: Align(
                     alignment: Alignment.center,
                     child: Transform.translate(
-                      offset: Offset(
-                        p.dx(eased),
-                        p.dy(eased),
-                      ),
+                      offset: Offset(p.dx(eased), p.dy(eased)),
                       child: Opacity(
                         opacity: (1 - t).clamp(0.0, 1.0),
                         child: Container(
@@ -743,7 +746,11 @@ class ClayFollowToggle extends StatelessWidget {
               curve: KazumiMotion.spring,
               width: 26,
               height: 26,
-              transform: Matrix4.diagonal3Values(value ? 1.06 : 1.0, value ? 1.06 : 1.0, 1),
+              transform: Matrix4.diagonal3Values(
+                value ? 1.06 : 1.0,
+                value ? 1.06 : 1.0,
+                1,
+              ),
               transformAlignment: Alignment.center,
               decoration: BoxDecoration(
                 gradient: value
@@ -766,11 +773,7 @@ class ClayFollowToggle extends StatelessWidget {
               child: AnimatedOpacity(
                 duration: duration,
                 opacity: value ? 1 : 0,
-                child: Icon(
-                  Icons.check_rounded,
-                  size: 16,
-                  color: accent.fg,
-                ),
+                child: Icon(Icons.check_rounded, size: 16, color: accent.fg),
               ),
             ),
             const SizedBox(width: 12),
@@ -1050,14 +1053,13 @@ class _ClaySwitchState extends State<ClaySwitch> {
               gradient: LinearGradient(
                 begin: widget.value ? Alignment.topLeft : Alignment.bottomRight,
                 end: widget.value ? Alignment.bottomRight : Alignment.topLeft,
-                colors: widget.value
-                    ? onGradient
-                    : [off.dark, off.light],
+                colors: widget.value ? onGradient : [off.dark, off.light],
               ),
               borderRadius: BorderRadius.circular(widget.height),
               border: Border.all(
-                color: Colors.white
-                    .withValues(alpha: widget.value ? 0.14 : 0.05),
+                color: Colors.white.withValues(
+                  alpha: widget.value ? 0.14 : 0.05,
+                ),
                 width: 0.5,
               ),
               boxShadow: widget.value
@@ -1073,8 +1075,9 @@ class _ClaySwitchState extends State<ClaySwitch> {
             child: AnimatedAlign(
               duration: duration,
               curve: KazumiMotion.spring,
-              alignment:
-                  widget.value ? Alignment.centerRight : Alignment.centerLeft,
+              alignment: widget.value
+                  ? Alignment.centerRight
+                  : Alignment.centerLeft,
               child: AnimatedScale(
                 scale: active ? 0.84 : 1,
                 duration: duration,
@@ -1109,12 +1112,7 @@ class _ClaySwitchState extends State<ClaySwitch> {
 
 /// 粘土勾选框。选中时整块变成强调色粘土，勾从中间弹出来。
 class ClayCheck extends StatelessWidget {
-  const ClayCheck({
-    super.key,
-    required this.value,
-    this.size = 24,
-    this.onTap,
-  });
+  const ClayCheck({super.key, required this.value, this.size = 24, this.onTap});
 
   final bool value;
   final double size;
@@ -1124,8 +1122,7 @@ class ClayCheck extends StatelessWidget {
   Widget build(BuildContext context) {
     final ClayToneColors on = ClayToneColors.of(context, ClayTone.accent);
     final ClayToneColors off = ClayToneColors.of(context, ClayTone.subtle);
-    final Duration duration =
-        KazumiMotion.scale(context, KazumiMotion.base);
+    final Duration duration = KazumiMotion.scale(context, KazumiMotion.base);
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1163,11 +1160,7 @@ class ClayCheck extends StatelessWidget {
           child: AnimatedOpacity(
             duration: duration,
             opacity: value ? 1 : 0,
-            child: Icon(
-              Icons.check_rounded,
-              size: size * 0.66,
-              color: on.fg,
-            ),
+            child: Icon(Icons.check_rounded, size: size * 0.66, color: on.fg),
           ),
         ),
       ),
@@ -1434,10 +1427,7 @@ class ClayDialog extends StatelessWidget {
             ),
           ),
         ],
-        if (content != null) ...[
-          const SizedBox(height: 18),
-          content!,
-        ],
+        if (content != null) ...[const SizedBox(height: 18), content!],
       ],
     );
 
@@ -1448,36 +1438,49 @@ class ClayDialog extends StatelessWidget {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        // 弹窗底板统一换成磨砂玻璃：背后内容高斯模糊 + 半透明渐变 + 高光边。
-        // 用户要求「能点开的设置项弹窗」都要这种玻璃质感，ClayDialog 是
-        // 全 App 弹窗的公共入口，改这里一处即可覆盖。
-        child: LuGlass.box(
-          context: context,
-          radius: BorderRadius.circular(28),
-          blur: true,
-          sigma: 26,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
-            child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (scrollable)
-                Flexible(child: SingleChildScrollView(child: body))
-              else
-                body,
-              if (actions.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    for (int i = 0; i < actions.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 10),
-                      Expanded(child: actions[i]),
-                    ],
+        // 弹窗展开：0.92 → 1 的轻微放大 + 淡入（240ms）。
+        // iOS 的弹窗不是「啪」地出现，而是有一点点「长出来」的感觉。
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0.92, end: 1),
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          builder: (BuildContext context, double v, Widget? inner) {
+            return Opacity(
+              opacity: ((v - 0.92) / 0.08).clamp(0.0, 1.0),
+              child: Transform.scale(scale: v, child: inner),
+            );
+          },
+          // 弹窗底板统一换成磨砂玻璃：背后内容高斯模糊 + 半透明渐变 + 高光边。
+          // 用户要求「能点开的设置项弹窗」都要这种玻璃质感，ClayDialog 是
+          // 全 App 弹窗的公共入口，改这里一处即可覆盖。
+          child: LuGlass.box(
+            context: context,
+            radius: BorderRadius.circular(28),
+            blur: true,
+            sigma: 26,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (scrollable)
+                    Flexible(child: SingleChildScrollView(child: body))
+                  else
+                    body,
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        for (int i = 0; i < actions.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 10),
+                          Expanded(child: actions[i]),
+                        ],
+                      ],
+                    ),
                   ],
-                ),
-              ],
-            ],
+                ],
+              ),
             ),
           ),
         ),

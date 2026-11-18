@@ -493,34 +493,42 @@ class _EmbySubDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
 
-    return Material(
-      color: dark
-          ? Colors.black.withValues(alpha: 0.46)
-          : Colors.white.withValues(alpha: 0.68),
-      shape: StadiumBorder(
-        side: BorderSide(
+    // 二级导航胶囊：背后先模糊一层再叠半透明白，才是「磨砂玻璃」，
+    // 纯 68% 白在浅色背景上还是会读成一块白板。
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(30),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Material(
           color: dark
-              ? Colors.white.withValues(alpha: 0.10)
-              : Colors.white.withValues(alpha: 0.8),
-          width: 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      elevation: 8,
-      shadowColor: const Color(0x21141E32),
-      child: Padding(
-        padding: const EdgeInsets.all(3),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < _items.length; i++)
-              _SubDockButton(
-                icon: _items[i].$1,
-                label: _items[i].$2,
-                selected: i == index,
-                onTap: () => onChanged(i),
-              ),
-          ],
+              ? Colors.black.withValues(alpha: 0.42)
+              : Colors.white.withValues(alpha: 0.52),
+          shape: StadiumBorder(
+            side: BorderSide(
+              color: dark
+                  ? Colors.white.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.75),
+              width: 1,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          elevation: 6,
+          shadowColor: const Color(0x21141E32),
+          child: Padding(
+            padding: const EdgeInsets.all(3),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < _items.length; i++)
+                  _SubDockButton(
+                    icon: _items[i].$1,
+                    label: _items[i].$2,
+                    selected: i == index,
+                    onTap: () => onChanged(i),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1071,8 +1079,8 @@ class _HomeSearchFab extends StatelessWidget {
         height: 46,
         decoration: BoxDecoration(
           color: dark
-              ? const Color(0xF0202023)
-              : const Color(0xF7FFFFFF),
+              ? const Color(0xD8202023)
+              : const Color(0xD9FFFFFF),
           shape: BoxShape.circle,
           boxShadow: const [
             BoxShadow(

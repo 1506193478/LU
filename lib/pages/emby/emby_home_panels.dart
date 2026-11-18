@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/services/emby/emby_line_probe.dart';
 import 'package:XL/services/emby/emby_service.dart';
@@ -142,7 +143,8 @@ class _PanelShell extends StatelessWidget {
                   ),
                 ],
               ),
-              child: child,
+              // Emby 面板开动态高光：按住面板时柔光跟随手指。
+              child: LuGlassGlow(opacity: 0.30, child: child),
             ),
           ),
         ),

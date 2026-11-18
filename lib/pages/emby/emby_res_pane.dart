@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart'
+    show CupertinoContextMenu, CupertinoContextMenuAction, CupertinoIcons;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
@@ -1122,32 +1124,33 @@ class _EntryGrid extends StatelessWidget {
       required VoidCallback onTap,
       bool withKey = true,
     }) {
+      void openMenu() => onLocalMenu(
+            prefKey,
+            localCard(
+              prefKey: prefKey,
+              title: title,
+              footLeft: footLeft,
+              footRight: footRight,
+              glyph: glyph,
+              tone: tone,
+              onTap: onTap,
+              withKey: false,
+            ),
+          );
+
       final Widget card = grid
           ? _LibCard(
               title: title,
-        footLeft: footLeft,
-        footRight: footRight,
-        glyph: glyph,
-        tone: tone,
-        dark: dark,
-        customIcon: resIconByName(ResCardPrefs.instance.icon(prefKey)),
-        customIconPath: resCustomImagePath(
-          ResCardPrefs.instance.icon(prefKey),
-        ),
-              onTap: onTap,
-              onLongPress: () => onLocalMenu(
-                prefKey,
-                localCard(
-                  prefKey: prefKey,
-                  title: title,
-                  footLeft: footLeft,
-                  footRight: footRight,
-                  glyph: glyph,
-                  tone: tone,
-                  onTap: onTap,
-                  withKey: false,
-                ),
+              footLeft: footLeft,
+              footRight: footRight,
+              glyph: glyph,
+              tone: tone,
+              dark: dark,
+              customIcon: resIconByName(ResCardPrefs.instance.icon(prefKey)),
+              customIconPath: resCustomImagePath(
+                ResCardPrefs.instance.icon(prefKey),
               ),
+              onTap: onTap,
             )
           : _LibRow(
               title: title,
@@ -1157,25 +1160,19 @@ class _EntryGrid extends StatelessWidget {
               tone: tone,
               dark: dark,
               onTap: onTap,
-              onLongPress: () => onLocalMenu(
-                prefKey,
-                localCard(
-                  prefKey: prefKey,
-                  title: title,
-                  footLeft: footLeft,
-                  footRight: footRight,
-                  glyph: glyph,
-                  tone: tone,
-                  onTap: onTap,
-                  withKey: false,
-                ),
-              ),
             );
+
+      // 预览渲染（withKey=false）不再包一层菜单，避免套娃。
       if (!withKey) return card;
-      return KeyedSubtree(key: cardKeyFor(prefKey), child: card);
+      return KeyedSubtree(
+        key: cardKeyFor(prefKey),
+        child: _withContextMenu(context, card, openMenu),
+      );
     }
 
     Widget serverCard(_ServerEntry s, {bool withKey = true}) {
+      void openMenu() => onServerMenu(s, serverCard(s, withKey: false));
+
       final Widget card = grid
           ? _LibCard(
               title: s.title,
@@ -1191,7 +1188,6 @@ class _EntryGrid extends StatelessWidget {
               onlineDot: s.online,
               stats: showStats ? s.stats : null,
               onTap: () => onServer(s),
-              onLongPress: () => onServerMenu(s, serverCard(s, withKey: false)),
             )
           : _LibRow(
               title: s.title,
@@ -1203,10 +1199,12 @@ class _EntryGrid extends StatelessWidget {
               onlineDot: s.online,
               stats: showStats ? s.stats : null,
               onTap: () => onServer(s),
-              onLongPress: () => onServerMenu(s, serverCard(s, withKey: false)),
             );
       if (!withKey) return card;
-      return KeyedSubtree(key: cardKeyFor(s.prefKey), child: card);
+      return KeyedSubtree(
+        key: cardKeyFor(s.prefKey),
+        child: _withContextMenu(context, card, openMenu),
+      );
     }
 
     // 隐藏的本地卡不进网格（顶栏锁按钮负责显示回来）。
@@ -2332,4 +2330,31 @@ class _LibRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 长按预览：Apple 官方 CupertinoContextMenu。
+///
+/// 长按卡片 → 卡片放大浮起 + 背后整片模糊（系统自带）→ 松手弹「更多操作」。
+/// 点它再调用原本的自定义菜单（改图标 / 隐藏 / 加密 / 删除等都在里面），
+/// 这样既有 iOS 原生长按手感，也没丢掉任何一项功能。
+Widget _withContextMenu(
+  BuildContext context,
+  Widget card,
+  VoidCallback openMenu,
+) {
+  return CupertinoContextMenu(
+    actions: <Widget>[
+      CupertinoContextMenuAction(
+        trailingIcon: CupertinoIcons.ellipsis_circle,
+        onPressed: () {
+          Navigator.of(context).pop();
+          KazumiHaptics.heavy();
+          // 等官方菜单收起动画走完再弹自定义菜单，避免两层叠加。
+          Future<void>.delayed(const Duration(milliseconds: 220), openMenu);
+        },
+        child: const Text('更多操作'),
+      ),
+    ],
+    child: card,
+  );
 }

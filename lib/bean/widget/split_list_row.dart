@@ -81,8 +81,11 @@ class _SplitListRowState extends State<SplitListRow> {
           : KazumiMotion.fast,
       curve: splitListMotionCurve,
       clipBehavior: Clip.antiAlias,
-      // 按下只做 1px 下沉 + 底色压深，不再翻渐变、不再有粘土的高光边。
-      transform: Matrix4.translationValues(0, _pressed ? 1 : 0, 0),
+      // 按下：1px 下沉 + 极轻微收缩（0.992）+ 底色压深。
+      // 收缩量刻意很小——设置行是长条，缩多了会像「整行在跳」。
+      transform: Matrix4.identity()
+        ..translate(0.0, _pressed ? 1.0 : 0.0)
+        ..scale(_pressed ? 0.992 : 1.0),
       transformAlignment: Alignment.center,
       decoration: BoxDecoration(
         color: _pressed
@@ -137,6 +140,8 @@ class SplitListGroup extends StatelessWidget {
     return LuGlass.box(
       context: context,
       radius: BorderRadius.circular(outerRadius),
+      // 设置页开动态高光：按住分组卡时有一团柔光跟随手指。
+      interactive: true,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(outerRadius),
         child: Column(

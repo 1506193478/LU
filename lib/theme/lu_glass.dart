@@ -191,6 +191,7 @@ abstract final class LuGlass {
     BorderRadius? radius,
     bool blur = false,
     double sigma = 24,
+    bool interactive = false,
   }) {
     final LuGlassSpec s = spec(context, tone);
     final BorderRadius r = radius ?? BorderRadius.circular(12);
@@ -258,7 +259,7 @@ abstract final class LuGlass {
           : inner,
     );
 
-    return DecoratedBox(
+    final Widget card = DecoratedBox(
       decoration: BoxDecoration(borderRadius: r, boxShadow: s.shadows),
       child: DecoratedBox(
         // 顶部高光：只画上面 1px，不是整圈描边。整圈会变成「贴图上的框」。
@@ -270,7 +271,104 @@ abstract final class LuGlass {
         child: clipped,
       ),
     );
+    if (!interactive) return card;
+    // 动态高光：按住时有一团柔光跟着手指走（只在 Emby / 设置页开）。
+    return ClipRRect(
+      borderRadius: r,
+      child: LuGlassGlow(opacity: isDarkMode ? 0.20 : 0.38, child: card),
+    );
   }
+}
+
+/// 跟随手指的玻璃柔光。
+///
+/// 只在指针按下期间绘制，抬手 260ms 淡出；每次移动只重绘这一张卡
+/// （外面已经 ClipRRect，成本局限在本卡片内）。全局大面积开会影响帧率，
+/// 所以 [LuGlass.box] 里默认关闭，由调用点显式打开。
+class LuGlassGlow extends StatefulWidget {
+  const LuGlassGlow({
+    super.key,
+    required this.child,
+    this.opacity = 0.32,
+    this.radius = 110,
+  });
+
+  final Widget child;
+  final double opacity;
+  final double radius;
+
+  @override
+  State<LuGlassGlow> createState() => _LuGlassGlowState();
+}
+
+class _LuGlassGlowState extends State<LuGlassGlow> {
+  Offset? _pointer;
+
+  void _update(PointerEvent e) {
+    final Offset p = e.localPosition;
+    if (_pointer != null && (_pointer! - p).distanceSquared < 4) return;
+    setState(() => _pointer = p);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _update,
+      onPointerMove: _update,
+      onPointerUp: (_) => setState(() => _pointer = null),
+      onPointerCancel: (_) => setState(() => _pointer = null),
+      child: Stack(
+        children: <Widget>[
+          widget.child,
+          if (_pointer != null)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: _GlowPainter(
+                    center: _pointer!,
+                    radius: widget.radius,
+                    opacity: widget.opacity,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlowPainter extends CustomPainter {
+  const _GlowPainter({
+    required this.center,
+    required this.radius,
+    required this.opacity,
+  });
+
+  final Offset center;
+  final double radius;
+  final double opacity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Rect rect = Rect.fromCircle(center: center, radius: radius);
+    final Paint paint = Paint()
+      ..shader = RadialGradient(
+        colors: <Color>[
+          Colors.white.withValues(alpha: opacity),
+          Colors.white.withValues(alpha: 0),
+        ],
+        stops: const <double>[0, 1],
+      ).createShader(rect);
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(_GlowPainter old) =>
+      old.center != center ||
+      old.radius != radius ||
+      old.opacity != opacity;
 }
 
 /// 页面背景。
