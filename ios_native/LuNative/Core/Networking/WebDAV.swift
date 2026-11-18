@@ -1,5 +1,4 @@
 import Foundation
-import FoundationXML
 
 // MARK: - 条目
 
@@ -122,26 +121,24 @@ final class WebDAVClient {
     """
 
     private func parse(_ data: Data, currentPath: String) -> [WebDAVEntry] {
-        guard let document = try? XMLDocument(data: data, options: [.documentTidyXML]) else {
-            return []
-        }
-        let responses = (try? document.nodes(forXPath: "//*[local-name()='response']")) ?? []
+        guard let document = LuXMLDocument(data: data, isHTML: false) else { return [] }
+        let responses = document.nodes("//*[local-name()='response']")
         var entries: [WebDAVEntry] = []
         let normalizedCurrent = currentPath.hasSuffix("/") ? currentPath : currentPath + "/"
 
         for response in responses {
-            func child(_ name: String) -> XMLNode? {
-                (try? response.nodes(forXPath: "./*[local-name()='\(name)']"))?.first
+            func child(_ name: String) -> LuXMLDocument.Node? {
+                response.nodes("./*[local-name()='\(name)']").first
             }
-            let hrefRaw = child("href")?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let hrefRaw = child("href")?.stringValue ?? ""
             guard !hrefRaw.isEmpty else { continue }
             let decoded = hrefRaw.removingPercentEncoding ?? hrefRaw
 
             // 目录自身也会被返回，跳过
             if decoded == currentPath || decoded == normalizedCurrent { continue }
 
-            let isDirectory = ((try? response.nodes(forXPath: ".//*[local-name()='collection']")) ?? []).isEmpty == false
-            var name = child("displayname")?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let isDirectory = response.nodes(".//*[local-name()='collection']").isEmpty == false
+            var name = child("displayname")?.stringValue ?? ""
             if name.isEmpty {
                 name = (decoded as NSString).lastPathComponent
             }

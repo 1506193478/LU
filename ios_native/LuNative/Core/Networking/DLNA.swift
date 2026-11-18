@@ -1,5 +1,4 @@
 import Foundation
-import FoundationXML
 import Darwin
 
 // MARK: - 设备模型
@@ -116,11 +115,11 @@ final class DLNADiscovery {
     }
 
     private static func parseDescription(_ data: Data, location: URL) -> DLNADevice? {
-        guard let document = try? XMLDocument(data: data, options: [.documentTidyXML]) else { return nil }
+        // 设备描述是 XML，用 libxml2 封装（见 LuXML.swift）；XML 严格解析即可
+        guard let document = LuXMLDocument(data: data, isHTML: false) else { return nil }
 
         func text(_ xpath: String) -> String? {
-            guard let node = (try? document.nodes(forXPath: xpath))?.first else { return nil }
-            return node.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            document.nodes(xpath).first?.stringValue
         }
 
         let name = text("//*[local-name()='device']/*[local-name()='friendlyName']")
@@ -129,13 +128,11 @@ final class DLNADiscovery {
         let model = text("//*[local-name()='device']/*[local-name()='modelName']") ?? ""
 
         var control: URL?
-        let services = (try? document.nodes(forXPath: "//*[local-name()='service']")) ?? []
+        let services = document.nodes("//*[local-name()='service']")
         for service in services {
-            let type = (try? service.nodes(forXPath: "./*[local-name()='serviceType']"))?.first?
-                .stringValue ?? ""
+            let type = service.nodes("./*[local-name()='serviceType']").first?.stringValue ?? ""
             guard type.contains("AVTransport") else { continue }
-            let raw = (try? service.nodes(forXPath: "./*[local-name()='controlURL']"))?.first?
-                .stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let raw = service.nodes("./*[local-name()='controlURL']").first?.stringValue ?? ""
             guard !raw.isEmpty else { continue }
             control = URL(string: raw, relativeTo: location)?.absoluteURL
             break

@@ -1,5 +1,4 @@
 import Foundation
-import FoundationXML
 import Combine
 
 /// 采集源插件清单。字段对齐 Kazumi 的 XPath 插件格式（`api`/`type` 之外的
@@ -102,37 +101,14 @@ struct PluginChapter: Identifiable, Hashable {
 
 // MARK: - XPath + HTML 解析
 
-/// 基于 Foundation `XMLDocument` 的 HTML 解析器（libxml2 tidy 模式）。
-/// 容错优先：HTML 不合法时尽力修补，解析失败返回空而不是抛错。
+/// HTML 解析器薄壳。实际实现走系统 libxml2（见 `Core/Support/LuXML.swift`）：
+/// Xcode 26 的显式模块构建不再把 `XMLDocument` 随 Foundation 暴露，
+/// `FoundationXML` 又是 Linux 独有模块，所以直接用 C API。
+/// 容错优先：HTML 不合法时 libxml2 的 recover 模式会尽力修补。
 enum LuHTML {
 
-    static func document(from data: Data) -> XMLDocument? {
-        // `.documentTidyHTML` 走 libxml2 的 HTML 修复器，脏 HTML 也能建树
-        if let doc = try? XMLDocument(data: data, options: [.documentTidyHTML]) {
-            return doc
-        }
-        if let text = String(data: data, encoding: .utf8),
-           let doc = try? XMLDocument(xmlString: text, options: [.documentTidyHTML]) {
-            return doc
-        }
-        return nil
-    }
-
-    static func nodes(_ node: XMLNode, xpath: String) -> [XMLNode] {
-        (try? node.nodes(forXPath: xpath)) ?? []
-    }
-
-    static func string(_ node: XMLNode, xpath: String?) -> String? {
-        guard let xpath, !xpath.isEmpty else {
-            return node.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        guard let found = nodes(node, xpath: xpath).first else { return nil }
-        return found.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    static func href(_ node: XMLNode, xpath: String) -> String? {
-        guard let found = nodes(node, xpath: xpath).first else { return nil }
-        return found.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func document(from data: Data) -> LuXMLDocument? {
+        LuXMLDocument(data: data)
     }
 }
 
@@ -191,16 +167,16 @@ final class PluginEngine {
         let data = try await HttpClient.shared.send(request(for: plugin, url: url))
         guard let doc = LuHTML.document(from: data) else { throw PluginError.noResult }
 
-        var source = LuHTML.nodes(doc, xpath: plugin.searchList)
-        if source.isEmpty, let root = doc.rootElement {
+        var source = doc.nodes(plugin.searchList)
+        if source.isEmpty, let root = doc.root {
             source = [root]
         }
 
         var items: [PluginSearchItem] = []
         for node in source {
-            let name = LuHTML.string(node, xpath: plugin.searchName) ?? ""
+            let name = node.string(plugin.searchName) ?? ""
             guard !name.isEmpty else { continue }
-            let href = LuHTML.href(node, xpath: plugin.searchResult) ?? ""
+            let href = node.string(plugin.searchResult) ?? ""
             guard let itemURL = absolute(href, base: url) else { continue }
             items.append(PluginSearchItem(name: name, url: itemURL, pluginID: plugin.id))
         }
@@ -238,19 +214,19 @@ final class PluginEngine {
         let data = try await HttpClient.shared.send(.get(url, headers: headers(for: plugin)))
         guard let doc = LuHTML.document(from: data) else { throw PluginError.noResult }
 
-        var roads = LuHTML.nodes(doc, xpath: plugin.chapterRoads)
-        if roads.isEmpty, let root = doc.rootElement {
+        var roads = doc.nodes(plugin.chapterRoads)
+        if roads.isEmpty, let root = doc.root {
             roads = [root]
         }
 
         var result: [[PluginChapter]] = []
         for road in roads {
-            let chapterNodes = LuHTML.nodes(road, xpath: plugin.chapterResult)
+            let chapterNodes = road.nodes(plugin.chapterResult)
             var chapters: [PluginChapter] = []
             for (index, node) in chapterNodes.enumerated() {
-                let title = node.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "第 \(index + 1) 话"
+                let title = node.stringValue ?? "第 \(index + 1) 话"
                 let href: String
-                if let value = node.attribute(forName: "href")?.stringValue {
+                if let value = node.attribute("href") {
                     href = value
                 } else {
                     href = node.stringValue ?? ""
