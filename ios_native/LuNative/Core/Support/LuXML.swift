@@ -20,11 +20,13 @@ private func luXMLCharPointer(_ raw: UnsafePointer<xmlChar>) -> UnsafePointer<CC
 final class LuXMLDocument {
 
     final class Node {
-        let document: LuXMLDocument
+        // 弱引用宿主：避免 init 期间「self 未初始化完就被引用」
+        fileprivate weak var owner: LuXMLDocument?
+        private let doc: UnsafeMutablePointer<xmlDoc>
         let pointer: UnsafeMutablePointer<xmlNode>
 
-        init(document: LuXMLDocument, pointer: UnsafeMutablePointer<xmlNode>) {
-            self.document = document
+        init(doc: UnsafeMutablePointer<xmlDoc>, pointer: UnsafeMutablePointer<xmlNode>) {
+            self.doc = doc
             self.pointer = pointer
         }
 
@@ -37,7 +39,8 @@ final class LuXMLDocument {
 
         /// 相对当前节点的 XPath（支持 `./*[local-name()='xxx']` 这类写法）。
         func nodes(_ expression: String) -> [Node] {
-            document.evaluate(expression, contextNode: pointer)
+            guard let owner else { return [] }
+            return owner.evaluate(expression, contextNode: pointer)
         }
 
         func string(_ expression: String) -> String? {
@@ -111,10 +114,12 @@ final class LuXMLDocument {
         guard let doc else { return nil }
         self.doc = doc
         if let rootElement = xmlDocGetRootElement(doc) {
-            root = Node(document: self, pointer: rootElement)
+            root = Node(doc: doc, pointer: rootElement)
         } else {
             root = nil
         }
+        // 存储属性都初始化完之后，才能把 self 交给节点
+        root?.owner = self
     }
 
     deinit {
@@ -153,7 +158,8 @@ final class LuXMLDocument {
         var result: [Node] = []
         for index in 0..<Int(nodeSet.pointee.nodeNr) {
             if let node = table[index] {
-                result.append(Node(document: self, pointer: node))
+                result.append(Node(doc: doc, pointer: node))
+                result[result.count - 1].owner = self
             }
         }
         return result
