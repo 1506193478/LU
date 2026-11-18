@@ -75,6 +75,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
+          {
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/Build/Products/Release-iphoneos/LU.app/Info.plist)
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/Build/Products/Release-iphoneos/LU.app/Info.plist)
           {
@@ -90,9 +92,15 @@ jobs:
             echo "2. Xcode：clone 仓库后 cd ios_native && xcodegen generate，用自己的证书打包"
             echo "3. TrollStore（如系统版本支持）：直接安装"
           } > release-notes.md
-          gh release create ios-native-latest --title "LU iOS 原生端（无签名）" --notes-file release-notes.md --clobber || true
+          set -x
+          if gh release view ios-native-latest > /dev/null 2>&1; then
+            echo "release 已存在，直接上传资产"
+          else
+            gh release create ios-native-latest --title "LU iOS 原生端（无签名）" --notes-file release-notes.md
+          fi
           gh release upload ios-native-latest LU-native-unsigned.ipa --clobber
           echo "release done"
+          } 2>&1 | tee publish.log
 
       - name: Collect error lines
         if: failure()
