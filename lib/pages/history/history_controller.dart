@@ -65,6 +65,12 @@ abstract class _HistoryController with Store {
     init();
   }
 
+  /// 撤销删除（B25）：整条记录原样写回并刷新列表。
+  Future<void> restoreHistory(History history) async {
+    await _historyRepository.upsertHistory(history);
+    init();
+  }
+
   Future<void> clearAll() async {
     await _historyRepository.clearAllHistories();
     histories.clear();

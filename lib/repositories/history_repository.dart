@@ -54,6 +54,9 @@ abstract class IHistoryRepository {
     Duration duration = Duration.zero,
   });
 
+  /// 撤销删除：把整条记录原样写回（B25）。
+  Future<void> upsertHistory(History history);
+
   /// 获取上次观看的进度
   ///
   /// [bangumiItem] 番剧信息
@@ -358,6 +361,33 @@ class HistoryRepository implements IHistoryRepository {
       }
     });
   }
+
+  @override
+  Future<void> upsertHistory(History history) async {
+    await _storageCoordinator.run(() async {
+      try {
+        await _historiesBox.put(history.key, history);
+        // 恢复记录即同步一条 upsert：拿最后一集的进度。
+        final lastEpisode =
+            history.progresses.keys.isEmpty ? 0 : history.lastWatchEpisode;
+        final Progress? lastProgress = history.progresses[lastEpisode];
+        if (lastProgress != null) {
+          await _progressSyncAppender(
+            history: history,
+            episode: lastEpisode,
+            road: lastProgress.road,
+            progressMs: lastProgress.progress.inMilliseconds,
+            updatedAt: history.lastWatchTime.millisecondsSinceEpoch,
+          );
+        }
+      } catch (e, stackTrace) {
+        KazumiLogger().e('GStorage: upsert history failed',
+            error: e, stackTrace: stackTrace);
+      }
+    });
+  }
+
+
 
   @override
   Future<void> clearAllHistories() async {

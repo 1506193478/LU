@@ -108,7 +108,7 @@ class _MyPageState extends State<MyPage> {
             ),
             // 时间段问候（巧思 #19）：按当前时间换文案与暖/冷色调，
             // 顺带把「已看 N 集」用数字滚动带出来。
-            const _TimeGreeting(),
+            _TimeGreeting(watched: widget.controller.watchStats.watchedEpisodeCount),
             Expanded(
               child: Observer(
                 builder: (context) => MySpaceView(
@@ -129,7 +129,9 @@ class _MyPageState extends State<MyPage> {
 /// 深夜/傍晚给暖色光、白天给清透蓝，随系统时间换文案；
 /// 「已看 N 集」从 0 滚到实际值（进页只放一次，不重复闪）。
 class _TimeGreeting extends StatelessWidget {
-  const _TimeGreeting();
+  const _TimeGreeting({required this.watched});
+
+  final int watched;
 
   @override
   Widget build(BuildContext context) {
@@ -140,7 +142,6 @@ class _TimeGreeting extends StatelessWidget {
       >= 17 && < 22 => ('傍晚好，继续追番时间', Icons.nights_stay_rounded, const Color(0xFFD9BFFF)),
       _ => ('夜深了，别熬太晚', Icons.dark_mode_rounded, const Color(0xFFB9A8E8)),
     };
-    final watched = context.read<MyController>().watchStats.watchedEpisodeCount;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
       child: Row(

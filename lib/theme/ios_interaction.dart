@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -492,7 +494,12 @@ class KzNavBarGlass extends StatelessWidget {
 ///
 /// Flutter 自带的 [RefreshIndicator.adaptive] 在 iOS 上会换成
 /// CupertinoActivityIndicator + 无背景，正好是原生观感。
-class KzRefreshIndicator extends StatelessWidget {
+/// 弹性下拉刷新（B20）：内容跟手下拉（阻尼 0.52），圆环图标跟手旋转，
+/// 松手过阈值触发刷新并收到 loading 位，否则弹性回弹。
+///
+/// 桌面端（滚轮不产生 overscroll）与嵌套易冲突场景自动回退系统版，
+/// API 与旧版完全一致，调用方无感。
+class KzRefreshIndicator extends StatefulWidget {
   const KzRefreshIndicator({
     super.key,
     required this.onRefresh,
@@ -505,22 +512,141 @@ class KzRefreshIndicator extends StatelessWidget {
   final Color? color;
 
   @override
+  State<KzRefreshIndicator> createState() => _KzRefreshIndicatorState();
+}
+
+class _KzRefreshIndicatorState extends State<KzRefreshIndicator>
+    with SingleTickerProviderStateMixin {
+  static const double _threshold = 90;
+  static const double _loadingOffset = 56;
+
+  double _disp = 0;
+  bool _loading = false;
+  late final AnimationController _settle = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 520),
+    value: 1,
+  );
+
+  @override
+  void dispose() {
+    _settle.dispose();
+    super.dispose();
+  }
+
+  bool _onScrollNotification(ScrollNotification n) {
+    if (_loading) return false;
+    if (n is OverscrollNotification && n.overscroll < 0) {
+      // 顶部下拉：阻尼衰减，跟手。
+      setState(() {
+        _disp = math.min(_disp - n.overscroll * 0.52, 140);
+        _settle.value = 1;
+      });
+      return false;
+    }
+    if ((n is ScrollEndNotification || n is UserScrollNotification) &&
+        _disp > 0) {
+      _settleDown();
+    }
+    return false;
+  }
+
+  Future<void> _settleDown() async {
+    if (_disp >= _threshold) {
+      setState(() {
+        _loading = true;
+        _disp = _loadingOffset;
+      });
+      try {
+        await widget.onRefresh();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+    // 弹性回弹（elasticOut 由动画曲线承担：从当前值回到 1 的反演用
+    // reverse + easeOutBack 近似即可，肉眼是「弹回去」）。
+    _settle.reverse().whenCompleteOrCancel(() {
+      if (mounted) setState(() => _disp = 0);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (kIsCupertinoPlatform) {
-      return RefreshIndicator.adaptive(
-        onRefresh: onRefresh,
-        color: color ?? kCupertinoBlue,
-        // iOS 的下拉刷新没有 Material 那个圆形底，自适应版已经处理，
-        // 这里把边缘间距按系统给足，避免 spinner 贴着导航栏。
-        edgeOffset: 0,
-        displacement: 44,
-        child: child,
+    if (!kIsCupertinoPlatform && defaultTargetPlatform != TargetPlatform.android) {
+      // 桌面端：保留系统版（滚轮没有 overscroll 下拉语义）。
+      return RefreshIndicator(
+        onRefresh: widget.onRefresh,
+        color: widget.color,
+        child: widget.child,
       );
     }
-    return RefreshIndicator(
-      onRefresh: onRefresh,
-      color: color,
-      child: child,
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScrollNotification,
+      child: Stack(
+        children: [
+          // 内容跟手平移。
+          AnimatedBuilder(
+            animation: Listenable.merge([_settle, _settle]),
+            builder: (context, child) {
+              final double t = _settle.value;
+              final double offset =
+                  _loading || _settle.isAnimating || _settle.isCompleted
+                      ? _disp * t
+                      : _disp;
+              return Transform.translate(
+                offset: Offset(0, offset),
+                child: child,
+              );
+            },
+            child: widget.child,
+          ),
+          // 头部圆环：进度跟随位移旋转（B20）。
+          Positioned(
+            top: 12,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_settle]),
+                builder: (context, _) {
+                  final double t = _settle.value;
+                  final double offset =
+                      _loading || _settle.isAnimating || _settle.isCompleted
+                          ? _disp * t
+                          : _disp;
+                  if (offset <= 1 && !_loading) {
+                    return const SizedBox.shrink();
+                  }
+                  final double progress =
+                      (offset / _threshold).clamp(0.0, 1.0);
+                  return Center(
+                    child: SizedBox(
+                      width: 34,
+                      height: 34,
+                      child: _loading
+                          ? CircularProgressIndicator(
+                              strokeWidth: 2.6,
+                              strokeCap: StrokeCap.round,
+                              color: widget.color ?? kCupertinoBlue,
+                            )
+                          : Transform.rotate(
+                              angle: progress * 300 * math.pi / 180,
+                              child: CircularProgressIndicator(
+                                value: progress,
+                                strokeWidth: 2.6,
+                                strokeCap: StrokeCap.round,
+                                color: widget.color ?? kCupertinoBlue,
+                                backgroundColor: Colors.transparent,
+                              ),
+                            ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

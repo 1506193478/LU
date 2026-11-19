@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:XL/utils/motion.dart';
 import 'package:XL/bean/appbar/sys_app_bar.dart';
 import 'package:XL/bean/dialog/dialog_helper.dart';
 import 'package:XL/bean/widget/clay.dart';
@@ -35,11 +38,49 @@ class _HistoryPageState extends State<HistoryPage> {
     widget.controller.init();
   }
 
+  /// 撤销条倒计时（B25）。
+  Timer? _undoTimer;
+  int _undoSeconds = 0;
+  History? _pendingUndo;
+
+  @override
+  void dispose() {
+    _undoTimer?.cancel();
+    super.dispose();
+  }
+
+  void _showUndoBar(History history) {
+    _pendingUndo = history;
+    _undoSeconds = 5;
+    _undoTimer?.cancel();
+    _undoTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() => _undoSeconds--);
+      if (_undoSeconds <= 0) {
+        timer.cancel();
+        setState(() => _pendingUndo = null);
+      }
+    });
+  }
+
+  Future<void> _undoDelete() async {
+    final history = _pendingUndo;
+    if (history == null) return;
+    _undoTimer?.cancel();
+    setState(() => _pendingUndo = null);
+    KazumiHaptics.success();
+    await widget.controller.restoreHistory(history);
+  }
+
   Future<void> _deleteHistory(History history) async {
     if (_clearing || _deleting.contains(history.key)) return;
     setState(() => _deleting.add(history.key));
     try {
       await widget.controller.deleteHistory(history);
+      if (mounted) _showUndoBar(history);
       if (mounted && widget.controller.histories.isEmpty) {
         setState(() => _editing = false);
       }
@@ -140,16 +181,86 @@ class _HistoryPageState extends State<HistoryPage> {
           body: SafeArea(
             top: false,
             bottom: false,
-            child: HistoryListView(
-              entries: entries,
-              editing: _editing,
-              itemBuilder: (history, borderRadius) => _HistoryCard(
-                history: history,
-                borderRadius: borderRadius,
-                editing: _editing,
-                busy: _clearing || _deleting.contains(history.key),
-                onDelete: () => _deleteHistory(history),
-              ),
+            child: Stack(
+              children: [
+                HistoryListView(
+                  entries: entries,
+                  editing: _editing,
+                  itemBuilder: (history, borderRadius) => _HistoryCard(
+                    history: history,
+                    borderRadius: borderRadius,
+                    editing: _editing,
+                    busy: _clearing || _deleting.contains(history.key),
+                    onDelete: () => _deleteHistory(history),
+                  ),
+                ),
+                // 撤销条（B25）：删除后从底部弹入，5 秒倒计时自动消失。
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  transitionBuilder: (child, animation) =>
+                      SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, 1.2),
+                          end: Offset.zero,
+                        ).animate(CurvedAnimation(
+                            parent: animation, curve: Curves.easeOutCubic)),
+                        child: FadeTransition(
+                            opacity: animation, child: child),
+                      ),
+                  child: _pendingUndo == null
+                      ? const SizedBox(width: double.infinity, height: 0)
+                      : Container(
+                          key: const ValueKey('undo-bar'),
+                          margin: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .inverseSurface
+                                .withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(14),
+                            boxShadow: const [
+                              BoxShadow(
+                                  color: Color(0x40000000),
+                                  blurRadius: 18,
+                                  offset: Offset(0, 6)),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '已删除 1 条观看记录',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onInverseSurface,
+                                      ),
+                                ),
+                              ),
+                              Text('$_undoSeconds s',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onInverseSurface
+                                            .withValues(alpha: 0.6),
+                                      )),
+                              TextButton(
+                                onPressed: _undoDelete,
+                                child: const Text('撤销'),
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ],
             ),
           ),
         ),
