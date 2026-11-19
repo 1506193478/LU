@@ -1,3 +1,5 @@
+import 'dart:ui' show FontFeature;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
@@ -104,6 +106,9 @@ class _MyPageState extends State<MyPage> {
               ],
               topPadding: 10,
             ),
+            // 时间段问候（巧思 #19）：按当前时间换文案与暖/冷色调，
+            // 顺带把「已看 N 集」用数字滚动带出来。
+            const _TimeGreeting(),
             Expanded(
               child: Observer(
                 builder: (context) => MySpaceView(
@@ -114,6 +119,62 @@ class _MyPageState extends State<MyPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 时间段问候 + 已看集数滚动（巧思 #19 / #03）。
+///
+/// 深夜/傍晚给暖色光、白天给清透蓝，随系统时间换文案；
+/// 「已看 N 集」从 0 滚到实际值（进页只放一次，不重复闪）。
+class _TimeGreeting extends StatelessWidget {
+  const _TimeGreeting();
+
+  @override
+  Widget build(BuildContext context) {
+    final int hour = DateTime.now().hour;
+    final (String text, IconData icon, Color tint) = switch (hour) {
+      >= 5 && < 10 => ('早上好，从追番开始新的一天', Icons.wb_twilight_rounded, const Color(0xFFFFD9A8)),
+      >= 10 && < 17 => ('午后好，来一集轻松的', Icons.wb_sunny_rounded, const Color(0xFFBFE0FF)),
+      >= 17 && < 22 => ('傍晚好，继续追番时间', Icons.nights_stay_rounded, const Color(0xFFD9BFFF)),
+      _ => ('夜深了，别熬太晚', Icons.dark_mode_rounded, const Color(0xFFB9A8E8)),
+    };
+    final watched = context.read<MyController>().watchStats.watchedEpisodeCount;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 15, color: tint),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: PvColors.ink2(context),
+              ),
+            ),
+          ),
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: watched.toDouble()),
+            duration: const Duration(milliseconds: 1200),
+            curve: Curves.easeOutCubic,
+            builder: (context, v, _) {
+              return Text(
+                '已看 ${v.round()} 集',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: PvColors.ink3(context),
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

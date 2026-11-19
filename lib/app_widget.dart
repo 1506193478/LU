@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
+import 'package:XL/pages/settings/edge_back_gesture.dart';
+
 import 'package:XL/theme/lu_glass.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_modular/flutter_modular.dart';
@@ -332,7 +334,10 @@ class _AppWidgetState extends State<AppWidget>
               child: LuBackdrop(
                 child: Material(
                   type: MaterialType.transparency,
-                  child: child ?? const SizedBox.shrink(),
+                  // 全局边缘返回手势（设置 → 界面里可选方向/关闭）。
+                  child: EdgeBackGestureArea(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
                 ),
               ),
             ),

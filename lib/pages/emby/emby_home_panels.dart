@@ -27,8 +27,6 @@ const double _panelWidth = 322;
 Future<void> showEmbyCapsulePanel(
   BuildContext context, {
   required EmbyServer server,
-  required VoidCallback onOpenDiscover,
-  required VoidCallback onOpenSearch,
   required VoidCallback onOpenMediaLibrary,
   required VoidCallback onOpenSettings,
   required VoidCallback onOpenManage,
@@ -38,8 +36,6 @@ Future<void> showEmbyCapsulePanel(
     builder: (close) => _CapsulePanel(
       server: server,
       onClose: close,
-      onOpenDiscover: onOpenDiscover,
-      onOpenSearch: onOpenSearch,
       onOpenMediaLibrary: onOpenMediaLibrary,
       onOpenSettings: onOpenSettings,
       onOpenManage: onOpenManage,
@@ -121,27 +117,56 @@ class _PanelShell extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(22),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
+            filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
             child: Container(
               decoration: BoxDecoration(
-                // 磨砂玻璃：留 12~14% 透明让背后的海报/渐变透上来
-                // （原来是 97% 不透明，看起来就是一块白板）。
-                color: dark
-                    ? const Color(0xE01B1B1F)
-                    : const Color(0xE8F7F5F1),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(
-                  color: dark
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.white.withValues(alpha: 0.7),
+                // 液态玻璃面板底：三段白渐变（上亮下微亮），
+                // 比之前更透，让背后的海报/渐变透上来。
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: dark
+                      ? <Color>[
+                          Colors.white.withValues(alpha: 0.15),
+                          Colors.white.withValues(alpha: 0.07),
+                          Colors.white.withValues(alpha: 0.11),
+                        ]
+                      : <Color>[
+                          Colors.white.withValues(alpha: 0.86),
+                          Colors.white.withValues(alpha: 0.72),
+                          Colors.white.withValues(alpha: 0.80),
+                        ],
                 ),
+                borderRadius: BorderRadius.circular(22),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x2A000000),
-                    blurRadius: 28,
-                    offset: Offset(0, 10),
+                    color: Color(0x73000000),
+                    blurRadius: 44,
+                    offset: Offset(0, 14),
                   ),
+                  BoxShadow(color: Color(0x2A000000), blurRadius: 8),
                 ],
+              ),
+              // 液态玻璃边缘：内侧顶部 1px 液面高光 + 内部光晕，
+              // 再叠一层渐变描边（上亮下暗）——弹层四角生硬的修复。
+              foregroundDecoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const <double>[0, 0.5, 1],
+                  colors: dark
+                      ? <Color>[
+                          Colors.white.withValues(alpha: 0.30),
+                          Colors.white.withValues(alpha: 0.02),
+                          Colors.white.withValues(alpha: 0.14),
+                        ]
+                      : <Color>[
+                          Colors.white.withValues(alpha: 0.95),
+                          Colors.white.withValues(alpha: 0.10),
+                          Colors.white.withValues(alpha: 0.60),
+                        ],
+                ),
               ),
               // Emby 面板开动态高光：按住面板时柔光跟随手指。
               child: LuGlassGlow(opacity: 0.30, child: child),
@@ -228,8 +253,6 @@ class _CapsulePanel extends StatefulWidget {
   const _CapsulePanel({
     required this.server,
     required this.onClose,
-    required this.onOpenDiscover,
-    required this.onOpenSearch,
     required this.onOpenMediaLibrary,
     required this.onOpenSettings,
     required this.onOpenManage,
@@ -237,8 +260,6 @@ class _CapsulePanel extends StatefulWidget {
 
   final EmbyServer server;
   final VoidCallback onClose;
-  final VoidCallback onOpenDiscover;
-  final VoidCallback onOpenSearch;
   final VoidCallback onOpenMediaLibrary;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenManage;
@@ -409,22 +430,6 @@ class _CapsulePanelState extends State<_CapsulePanel> {
                     ),
                 ],
               ),
-            ),
-            _PanelRow(
-              icon: Icons.explore_outlined,
-              label: '发现',
-              onTap: () {
-                widget.onClose();
-                widget.onOpenDiscover();
-              },
-            ),
-            _PanelRow(
-              icon: Icons.search_rounded,
-              label: '搜索',
-              onTap: () {
-                widget.onClose();
-                widget.onOpenSearch();
-              },
             ),
             _PanelRow(
               icon: Icons.video_library_outlined,

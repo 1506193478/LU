@@ -316,37 +316,45 @@ class _PlayerAdjustmentHudState extends State<PlayerAdjustmentHud> {
       });
     }
 
+    // 圆环 HUD（iOS 手感）：74px 环 + 中心图标，数值跟进度一起转。
+    // 之前是「徽章 + 横条 + 百分比」的长条，竖滑手势时占屏太宽。
     return PlayerOsdShell(
       visible: widget.visible,
-      width: 216,
+      width: 92,
       radius: 999,
       duration: motion,
-      padding: const EdgeInsets.fromLTRB(6, 6, 14, 6),
-      child: Row(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _OsdBadge(icon: _icon, size: 34, colors: tone),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(end: _progress),
-              duration: widget.disableAnimations || snap
-                  ? Duration.zero
-                  : const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              builder: (context, animatedProgress, child) {
-                return _OsdTrack(
-                  progress: animatedProgress,
-                  // 用 strong 而不是 light：浅色模式浮层是白底，
-                  // 浅紫压在白色滑轨上根本看不出走到哪了。
-                  active: tone.strong,
-                  inactive: track,
-                  height: 6,
-                  knob: true,
-                );
-              },
-            ),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: _progress),
+            duration: widget.disableAnimations || snap
+                ? Duration.zero
+                : const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            builder: (context, animatedProgress, child) {
+              return SizedBox(
+                width: 64,
+                height: 64,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 进度环（从顶部顺时针）。
+                    CircularProgressIndicator(
+                      value: animatedProgress.clamp(0.0, 1.0),
+                      strokeWidth: 5,
+                      strokeCap: StrokeCap.round,
+                      color: tone.strong,
+                      backgroundColor: track,
+                    ),
+                    _OsdBadge(icon: _icon, size: 40, colors: tone),
+                  ],
+                ),
+              );
+            },
           ),
-          const SizedBox(width: 10),
+          const SizedBox(height: 6),
           Text(
             '$_percent%',
             style: theme.textTheme.labelMedium?.copyWith(

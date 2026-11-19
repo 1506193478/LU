@@ -22,6 +22,7 @@ class PlayerSettingsPage extends StatefulWidget {
 }
 
 class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
+  bool _ripple = GStorage.getSetting(SettingsKeys.doubleTapRipple);
   static const double _minPlayerControllerLayerDisappearSeconds = 1;
   static const double _maxPlayerControllerLayerDisappearSeconds = 10;
   static const int _playerControllerLayerDisappearDivisions = 18;
@@ -256,6 +257,23 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
       title: const Text('播放设置'),
       body: SettingsList(
         sections: [
+          SettingsSection(
+            title: Text('手势与动效'),
+            tiles: [
+              SettingsTile.switchTile(
+                leading: Icons.waves_rounded,
+                onToggle: (value) async {
+                  final next = value ?? !_ripple;
+                  await GStorage.putSetting(
+                      SettingsKeys.doubleTapRipple, next);
+                  setState(() => _ripple = next);
+                },
+                title: Text('双击画面涟漪'),
+                description: Text('双击播放/暂停时在指尖泛一圈涟漪反馈'),
+                initialValue: _ripple,
+              ),
+            ],
+          ),
           SettingsSection(
             title: Text('解码与渲染'),
             tiles: [

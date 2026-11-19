@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -95,6 +96,7 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   @override
   void dispose() {
     ResCardPrefs.instance.revision.removeListener(_onPrefsChanged);
+    _headScroll.dispose();
     super.dispose();
   }
 
@@ -889,6 +891,9 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
     );
   }
 
+  // B21 大标题折叠：滚动时标题缩放联动。
+  final ScrollController _headScroll = ScrollController();
+
   @override
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
@@ -898,46 +903,63 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
     return SafeArea(
       bottom: false,
       child: ListView(
+        controller: _headScroll,
         padding: const EdgeInsets.only(bottom: pvSubDockClearance),
         children: [
-          PvPageHead(
-            title: '资源库',
-            actions: [
-              PvIconBtn(
-                icon: _gridMode
-                    ? Icons.view_list_rounded
-                    : Icons.grid_view_rounded,
-                onTap: () {
-                  KazumiHaptics.select();
-                  setState(() => _gridMode = !_gridMode);
-                },
-              ),
-              const SizedBox(width: 6),
-              PvIconBtn(icon: Icons.add_rounded, onTap: _openAddMenu),
-              const SizedBox(width: 6),
-              // 有隐藏/加密的卡片时才出现：点它过面容/密码，验证通过后
-              // 隐藏的卡片重新显示。
-              ValueListenableBuilder<int>(
-                valueListenable: ResCardPrefs.instance.revision,
-                builder: (BuildContext context, int _, Widget? __) {
-                  if (ResCardPrefs.instance.hiddenCount == 0) {
-                    return const SizedBox(width: 0, height: 0);
-                  }
-                  return PvIconBtn(
-                    icon: Icons.lock_open_rounded,
-                    onTap: _revealHidden,
-                  );
-                },
-              ),
-              const SizedBox(width: 6),
-              PvIconBtn(icon: Icons.qr_code_scanner_rounded, onTap: _openScan),
-              const SizedBox(width: 6),
-              PvIconBtn(
-                icon: Icons.more_horiz_rounded,
-                circled: true,
-                onTap: _openMoreMenu,
-              ),
-            ],
+          // B21 大标题折叠：滚动联动字号 26→17、上移 10px，跟手无跳变。
+          AnimatedBuilder(
+            animation: _headScroll,
+            builder: (context, child) {
+              final double t =
+                  (_headScroll.hasClients && _headScroll.offset > 0)
+                      ? (1 - math.pow(1 - (_headScroll.offset / 110).clamp(0.0, 1.0), 3))
+                          .toDouble()
+                      : 0.0;
+              return Transform.translate(
+                offset: Offset(0, -10 * t),
+                child: PvPageHead(
+                  title: '资源库',
+                  titleScale: 1 - 0.34 * t,
+                  actions: [
+                    PvIconBtn(
+                      icon: _gridMode
+                          ? Icons.view_list_rounded
+                          : Icons.grid_view_rounded,
+                      onTap: () {
+                        KazumiHaptics.select();
+                        setState(() => _gridMode = !_gridMode);
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    PvIconBtn(icon: Icons.add_rounded, onTap: _openAddMenu),
+                    const SizedBox(width: 6),
+                    // 有隐藏/加密的卡片时才出现：点它过面容/密码，验证通过后
+                    // 隐藏的卡片重新显示。
+                    ValueListenableBuilder<int>(
+                      valueListenable: ResCardPrefs.instance.revision,
+                      builder: (BuildContext context, int _, Widget? __) {
+                        if (ResCardPrefs.instance.hiddenCount == 0) {
+                          return const SizedBox(width: 0, height: 0);
+                        }
+                        return PvIconBtn(
+                          icon: Icons.lock_open_rounded,
+                          onTap: _revealHidden,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    PvIconBtn(
+                        icon: Icons.qr_code_scanner_rounded, onTap: _openScan),
+                    const SizedBox(width: 6),
+                    PvIconBtn(
+                      icon: Icons.more_horiz_rounded,
+                      circled: true,
+                      onTap: _openMoreMenu,
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           Padding(
             // 标题和第一排卡片之间留一点呼吸。原来是 4，几乎贴在一起。

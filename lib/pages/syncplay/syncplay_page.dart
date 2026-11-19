@@ -1265,6 +1265,15 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               ),
+              onChanged: (value) {
+                // 填满自动提交（B10）：少按一次确认，配一记轻触感。
+                if (value.length == kSyncPlayRoomNumberLength &&
+                    _roomController.text.length ==
+                        kSyncPlayRoomNumberLength) {
+                  KazumiHaptics.select();
+                  _joinRoom();
+                }
+              },
               onSubmitted: (_) => _joinRoom(),
             ),
             const SizedBox(height: 10),
@@ -1634,12 +1643,17 @@ class _SyncPlayPageState extends State<SyncPlayPage> {
               child: GestureDetector(
                 onTap: () => _nudgeMember(shown[i].username),
                 onLongPress: () => _showMemberActions(shown[i].username),
-                child: SyncPlayAvatar(
-                  name: shown[i].username,
-                  isSelf: shown[i].username == controller.username,
-                  size: 28,
-                  radius: 14,
-                  remoteImage: controller.avatarBytes[shown[i].username],
+                // 新成员加入：头像从上方弹落一次（B11）。key=username，
+                // 已在列表里的头像不会重播。
+                child: _PopInOnCreate(
+                  key: ValueKey('member-${shown[i].username}'),
+                  child: SyncPlayAvatar(
+                    name: shown[i].username,
+                    isSelf: shown[i].username == controller.username,
+                    size: 28,
+                    radius: 14,
+                    remoteImage: controller.avatarBytes[shown[i].username],
+                  ),
                 ),
               ),
             ),
@@ -3511,6 +3525,54 @@ class _ReadyCheckSheetState extends State<_ReadyCheckSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// 首次构建时从上方 -34px 弹落到位（elasticOut 600ms）。
+/// key 变化（新成员加入）才会触发；已存在头像随列表重建时
+/// 其 key 不变，Flutter 保留 State，不会重播。
+class _PopInOnCreate extends StatefulWidget {
+  const _PopInOnCreate({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_PopInOnCreate> createState() => _PopInOnCreateState();
+}
+
+class _PopInOnCreateState extends State<_PopInOnCreate>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final double t = Curves.elasticOut.transform(_controller.value);
+        return Transform.translate(
+          offset: Offset(0, -34 * (1 - t)),
+          child: Opacity(opacity: t.clamp(0.0, 1.0), child: child),
+        );
+      },
+      child: widget.child,
     );
   }
 }

@@ -46,8 +46,10 @@ class PvColors {
       isDark(context) ? const Color(0xFFA5A5AC) : const Color(0xFF6B6B70);
 
   /// `--ink3` 弱文字。
+  // C2 对比度修复：深色 #74747C 只有 ~3.9:1，提到 #8E8E96 ≈ 4.6:1；
+  // 浅色 #9A9AA0 压在白卡上同样不足，换 #6E6E74。均过 WCAG AA。
   static Color ink3(BuildContext context) =>
-      isDark(context) ? const Color(0xFF74747C) : const Color(0xFF9A9AA0);
+      isDark(context) ? const Color(0xFF8E8E96) : const Color(0xFF6E6E74);
 
   /// 分隔线：iOS `separator`（浅 #C6C6C8 / 深 #38383A）。
   ///
@@ -467,9 +469,13 @@ class PvPageHead extends StatelessWidget {
     required this.title,
     this.actions = const [],
     this.topPadding = 14,
+    this.titleScale = 1,
   });
 
   final String title;
+
+  /// 大标题折叠（B21）：滚动联动 1→0.66。
+  final double titleScale;
   final List<Widget> actions;
   final double topPadding;
 
@@ -483,7 +489,14 @@ class PvPageHead extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(title, style: PvText.pageTitle(context))),
+            Expanded(
+              // titleScale（B21 大标题折叠）：滚动时 1→0.66。
+              child: Transform.scale(
+                scale: titleScale,
+                alignment: Alignment.centerLeft,
+                child: Text(title, style: PvText.pageTitle(context)),
+              ),
+            ),
             if (actions.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
@@ -873,4 +886,27 @@ class PvMenuItem {
   final bool checked;
   final bool isDivider;
   final bool destructive;
+}
+
+/// 全局间距尺度（C1 token）：所有 margin/padding/gap 只从这里取值。
+///
+/// taste-default 规则：magic number 是 AI slop 的第一特征。
+/// 8pt 基准（4 的倍数），Emby 模块先行，其他模块逐步迁移。
+abstract final class PvSpace {
+  static const double xs = 4;
+  static const double s = 8;
+  static const double m = 12;
+  static const double l = 16;
+  static const double xl = 24;
+  static const double xxl = 32;
+  static const EdgeInsets pageH = EdgeInsets.symmetric(horizontal: 20);
+}
+
+/// 字号三级制（C1 token）：正文 14 / 辅助 12 / 标题 20 + 大数字 24。
+/// 页面字号从 PvFont 取，不再手写 magic size。
+abstract final class PvFont {
+  static const double body = 14;
+  static const double caption = 12;
+  static const double title = 20;
+  static const double number = 24;
 }

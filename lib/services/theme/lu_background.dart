@@ -139,6 +139,39 @@ abstract final class LuBackground {
       ],
     ),
     LuBgPreset(
+      id: 'mist',
+      name: '晨雾',
+      dark: false,
+      colors: <Color>[
+        Color(0xFFE4EBFA),
+        Color(0xFFDCE4FA),
+        Color(0xFFE7E0F9),
+        Color(0xFFE9ECF9),
+      ],
+      orbs: <LuBgOrb>[
+        LuBgOrb(dx: 0.14, dy: 0.08, radius: 0.52, color: Color(0xFF6BB7FF), strength: 0.40),
+        LuBgOrb(dx: 0.88, dy: 0.92, radius: 0.52, color: Color(0xFF8F7BFF), strength: 0.34),
+        LuBgOrb(dx: 0.50, dy: 0.44, radius: 0.44, color: Color(0xFFFFFFFF), strength: 0.30),
+      ],
+    ),
+    LuBgPreset(
+      id: 'sky',
+      name: '晴空',
+      dark: false,
+      colors: <Color>[
+        Color(0xFFE2F0FA),
+        Color(0xFFDFF2EA),
+        Color(0xFFE4EDFB),
+        Color(0xFFF7E4EF),
+      ],
+      orbs: <LuBgOrb>[
+        LuBgOrb(dx: 0.10, dy: 0.12, radius: 0.50, color: Color(0xFF57D9B4), strength: 0.36),
+        LuBgOrb(dx: 0.86, dy: 0.24, radius: 0.50, color: Color(0xFF6BB7FF), strength: 0.36),
+        LuBgOrb(dx: 0.48, dy: 0.94, radius: 0.50, color: Color(0xFFFF96B4), strength: 0.30),
+        LuBgOrb(dx: 0.50, dy: 0.44, radius: 0.44, color: Color(0xFFFFFFFF), strength: 0.28),
+      ],
+    ),
+    LuBgPreset(
       id: 'dusk',
       name: '暮光',
       dark: false,
@@ -173,6 +206,53 @@ abstract final class LuBackground {
         LuBgOrb(dx: 0.10, dy: 0.66, radius: 0.54, color: Color(0xFF466E8C), strength: 0.32),
         LuBgOrb(dx: 0.90, dy: 0.84, radius: 0.52, color: Color(0xFF786084), strength: 0.28),
         LuBgOrb(dx: 0.52, dy: 0.44, radius: 0.46, color: Color(0xFFC8D2EB), strength: 0.10),
+      ],
+    ),
+    LuBgPreset(
+      id: 'polar',
+      name: '极夜蓝',
+      dark: true,
+      colors: <Color>[
+        Color(0xFF0A0E1A),
+        Color(0xFF10182B),
+        Color(0xFF161528),
+        Color(0xFF0A0E1A),
+      ],
+      orbs: <LuBgOrb>[
+        LuBgOrb(dx: 0.14, dy: 0.02, radius: 0.50, color: Color(0xFF6BB7FF), strength: 0.30),
+        LuBgOrb(dx: 0.90, dy: 0.95, radius: 0.52, color: Color(0xFF8F7BFF), strength: 0.26),
+        LuBgOrb(dx: 0.70, dy: 0.34, radius: 0.36, color: Color(0xFF57D9B4), strength: 0.10),
+      ],
+    ),
+    LuBgPreset(
+      id: 'aurora_night',
+      name: '极光',
+      dark: true,
+      colors: <Color>[
+        Color(0xFF0A0E1A),
+        Color(0xFF0E2119),
+        Color(0xFF121F30),
+        Color(0xFF1C1230),
+      ],
+      orbs: <LuBgOrb>[
+        LuBgOrb(dx: 0.10, dy: 0.14, radius: 0.50, color: Color(0xFF57D9B4), strength: 0.28),
+        LuBgOrb(dx: 0.86, dy: 0.24, radius: 0.50, color: Color(0xFF6BB7FF), strength: 0.24),
+        LuBgOrb(dx: 0.50, dy: 0.96, radius: 0.52, color: Color(0xFFFF7AA8), strength: 0.20),
+      ],
+    ),
+    LuBgPreset(
+      id: 'rose_night',
+      name: '暗夜玫瑰',
+      dark: true,
+      colors: <Color>[
+        Color(0xFF0D0A16),
+        Color(0xFF1E1222),
+        Color(0xFF171020),
+        Color(0xFF0D0A16),
+      ],
+      orbs: <LuBgOrb>[
+        LuBgOrb(dx: 0.18, dy: 0.04, radius: 0.52, color: Color(0xFFFF7AA8), strength: 0.26),
+        LuBgOrb(dx: 0.85, dy: 0.90, radius: 0.52, color: Color(0xFF8F7BFF), strength: 0.26),
       ],
     ),
     LuBgPreset(

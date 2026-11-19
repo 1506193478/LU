@@ -100,6 +100,9 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     setState(() => _isCovered = value);
   }
 
+  /// 最近一次 tab 切换的方向：+1 向右切（新页从右侧进），-1 向左。
+  int _lastTabDirection = 1;
+
   void _selectDestination(int index) {
     _lastExitPromptAt = null;
     if (index == _selectedIndex) {
@@ -108,7 +111,10 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     final outlet = _outletKey.currentState;
     if (outlet == null) return;
     outlet.navigate('/tab${menu.getPath(index)}/');
-    setState(() => _selectedIndex = index);
+    setState(() {
+      _lastTabDirection = index > _selectedIndex ? 1 : -1;
+      _selectedIndex = index;
+    });
     // iOS 的 tab 切换有一记很轻的 selection feedback，是"跟手"的一部分。
     KazumiHaptics.select();
   }
@@ -172,10 +178,25 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     BorderRadius? borderRadius,
     Color? background,
   }) {
-    Widget child = NotificationListener<NavigationNotification>(
-      // A non-poppable outlet must not override the shell's PopScope state.
-      onNotification: (notification) => !notification.canHandlePop,
-      child: RouterOutlet(key: _outletKey),
+    // tab 切换的方向滑入（240ms）：新内容按切换方向轻移淡入，
+    // 让「往左切/往右切」有空间方向感。key 变化会重放入场。
+    Widget child = TweenAnimationBuilder<double>(
+      key: ValueKey<int>(_selectedIndex),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, inner) => Opacity(
+        opacity: t.clamp(0.0, 1.0),
+        child: Transform.translate(
+          offset: Offset(_lastTabDirection * (1 - t) * 24, 0),
+          child: inner,
+        ),
+      ),
+      child: NotificationListener<NavigationNotification>(
+        // A non-poppable outlet must not override the shell's PopScope state.
+        onNotification: (notification) => !notification.canHandlePop,
+        child: RouterOutlet(key: _outletKey),
+      ),
     );
     if (borderRadius != null) {
       child = ClipRRect(borderRadius: borderRadius, child: child);

@@ -10,6 +10,7 @@ import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/theme/lu_glass.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/services/emby/emby_line_probe.dart';
 import 'package:XL/services/emby/emby_service.dart';
@@ -185,29 +186,84 @@ class _EmbyMediaManagePageState extends State<EmbyMediaManagePage> {
                               embyPagePadding(context), 4,
                               embyPagePadding(context), 40),
                           children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                color: PvColors.isDark(context)
-                                    ? Colors.white.withValues(alpha: 0.06)
-                                    : Colors.white.withValues(alpha: 0.55),
-                                borderRadius: BorderRadius.circular(16),
+                            // 液态玻璃 v2 分组卡 + 长按拖拽排序（B24）：
+                            // ReorderableListView 自带弹簧让位动画，松手即落库。
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0, end: 1),
+                              duration: const Duration(milliseconds: 240),
+                              curve: Curves.easeOutCubic,
+                              builder: (context, t, child) => Opacity(
+                                opacity: t.clamp(0.0, 1.0),
+                                child: Transform.translate(
+                                  offset: Offset(0, (1 - t) * 14),
+                                  child: child,
+                                ),
                               ),
-                              child: Column(
-                                children: [
-                                  for (var i = 0; i < servers.length; i++)
-                                    _ManageRow(
-                                      server: servers[i],
-                                      active: servers[i].id == active?.id,
-                                      status: _probing[servers[i].id] == true
-                                          ? '测试中…'
-                                          : _latency[servers[i].id],
-                                      lineCount:
-                                          servers[i].backupUrls.length + 1,
-                                      showDivider: i != servers.length - 1,
-                                      onTap: () => _openEditor(servers[i]),
-                                      onMenu: () => _openRowMenu(servers[i]),
-                                    ),
-                                ],
+                              child: LuGlass.box(
+                                context: context,
+                                blur: true,
+                                radius: BorderRadius.circular(16),
+                                child: ReorderableListView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  buildDefaultDragHandles: false,
+                                  itemCount: servers.length,
+                                  onReorder: (oldIndex, newIndex) async {
+                                    setState(() {
+                                      if (newIndex > oldIndex) newIndex -= 1;
+                                      final moved = servers.removeAt(oldIndex);
+                                      servers.insert(newIndex, moved);
+                                    });
+                                    await EmbyService.instance
+                                        .reorder(servers.map((s) => s.id).toList());
+                                  },
+                                  proxyDecorator: (child, index, anim) =>
+                                      AnimatedBuilder(
+                                    animation: anim,
+                                    builder: (context, _) {
+                                      final t = Curves.easeOut
+                                          .transform(anim.value.clamp(0.0, 1.0));
+                                      return Transform.scale(
+                                        scale: 1 + 0.03 * t,
+                                        child: Material(
+                                          color: Colors.transparent,
+                                          elevation: 6 * t,
+                                          shadowColor: Colors.black45,
+                                          borderRadius: BorderRadius.circular(14),
+                                          child: child,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  itemBuilder: (context, i) {
+                                    final s = servers[i];
+                                    return ReorderableDragStartListener(
+                                      key: ValueKey(s.id),
+                                      index: i,
+                                      child: _ManageRow(
+                                        server: s,
+                                        active: s.id == active?.id,
+                                        status: _probing[s.id] == true
+                                            ? '测试中…'
+                                            : _latency[s.id],
+                                        lineCount: s.backupUrls.length + 1,
+                                        showDivider: i != servers.length - 1,
+                                        onTap: () => _openEditor(s),
+                                        onMenu: () => _openRowMenu(s),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8, bottom: 4),
+                              child: Text(
+                                '长按条目拖动可调整顺序',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: PvColors.ink3(context),
+                                ),
                               ),
                             ),
                           ],

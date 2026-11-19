@@ -162,14 +162,21 @@ class _PlayerPanelHoldMenuAnchorState extends State<PlayerPanelHoldMenuAnchor> {
       _isOpen = false;
       widget.onVisibilityChanged(false);
     }
-    _hold?.release();
+    final hold = _hold;
     _hold = null;
+    if (hold != null) {
+      // 菜单关闭动画约 240ms；等动画走完再放掉面板保持，
+      // 否则控制条会在菜单还在淡出时被提前收走。
+      Future.delayed(const Duration(milliseconds: 260), hold.release);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return KazumiMenuButton(
-      animated: false,
+      // 菜单弹出走系统 fade+scale（240ms），不再瞬现；
+      // 系统会自动尊重 disableAnimations 设置。
+      animated: true,
       onOpen: _handleOpen,
       onClose: _handleClose,
       builder: widget.builder,

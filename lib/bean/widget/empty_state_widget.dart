@@ -33,12 +33,28 @@ class GeneralEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              StateIconBadge(
-                icon: icon,
-                size: compact ? 56 : 88,
-                iconSize: compact ? 28 : 36,
-                backgroundColor: colorScheme.secondaryContainer,
-                foregroundColor: colorScheme.onSecondaryContainer,
+              // 空状态缓浮（B9）：图标 2.6s 上下缓漂，页面不那么「死」；
+              // 入场淡入 + 上滑一次到位。
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 360),
+                curve: Curves.easeOutCubic,
+                builder: (context, t, child) => Opacity(
+                  opacity: t.clamp(0.0, 1.0),
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - t) * 14),
+                    child: child,
+                  ),
+                ),
+                child: _BreathingFloat(
+                  child: StateIconBadge(
+                    icon: icon,
+                    size: compact ? 56 : 88,
+                    iconSize: compact ? 28 : 36,
+                    backgroundColor: colorScheme.secondaryContainer,
+                    foregroundColor: colorScheme.onSecondaryContainer,
+                  ),
+                ),
               ),
               SizedBox(height: compact ? 16 : 24),
               Semantics(
@@ -69,6 +85,46 @@ class GeneralEmptyState extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+/// 缓慢上下浮动循环（±4px，2.8s）——给空状态插画一点「活着」的感觉。
+class _BreathingFloat extends StatefulWidget {
+  const _BreathingFloat({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_BreathingFloat> createState() => _BreathingFloatState();
+}
+
+class _BreathingFloatState extends State<_BreathingFloat>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2800),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final double t = Curves.easeInOut.transform(_controller.value);
+        return Transform.translate(
+          offset: Offset(0, -4 + 8 * t),
+          child: child,
+        );
+      },
+      child: widget.child,
     );
   }
 }

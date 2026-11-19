@@ -84,6 +84,24 @@ class _InterfaceSettingsPageState extends State<InterfaceSettingsPage> {
               onChanged: updateDefaultPage,
             ),
           ]),
+          SettingsSection(title: Text('手势'), tiles: [
+            SettingsDropdownTile<String>(
+              leading: Icons.swipe_left_rounded,
+              title: const Text('页面返回手势'),
+              description: const Text('右滑为 iOS 标准（跟手）；左边缘触发由手势层完成'),
+              value: GStorage.getSetting(SettingsKeys.backGesture),
+              options: const {
+                'right': '右滑返回（推荐）',
+                'left': '左滑返回（从右边缘）',
+                'off': '关闭',
+              },
+              fallbackLabel: '右滑返回（推荐）',
+              onChanged: (value) async {
+                await GStorage.putSetting(SettingsKeys.backGesture, value);
+                if (mounted) setState(() {});
+              },
+            ),
+          ]),
           SettingsSection(title: Text('展示信息'), tiles: [
             SettingsDropdownTile<CollectLayout>(
               leading: Icons.view_agenda_rounded,

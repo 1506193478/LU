@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_backup_lines.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/utils/motion.dart';
 import 'package:XL/pages/emby/emby_sheet_fields.dart';
 import 'package:XL/request/clients/emby_client.dart';
 import 'package:XL/services/emby/emby_service.dart';
@@ -140,6 +141,9 @@ class _ServerSheetState extends State<_ServerSheet> {
     super.dispose();
   }
 
+  /// 校验失败时的抖动触发计数（B23）：递增一次重放一次水平抖动。
+  int _shakeTrigger = 0;
+
   Future<void> _save() async {
     FocusScope.of(context).unfocus();
     final host = _host.text.trim();
@@ -147,7 +151,9 @@ class _ServerSheetState extends State<_ServerSheet> {
       setState(() {
         _failed = true;
         _message = '请先填主机地址';
+        _shakeTrigger++;
       });
+      KazumiHaptics.heavy();
       return;
     }
 
@@ -284,6 +290,7 @@ class _ServerSheetState extends State<_ServerSheet> {
                           label: '主机',
                           hint: 'Host (必填)',
                           controller: _host,
+                          error: _failed && _host.text.trim().isEmpty,
                         ),
                         if (_hasPath)
                           SheetFieldRow(

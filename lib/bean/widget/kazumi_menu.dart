@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:XL/utils/motion.dart';
+
 typedef KazumiMenuBuilder =
     Widget Function(BuildContext context, VoidCallback? toggle);
 
@@ -96,7 +98,18 @@ class KazumiMenuItem extends StatelessWidget {
         : WidgetStateProperty.resolveWith<Color?>(
             (states) => states.contains(WidgetState.disabled) ? null : color,
           );
-    return MenuItemButton(
+    // 勾选图标弹性出现：选中态不只是变色，还有一下「落定」的动作。
+    final checkIcon = selected == true
+        ? TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.5, end: 1),
+            duration: KazumiMotion.base,
+            curve: KazumiMotion.spring,
+            builder: (context, scale, child) =>
+                AnimatedScale(scale: scale, duration: Duration.zero, child: child),
+            child: Icon(Icons.check_rounded, size: 18),
+          )
+        : null;
+    final item = MenuItemButton(
       onPressed: onPressed,
       requestFocusOnHover: requestFocusOnHover,
       style: ButtonStyle(
@@ -104,10 +117,57 @@ class KazumiMenuItem extends StatelessWidget {
         iconColor: foregroundColor,
       ),
       leadingIcon: leadingIcon,
+      trailingIcon: checkIcon,
       child: Semantics(
         selected: selected,
         inMutuallyExclusiveGroup: selected == null ? null : true,
         child: Text(label, textAlign: TextAlign.start),
+      ),
+    );
+    // 按压反馈：Listener 只旁观指针、不抢菜单的手势；禁用项不给反馈。
+    return _KazumiMenuItemPress(enabled: onPressed != null, child: item);
+  }
+}
+
+/// 菜单条目的按压缩放 + 选择触感。条目背景是透明的，缩放露出的是
+/// 菜单容器表面色，不会露缝。
+class _KazumiMenuItemPress extends StatefulWidget {
+  const _KazumiMenuItemPress({required this.child, required this.enabled});
+
+  final Widget child;
+  final bool enabled;
+
+  @override
+  State<_KazumiMenuItemPress> createState() => _KazumiMenuItemPressState();
+}
+
+class _KazumiMenuItemPressState extends State<_KazumiMenuItemPress> {
+  double _scale = 1;
+
+  void _down(PointerEvent _) {
+    if (!widget.enabled) return;
+    KazumiHaptics.select();
+    setState(() => _scale = 0.96);
+  }
+
+  void _up(PointerEvent _) {
+    if (_scale == 1) return;
+    setState(() => _scale = 1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: _down,
+      onPointerUp: _up,
+      onPointerCancel: _up,
+      child: AnimatedScale(
+        scale: _scale,
+        duration: _scale < 1
+            ? KazumiMotion.instant
+            : KazumiMotion.base,
+        curve: _scale < 1 ? KazumiMotion.emphasized : KazumiMotion.spring,
+        child: widget.child,
       ),
     );
   }

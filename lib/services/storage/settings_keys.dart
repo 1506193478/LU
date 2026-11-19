@@ -51,6 +51,18 @@ class SettingsKeys {
     true,
     group: SettingGroup.player,
   );
+  /// 双击画面时显示涟漪动效（播放器设置）。
+  static const doubleTapRipple = SettingKey<bool>(
+    'doubleTapRipple',
+    true,
+    group: SettingGroup.player,
+  );
+  /// 页面返回手势方向：right（iOS 边缘右滑，跟手）/ left（左边缘）/ off。
+  static const backGesture = SettingKey<String>(
+    'backGestureDirection',
+    'right',
+    group: SettingGroup.misc,
+  );
   static const hardwareDecoder = SettingKey<String>(
     _SettingBoxKey.hardwareDecoder,
     'auto-safe',

@@ -789,25 +789,40 @@ class _HistoryChips extends StatelessWidget {
               runSpacing: 8,
               children: [
                 for (final word in history)
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onPick(word),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                  // 历史 chip：按下微缩 + 松手弹回（B8），点选后
+                  // 输入框文字走交叉淡入。
+                  TweenAnimationBuilder<double>(
+                    key: ValueKey(word),
+                    tween: Tween(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, t, child) => Opacity(
+                      opacity: t.clamp(0.0, 1.0),
+                      child: Transform.translate(
+                        offset: Offset((1 - t) * 10, 0),
+                        child: child,
                       ),
-                      decoration: BoxDecoration(
-                        color: dark
-                            ? Colors.white.withValues(alpha: 0.10)
-                            : const Color(0xFFF1F1F4),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        word,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: PvColors.ink(context),
+                    ),
+                    child: KzPressable(
+                      onTap: () => onPick(word),
+                      pressedOpacity: 0.7,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: dark
+                              ? Colors.white.withValues(alpha: 0.10)
+                              : const Color(0xFFF1F1F4),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          word,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: PvColors.ink(context),
+                          ),
                         ),
                       ),
                     ),

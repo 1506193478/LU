@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:XL/pages/player/player_item_panel.dart';
+import 'package:XL/utils/motion.dart';
+import 'package:XL/utils/tap_ripple.dart';
+import 'package:XL/services/storage/settings_keys.dart';
+import 'package:XL/services/storage/storage.dart';
 import 'package:XL/pages/player/player_adjustment_hud.dart';
 import 'package:XL/bean/widget/syncplay_room_prompt_bar.dart';
 import 'package:XL/pages/player/player_keyboard_shortcuts.dart';
@@ -525,6 +529,9 @@ class _PlayerItemState extends State<PlayerItem>
     playerController.playOrPause();
   }
 
+  /// 双击涟漪触发点（onDoubleTapDown 记录的全局坐标）。
+  Offset? _lastDoubleTapGlobal;
+
   void _handleDoubleTap(PointerDeviceKind? pointerKind) {
     if (shouldToggleFullscreenOnDoubleTap(
       isDesktop: isDesktop(),
@@ -533,6 +540,19 @@ class _PlayerItemState extends State<PlayerItem>
     )) {
       handleFullscreen();
       return;
+    }
+    // 涟漪反馈（可在播放设置里关闭）；暂停/继续本身仍是双击的行为。
+    final Offset? pos = _lastDoubleTapGlobal;
+    _lastDoubleTapGlobal = null;
+    if (GStorage.getSetting(SettingsKeys.doubleTapRipple) &&
+        pos != null &&
+        !isDesktop()) {
+      TapRipple.show(
+        context,
+        pos,
+        label: playerController.playback.playerPlaying == true ? '暂停' : '播放',
+      );
+      KazumiHaptics.tap();
     }
     playerController.playOrPause();
   }
@@ -1587,6 +1607,7 @@ class _PlayerItemState extends State<PlayerItem>
                           ? null
                           : (details) {
                               _lastDoubleTapPointerKind = details.kind;
+                              _lastDoubleTapGlobal = details.globalPosition;
                             },
                       onDoubleTap: (playerController.panel.lockPanel)
                           ? null
@@ -1602,6 +1623,7 @@ class _PlayerItemState extends State<PlayerItem>
                         if (playerController.panel.lockPanel) {
                           return;
                         }
+                        KazumiHaptics.heavy();
                         setState(() {
                           playerController.panel.showPlaySpeed = true;
                         });
@@ -1624,7 +1646,13 @@ class _PlayerItemState extends State<PlayerItem>
                       ),
                     ),
                     Positioned.fill(
-                      child: DanmakuScreen(
+                      // 弹幕开关的「排空/涌入」感：整层淡入淡出（240ms），
+                      // 画布本身依旧清屏，避免残留弹幕在半透明层里滑行。
+                      child: AnimatedOpacity(
+                        opacity: playerController.danmaku.danmakuOn ? 1 : 0,
+                        duration: const Duration(milliseconds: 240),
+                        curve: Curves.easeOut,
+                        child: DanmakuScreen(
                         key: _danmuKey,
                         createdController: (DanmakuController e) {
                           playerController.danmaku.canvasController = e;
@@ -1649,6 +1677,7 @@ class _PlayerItemState extends State<PlayerItem>
                               ? null
                               : customAppFontFamily,
                         ),
+                      ),
                       ),
                     ),
                     Positioned.fill(

@@ -10,6 +10,7 @@ import 'package:XL/bean/widget/skeleton_card.dart';
 import 'package:XL/modules/bangumi/bangumi_item.dart';
 import 'package:XL/pages/popular/popular_controller.dart';
 import 'package:XL/pages/popular/recent_watch_strip.dart';
+import 'package:XL/pages/popular/popular_deck.dart';
 import 'package:XL/utils/constants.dart';
 import 'package:XL/utils/immersive_theme.dart';
 import 'package:XL/utils/motion.dart';
@@ -93,6 +94,10 @@ class _PopularPageState extends State<PopularPage> {
           ],
           const SliverToBoxAdapter(
             child: RecentWatchStrip(),
+          ),
+          // 今日选片堆叠（B19）：左右拖拽换一部，点按打开。
+          SliverToBoxAdapter(
+            child: Observer(builder: (_) => _buildDeck()),
           ),
           SliverToBoxAdapter(
             child: _buildTagBar(context),
@@ -311,6 +316,33 @@ class _PopularPageState extends State<PopularPage> {
       flexibleSpace: SafeArea(
         child: dtb.DragToMoveArea(child: const SizedBox.expand()),
       ),
+    );
+  }
+
+  /// 今日选片堆叠：热榜前 4 条，可拖拽换一部。
+  Widget _buildDeck() {
+    final list = popularController.trendList;
+    if (list.length < 2 || popularController.currentTag.isNotEmpty) {
+      return const SizedBox.shrink();
+    }
+    final items = list.take(4).map((item) {
+      final meta = <String>[
+        if (item.ratingScore > 0) '${item.ratingScore.toStringAsFixed(1)} 分',
+        if (item.airDate.isNotEmpty) item.airDate,
+      ].where((e) => e.isNotEmpty).join('  ·  ');
+      return (
+        title: item.nameCn.isNotEmpty ? item.nameCn : item.name,
+        cover: item.images['large'] ?? item.images['common'] ?? '',
+        meta: meta,
+      );
+    }).toList();
+    return PopularDeck(
+      items: items,
+      onOpen: (index) {
+        if (index < list.length) {
+          context.pushNamed('/info/', arguments: list[index]);
+        }
+      },
     );
   }
 

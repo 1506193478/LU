@@ -927,8 +927,6 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
     await showEmbyCapsulePanel(
       context,
       server: widget.server,
-      onOpenDiscover: widget.onOpenDiscover,
-      onOpenSearch: widget.onSearch,
       onOpenMediaLibrary: () => showEmbyMediaLibraryPanel(
         context,
         onOpenManage: widget.onManage,
@@ -1071,30 +1069,67 @@ class _HomeSearchFab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dark = PvColors.isDark(context);
+    // 液态玻璃 v2：实时模糊 + 三段白渐变 + 渐变描边环（上亮下暗）。
     return KzPressable(
       onTap: onTap,
       pressedOpacity: 0.7,
-      child: Container(
-        width: 46,
-        height: 46,
-        decoration: BoxDecoration(
-          color: dark
-              ? const Color(0xD8202023)
-              : const Color(0xD9FFFFFF),
-          shape: BoxShape.circle,
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x26000000),
-              blurRadius: 16,
-              offset: Offset(0, 6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(23),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+          child: Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: dark
+                    ? const <Color>[
+                        Color(0x2EFFFFFF),
+                        Color(0x14FFFFFF),
+                        Color(0x22FFFFFF),
+                      ]
+                    : const <Color>[
+                        Color(0xEFFFFFFF),
+                        Color(0xC2FFFFFF),
+                        Color(0xD9FFFFFF),
+                      ],
+              ),
+              shape: BoxShape.circle,
+              // Flutter 3.9 的 Container 没有顶层 boxShadow，走 decoration。
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x40000000),
+                  blurRadius: 20,
+                  offset: Offset(0, 8),
+                ),
+              ],
             ),
-          ],
-        ),
-        alignment: Alignment.center,
-        child: Icon(
-          Icons.search_rounded,
-          size: 22,
-          color: dark ? const Color(0xFFEDEDEF) : const Color(0xFF1B1B1F),
+            // 渐变描边环 + 顶部液面高光。
+            foregroundDecoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.28)
+                    : Colors.white.withValues(alpha: 0.85),
+                width: 0.9,
+              ),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.center,
+                colors: dark
+                    ? <Color>[Colors.white.withValues(alpha: 0.26), Colors.transparent]
+                    : <Color>[Colors.white.withValues(alpha: 0.9), Colors.transparent],
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.search_rounded,
+              size: 21,
+              color: dark ? const Color(0xFFF2F5FF) : const Color(0xFF1B1B1F),
+            ),
+          ),
         ),
       ),
     );

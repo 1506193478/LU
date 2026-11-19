@@ -175,6 +175,7 @@ class SheetFieldRow extends StatelessWidget {
     this.keyboard,
     this.inputFormatters,
     this.suffix,
+    this.error = false,
   });
 
   final bool dark;
@@ -185,6 +186,9 @@ class SheetFieldRow extends StatelessWidget {
   final TextInputType? keyboard;
   final List<TextInputFormatter>? inputFormatters;
   final Widget? suffix;
+
+  /// 校验失败：输入胶囊描边转红（B23，就近反馈）。
+  final bool error;
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +207,8 @@ class SheetFieldRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Container(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
               height: 34,
               padding: const EdgeInsets.only(left: 10, right: 4),
               decoration: BoxDecoration(
@@ -211,6 +216,12 @@ class SheetFieldRow extends StatelessWidget {
                     ? Colors.white.withValues(alpha: 0.07)
                     : const Color(0xFFEFEFF3),
                 borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: error
+                      ? PvColors.red
+                      : Colors.transparent,
+                  width: 1.2,
+                ),
               ),
               child: Row(
                 children: [

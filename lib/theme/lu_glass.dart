@@ -190,7 +190,7 @@ abstract final class LuGlass {
     LuGlassTone tone = LuGlassTone.medium,
     BorderRadius? radius,
     bool blur = false,
-    double sigma = 24,
+    double sigma = 28,
     bool interactive = false,
   }) {
     final LuGlassSpec s = spec(context, tone);
@@ -233,13 +233,16 @@ abstract final class LuGlass {
             ),
           ),
           DecoratedBox(
-            // 边框画在内容之上：用 Border 会占据布局 1px，行高会整体漂移。
+            // 液态玻璃描边环：不再是均匀色，而是「上亮 → 中段几乎透明 →
+            // 下缘半亮」的对角渐变——iOS 原生玻璃边缘折射感的核心。
+            // 用 CustomPaint 画渐变描边（BoxBorder 不支持渐变），
+            // 零布局占位，不影响行高。
             position: DecorationPosition.foreground,
-            decoration: BoxDecoration(
-              borderRadius: r,
-              border: Border.all(color: s.ring, width: 1),
+            decoration: BoxDecoration(borderRadius: r),
+            child: CustomPaint(
+              foregroundPainter: _LuRingPainter(radius: r, dark: isDarkMode),
+              child: child,
             ),
-            child: child,
           ),
         ],
       ),
@@ -565,4 +568,46 @@ class LuBackdropTransitionsBuilder extends PageTransitionsBuilder {
       opaque,
     );
   }
+}
+
+/// 液态玻璃的渐变描边环：上缘亮白 → 中段几乎透明 → 下缘半亮。
+///
+/// 之前是均匀色 Border.all——四角平、没有「玻璃厚度」。
+/// 现在沿对角画一圈渐变描边（对齐 iOS 原生玻璃的边缘折射），
+/// 宽 1px、零布局占位，只在玻璃组件上绘制。
+class _LuRingPainter extends CustomPainter {
+  _LuRingPainter({required this.radius, required this.dark});
+
+  final BorderRadius radius;
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final RRect rrect =
+        radius.toRRect(Offset.zero & size).deflate(0.6);
+    final Paint paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..shader = LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: dark
+            ? <Color>[
+                const Color(0x8CFFFFFF), // 上缘亮白
+                const Color(0x14FFFFFF), // 中段几乎透明
+                const Color(0x4DFFFFFF), // 下缘半亮
+              ]
+            : <Color>[
+                const Color(0xFFFFFFFF),
+                const Color(0x40FFFFFF),
+                const Color(0xD9FFFFFF),
+              ],
+        stops: const <double>[0, 0.45, 1],
+      ).createShader(Offset.zero & size);
+    canvas.drawRRect(rrect, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LuRingPainter oldDelegate) =>
+      oldDelegate.radius != radius || oldDelegate.dark != dark;
 }
