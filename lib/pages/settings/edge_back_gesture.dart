@@ -28,6 +28,7 @@ class _EdgeBackGestureAreaState extends State<EdgeBackGestureArea> {
   Offset? _start;
   bool _triggered = false;
   String _mode = 'right';
+  DateTime _modeReadAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -44,7 +45,12 @@ class _EdgeBackGestureAreaState extends State<EdgeBackGestureArea> {
   }
 
   void _down(PointerDownEvent e) {
-    _mode = GStorage.getSetting(SettingsKeys.backGesture);
+    // 读 Hive 做节流缓存：每次屏幕触摸都同步读 box 会在滚动中造成微卡。
+    final DateTime now = DateTime.now();
+    if (now.difference(_modeReadAt).inMilliseconds > 500) {
+      _mode = GStorage.getSetting(SettingsKeys.backGesture);
+      _modeReadAt = now;
+    }
     _triggered = false;
     _start = _enabled && !isDesktop() && _nearEdge(e.position) ? e.position : null;
   }

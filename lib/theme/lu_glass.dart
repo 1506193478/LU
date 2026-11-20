@@ -305,12 +305,24 @@ class LuGlassGlow extends StatefulWidget {
 }
 
 class _LuGlassGlowState extends State<LuGlassGlow> {
-  Offset? _pointer;
+  // 指针位置走 ValueNotifier：移动时只重绘光晕层（RepaintBoundary 隔离），
+  // 不再 setState 重建整个 child 子树——之前滑动返回转场时手指持续移动，
+  // 页面里所有玻璃组件每帧全量 rebuild，这就是「滑动返回卡屏」的主因。
+  final ValueNotifier<Offset?> _pointer = ValueNotifier<Offset?>(null);
 
   void _update(PointerEvent e) {
     final Offset p = e.localPosition;
-    if (_pointer != null && (_pointer! - p).distanceSquared < 4) return;
-    setState(() => _pointer = p);
+    final Offset? old = _pointer.value;
+    if (old != null && (old - p).distanceSquared < 4) return;
+    _pointer.value = p;
+  }
+
+  void _clear(PointerEvent _) => _pointer.value = null;
+
+  @override
+  void dispose() {
+    _pointer.dispose();
+    super.dispose();
   }
 
   @override
@@ -319,23 +331,30 @@ class _LuGlassGlowState extends State<LuGlassGlow> {
       behavior: HitTestBehavior.translucent,
       onPointerDown: _update,
       onPointerMove: _update,
-      onPointerUp: (_) => setState(() => _pointer = null),
-      onPointerCancel: (_) => setState(() => _pointer = null),
+      onPointerUp: _clear,
+      onPointerCancel: _clear,
       child: Stack(
         children: <Widget>[
           widget.child,
-          if (_pointer != null)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: _GlowPainter(
-                    center: _pointer!,
-                    radius: widget.radius,
-                    opacity: widget.opacity,
+          ValueListenableBuilder<Offset?>(
+            valueListenable: _pointer,
+            builder: (BuildContext context, Offset? pointer, Widget? _) {
+              if (pointer == null) return const SizedBox.shrink();
+              return Positioned.fill(
+                child: IgnorePointer(
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: _GlowPainter(
+                        center: pointer,
+                        radius: widget.radius,
+                        opacity: widget.opacity,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
+          ),
         ],
       ),
     );
