@@ -22,10 +22,13 @@ import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/pages/emby/player/emby_player_controller.dart';
 import 'package:XL/pages/emby/player/emby_player_panels.dart';
 import 'package:XL/pages/emby/player/emby_player_popover.dart';
+import 'package:XL/pages/emby/player/emby_notes_sheet.dart';
+import 'package:XL/pages/emby/player/emby_player_buttons_page.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/pages/settings/danmaku/danmaku_settings.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/services/emby/player_button_prefs.dart';
 import 'package:XL/services/player/pip_utils.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/services/storage/storage.dart';
@@ -168,12 +171,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   bool _orientationApplied = false;
   bool _firstItem = true;
 
-  // ---- 顶栏状态行（时间 / 网速 / 电量）----
+  // ---- 顶栏状态行（时间 / 网速 / 帧率 / 电量）----
   // 每秒一跳的独立计时器，只驱动顶栏那一小块文字；值没变就不 setState。
   Timer? _statusTimer;
   int _statusTick = 0;
   String _clockText = '';
   String _netSpeedText = '';
+  String _fpsText = '';
   int? _batteryLevel;
 
   // 弹幕（dandanplay 自动匹配 / 本地 XML 导入）。画布 widget 缓存，
@@ -203,6 +207,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     }
     WidgetsBinding.instance.addObserver(this);
     controller.addListener(_onPlaybackChanged);
+    PlayerButtonPrefs.instance.revision.addListener(_onPlayerButtonsChanged);
     _statusTimer = Timer.periodic(const Duration(seconds: 1), _onStatusTick);
     _chromeCtrl.addStatusListener((status) {
       if (!mounted) return;
@@ -220,6 +225,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     _statusTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_onPlaybackChanged);
+    PlayerButtonPrefs.instance.revision.removeListener(_onPlayerButtonsChanged);
     if (_longPressActive) {
       unawaited(controller.setSpeed(_speedBeforeLongPress));
     }
@@ -350,6 +356,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       // 某些定制 ROM 会拒绝，忽略即可。
     }
   }
+
+  /// 按钮开关在设置页里改完立即生效：播放器不用退出重进。
+  void _onPlayerButtonsChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  bool _shownButton(String id) => PlayerButtonPrefs.instance.shown(id);
 
   /// 换集 / 首帧就绪时决定要不要重新应用方向。
   void _onPlaybackChanged() {
@@ -607,6 +621,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           onStreamMode: _openStreamMode,
           onInfo: _openInfo,
           onChapters: controller.chapters.isEmpty ? null : _openChapters,
+          onNotes: _openNotes,
+          onPlayerButtons: _openPlayerButtons,
           onBackground: () {
             controller.setBackgroundAudio(!controller.backgroundAudio);
             Navigator.of(ctx).pop();
@@ -620,6 +636,18 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         ),
       ),
     );
+  }
+
+  /// 播放器按钮设置是独立整页（不是播放器内卡片），从「更多 → 工具」进。
+  /// 开关改动会通过 PlayerButtonPrefs.revision 直接刷新当前控制栏。
+  Future<void> _openPlayerButtons() async {
+    _pauseAutoHide();
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const EmbyPlayerButtonsPage(),
+      ),
+    );
+    _resumeAutoHide();
   }
 
   Future<void> _openDecode() async {
@@ -810,6 +838,33 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       ),
     );
   }
+  /// 视频笔记：截图 + 文字，点笔记跳回对应时间点。
+  Future<void> _openNotes() async {
+    _pauseAutoHide();
+    final item = controller.current;
+    if (item == null) return;
+    Navigator.of(context).pop(); // 先收起「更多」菜单
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => EmbyNotesSheet(
+        videoKey: item.id.isNotEmpty ? item.id : (item.seriesId ?? item.name),
+        videoTitle: item.name,
+        position: controller.position,
+        onJump: (Duration target) => controller.seek(target),
+        capture: () async {
+          try {
+            return await controller.playback.screenshotPng();
+          } catch (_) {
+            return null;
+          }
+        },
+      ),
+    );
+  }
+
   /// 弹幕菜单：本地导入 / 禁用 / 位置 / 设置 / 永久禁用。
   Future<void> _openDanmaku() async {
     _pauseAutoHide();
@@ -1168,8 +1223,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     final s = controller.subtitleSettings;
     final double opacity = s.opacity.clamp(0.0, 1.0);
     final double scale = s.scale.clamp(0.5, 2.0);
+    // HDR 字幕亮度：调高时加深描边并铺一层半透明底板，让白字在 HDR
+    // 高光场景里依然读得清。0 = 完全沿用原来的描边行为。
+    final double hdr = s.hdrBrightness.clamp(0.0, 1.0);
     final Color ink = Colors.white.withValues(alpha: opacity);
-    final Color halo = Colors.black.withValues(alpha: 0.62 * opacity);
+    final Color halo = Colors.black.withValues(alpha: (0.62 + hdr * 0.3).clamp(0, 1) * opacity);
+    final Color subtitleBg = hdr > 0
+        ? Colors.black.withValues(alpha: hdr * 0.34 * opacity)
+        : Colors.transparent;
     const List<Offset> ring = [
       Offset(-1.6, -1.6),
       Offset(1.6, -1.6),
@@ -1191,8 +1252,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         height: 1.26,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.2,
-        // 关键：透明底。留这一行是为了防止以后有人又退回默认样式。
-        backgroundColor: Colors.transparent,
+        backgroundColor: subtitleBg,
         shadows: [
           for (final o in ring) Shadow(offset: o, blurRadius: 2.6, color: halo),
         ],
@@ -1372,8 +1432,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     }
     final double opacity = s.opacity.clamp(0.0, 1.0);
     final double scale = s.scale.clamp(0.5, 2.0);
+    // HDR 字幕亮度：调高时加深描边并铺一层半透明底板，让白字在 HDR
+    // 高光场景里依然读得清。0 = 完全沿用原来的描边行为。
+    final double hdr = s.hdrBrightness.clamp(0.0, 1.0);
     final Color ink = Colors.white.withValues(alpha: opacity);
-    final Color halo = Colors.black.withValues(alpha: 0.62 * opacity);
+    final Color halo = Colors.black.withValues(alpha: (0.62 + hdr * 0.3).clamp(0, 1) * opacity);
+    final Color subtitleBg = hdr > 0
+        ? Colors.black.withValues(alpha: hdr * 0.34 * opacity)
+        : Colors.transparent;
     const List<Offset> ring = [
       Offset(-1.6, -1.6),
       Offset(1.6, -1.6),
@@ -1395,7 +1461,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         height: 1.26,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.2,
-        backgroundColor: Colors.transparent,
+        backgroundColor: subtitleBg,
         shadows: [
           for (final o in ring) Shadow(offset: o, blurRadius: 2.6, color: halo),
         ],
@@ -1632,6 +1698,12 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     double? speed;
     if (controller.playing && _chromeShown) speed = await _readNetworkSpeed();
 
+    // 帧率：mpv 的 estimated-vf-fps 是实时估算值，AV 内核拿不到 → 不显示。
+    final String fpsText =
+        controller.playing && _chromeShown
+            ? (await _readFps())
+            : '';
+
     int? level = _batteryLevel;
     bool charging = _batteryCharging;
     if (_statusTick % 30 == 1) {
@@ -1647,6 +1719,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     final speedText = speed != null && speed > 0 ? formatSpeed(speed) : '';
     if (clock == _clockText &&
         speedText == _netSpeedText &&
+        fpsText == _fpsText &&
         level == _batteryLevel &&
         charging == _batteryCharging) {
       return;
@@ -1654,9 +1727,26 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     setState(() {
       _clockText = clock;
       _netSpeedText = speedText;
+      _fpsText = fpsText;
       _batteryLevel = level;
       _batteryCharging = charging;
     });
+  }
+
+  /// mpv 实时估算帧率（estimated-vf-fps）。返回形如 "23.98fps"，
+  /// 拿不到（AV 内核 / 值非法）返回空串。
+  Future<String> _readFps() async {
+    if (controller.isAvBackend) return '';
+    final platform = controller.playback.mediaPlayer?.platform;
+    if (platform is! NativePlayer) return '';
+    try {
+      final raw = await platform.getProperty('estimated-vf-fps');
+      final fps = double.tryParse(raw) ?? 0;
+      if (fps <= 0 || fps > 1000) return '';
+      return '${fps.toStringAsFixed(fps >= 100 ? 0 : 1)}fps';
+    } catch (_) {
+      return '';
+    }
   }
 
   /// mpv 内核的实时网络读取速度（bytes/s）。
@@ -1727,6 +1817,12 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           Icon(Icons.wifi_rounded, size: 13, color: dim),
           const SizedBox(width: 3),
           Text(_netSpeedText, style: statusStyle),
+        ],
+        if (_fpsText.isNotEmpty) ...[
+          const SizedBox(width: 5),
+          Icon(Icons.speed_rounded, size: 13, color: dim),
+          const SizedBox(width: 3),
+          Text(_fpsText, style: statusStyle),
         ],
       ],
     );
@@ -1859,65 +1955,65 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                 SizedBox(height: _isDesktop ? 12 : 8),
                 Row(
                   children: [
-                    // 关闭：短按收起控件（长按返回手势开着时），长按才退出。
-                    _CircleAction(
-                      icon: Icons.close_rounded,
-                      iconSize: 19,
-                      onTap: _gesture.longPressExit
-                          ? _toggleControls
-                          : () => Navigator.of(context).maybePop(),
-                      onLongPress: _gesture.longPressExit
-                          ? () => Navigator.of(context).maybePop()
-                          : null,
-                    ),
-                    const SizedBox(width: 12),
-                    // 投屏 / AirPlay：弹系统路由选择器。
-                    _CircleAction(
-                      icon: Platform.isIOS
-                          ? Icons.airplay
-                          : Icons.cast_rounded,
-                      iconSize: 17,
-                      onTap: _openAirplay,
-                    ),
-                    // 画面比例 / 重新加载：mpv 内核专属（AV 走系统控制条）。
-                    if (!controller.isAvBackend) ...[
-                      const SizedBox(width: 12),
-                      _CircleAction(
-                        icon: Icons.aspect_ratio_rounded,
-                        iconSize: 16,
-                        onTap: _openAspect,
-                      ),
-                      const SizedBox(width: 12),
-                      _CircleAction(
-                        icon: Icons.refresh_rounded,
-                        iconSize: 17,
-                        onTap: _reloadStream,
-                      ),
-                    ],
+                    ..._rowWithGaps(<Widget>[
+                      // 关闭：短按收起控件（长按返回手势开着时），长按才退出。
+                      if (_shownButton('back'))
+                        _CircleAction(
+                          icon: Icons.close_rounded,
+                          iconSize: 19,
+                          onTap: _gesture.longPressExit
+                              ? _toggleControls
+                              : () => Navigator.of(context).maybePop(),
+                          onLongPress: _gesture.longPressExit
+                              ? () => Navigator.of(context).maybePop()
+                              : null,
+                        ),
+                      // 投屏 / AirPlay：弹系统路由选择器。
+                      if (_shownButton('cast'))
+                        _CircleAction(
+                          icon: Platform.isIOS
+                              ? Icons.airplay
+                              : Icons.cast_rounded,
+                          iconSize: 17,
+                          onTap: _openAirplay,
+                        ),
+                      // 画面比例 / 重新加载：mpv 内核专属（AV 走系统控制条）。
+                      if (!controller.isAvBackend && _shownButton('aspect'))
+                        _CircleAction(
+                          icon: Icons.aspect_ratio_rounded,
+                          iconSize: 16,
+                          onTap: _openAspect,
+                        ),
+                      if (!controller.isAvBackend && _shownButton('reload'))
+                        _CircleAction(
+                          icon: Icons.refresh_rounded,
+                          iconSize: 17,
+                          onTap: _reloadStream,
+                        ),
+                    ]),
                     const Spacer(),
-                    if (_pipSupported) ...[
-                      _CircleAction(
-                        icon: Icons.picture_in_picture_alt_rounded,
-                        iconSize: 17,
-                        onTap: _togglePip,
-                      ),
-                      const SizedBox(width: 12),
-                    ],
-                    if (!controller.isAvBackend) ...[
+                    ..._rowWithGaps(<Widget>[
+                      if (_pipSupported && _shownButton('pip'))
+                        _CircleAction(
+                          icon: Icons.picture_in_picture_alt_rounded,
+                          iconSize: 17,
+                          onTap: _togglePip,
+                        ),
                       // 截图（mpv 才有取帧能力）。
-                      _CircleAction(
-                        icon: Icons.photo_camera_outlined,
-                        iconSize: 17,
-                        onTap: _openScreenshot,
-                      ),
-                      const SizedBox(width: 12),
+                      if (!controller.isAvBackend && _shownButton('screenshot'))
+                        _CircleAction(
+                          icon: Icons.photo_camera_outlined,
+                          iconSize: 17,
+                          onTap: _openScreenshot,
+                        ),
                       // 倍速。
-                      _CircleAction(
-                        icon: Icons.schedule_rounded,
-                        iconSize: 18,
-                        onTap: _openSpeed,
-                      ),
-                    ],
+                      if (!controller.isAvBackend && _shownButton('speed'))
+                        _CircleAction(
+                          icon: Icons.schedule_rounded,
+                          iconSize: 18,
+                          onTap: _openSpeed,
+                        ),
+                    ]),
                   ],
                 ),
               ],
@@ -1955,41 +2051,47 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
               mainAxisSize: MainAxisSize.min,
               children: [
                 // 进度条上方：左「媒体信息」，右「音轨 / 字幕 / 弹幕 / 更多」。
+                // 每个按钮都能单独关；关掉后连间隔一起收起，不留空档。
                 Row(
                   children: [
-                    _OutlineAction(
-                      icon: Icons.info_outline_rounded,
-                      onTap: _openInfo,
-                    ),
-                    const Spacer(),
-                    _OutlineAction(
-                      icon: Icons.multitrack_audio_rounded,
-                      onTap: _openAudio,
-                    ),
-                    const SizedBox(width: 9),
-                    _OutlineAction(
-                      icon: Icons.subtitles_outlined,
-                      onTap: _openSubtitle,
-                    ),
-                    const SizedBox(width: 9),
-                    _OutlineAction.custom(
-                      child: Text(
-                        'D',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          height: 1,
-                          color: Colors.white
-                              .withValues(alpha: danmaku.on ? 0.94 : 0.4),
-                        ),
+                    if (_shownButton('info'))
+                      _OutlineAction(
+                        icon: Icons.info_outline_rounded,
+                        onTap: _openInfo,
                       ),
-                      onTap: _openDanmaku,
-                    ),
-                    const SizedBox(width: 12),
-                    _OutlineAction(
-                      icon: Icons.more_horiz_rounded,
-                      onTap: _openMore,
-                    ),
+                    const Spacer(),
+                    ..._rowWithGaps(<Widget>[
+                      if (_shownButton('audio'))
+                        _OutlineAction(
+                          icon: Icons.multitrack_audio_rounded,
+                          onTap: _openAudio,
+                        ),
+                      if (_shownButton('subtitle'))
+                        _OutlineAction(
+                          icon: Icons.subtitles_outlined,
+                          onTap: _openSubtitle,
+                        ),
+                      if (_shownButton('danmaku'))
+                        _OutlineAction.custom(
+                          child: Text(
+                            'D',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              height: 1,
+                              color: Colors.white.withValues(
+                                alpha: danmaku.on ? 0.94 : 0.4,
+                              ),
+                            ),
+                          ),
+                          onTap: _openDanmaku,
+                        ),
+                      if (_shownButton('more'))
+                        _OutlineAction(
+                          icon: Icons.more_horiz_rounded,
+                          onTap: _openMore,
+                        ),
+                    ], gap: 9),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -2005,79 +2107,88 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
-                _RexSeekBar(
-                  position: shown,
-                  duration: total,
-                  buffer: controller.buffer,
-                  // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
-                  enabled: total > Duration.zero && _gesture.dragProgressBar,
-                  onDragStart: () {
-                    setState(() {
-                      _dragging = true;
-                      _dragPosition = controller.position;
-                    });
-                    _pauseAutoHide();
-                  },
-                  onDragUpdate: (value) {
-                    setState(() => _dragPosition = value);
-                    _showHud(_fmt(value), icon: Icons.fast_forward_rounded);
-                  },
-                  onDragEnd: (value) {
-                    controller.seek(value);
-                    setState(() => _dragging = false);
-                    if (_gesture.hapticProgress) KazumiHaptics.select();
-                    _pauseAutoHide();
-                  },
-                  onTapSeek: (value) {
-                    controller.seek(value);
-                    _pauseAutoHide();
-                  },
-                ),
-                const SizedBox(height: 6),
+                if (_shownButton('progress')) ...[
+                  const SizedBox(height: 2),
+                  _RexSeekBar(
+                    position: shown,
+                    duration: total,
+                    buffer: controller.buffer,
+                    // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
+                    enabled: total > Duration.zero && _gesture.dragProgressBar,
+                    onDragStart: () {
+                      KazumiHaptics.tap();
+                      setState(() {
+                        _dragging = true;
+                        _dragPosition = controller.position;
+                      });
+                      _pauseAutoHide();
+                    },
+                    onDragUpdate: (value) {
+                      setState(() => _dragPosition = value);
+                      _showHud(_fmt(value), icon: Icons.fast_forward_rounded);
+                    },
+                    onDragEnd: (value) {
+                      controller.seek(value);
+                      setState(() => _dragging = false);
+                      if (_gesture.hapticProgress) KazumiHaptics.select();
+                      _pauseAutoHide();
+                    },
+                    onTapSeek: (value) {
+                      KazumiHaptics.tap();
+                      controller.seek(value);
+                      _pauseAutoHide();
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 // 底行：锁定 | 上一集 / 播放暂停 / 下一集 | 选集。
                 Row(
                   children: [
-                    _CircleAction(
-                      icon: controller.locked
-                          ? Icons.lock_rounded
-                          : Icons.lock_open_rounded,
-                      iconSize: 17,
-                      onTap: controller.toggleLock,
-                    ),
+                    if (_shownButton('lock'))
+                      _CircleAction(
+                        icon: controller.locked
+                            ? Icons.lock_rounded
+                            : Icons.lock_open_rounded,
+                        iconSize: 17,
+                        onTap: controller.toggleLock,
+                      ),
                     const Spacer(),
-                    _BareAction(
-                      icon: Icons.skip_previous_rounded,
-                      // 和顶栏那排（iconSize 17~19）视觉同一档：上一集/下一集
-                      // 取 20，主播放键 24，只比它们大半级，不再像两块大图标。
-                      size: 20,
-                      enabled: controller.hasPrevious,
-                      onTap: controller.hasPrevious
-                          ? controller.playPrevious
-                          : null,
-                    ),
-                    const SizedBox(width: 20),
-                    _BareAction(
-                      icon: controller.playing
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                      size: 24,
-                      onTap: controller.togglePlay,
-                    ),
-                    const SizedBox(width: 20),
-                    _BareAction(
-                      icon: Icons.skip_next_rounded,
-                      size: 20,
-                      enabled: controller.hasNext,
-                      onTap: controller.hasNext ? controller.playNext : null,
-                    ),
+                    ..._rowWithGaps(<Widget>[
+                      if (_shownButton('prev'))
+                        _BareAction(
+                          icon: Icons.skip_previous_rounded,
+                          // 和顶栏那排（iconSize 17~19）视觉同一档：上一集/下一集
+                          // 取 20，主播放键 24，只比它们大半级，不再像两块大图标。
+                          size: 20,
+                          enabled: controller.hasPrevious,
+                          onTap: controller.hasPrevious
+                              ? controller.playPrevious
+                              : null,
+                        ),
+                      if (_shownButton('play'))
+                        _BareAction(
+                          icon: controller.playing
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                          size: 24,
+                          onTap: controller.togglePlay,
+                        ),
+                      if (_shownButton('next'))
+                        _BareAction(
+                          icon: Icons.skip_next_rounded,
+                          size: 20,
+                          enabled: controller.hasNext,
+                          onTap: controller.hasNext ? controller.playNext : null,
+                        ),
+                    ], gap: 20),
                     const Spacer(),
-                    _CircleAction(
-                      icon: Icons.format_list_bulleted_rounded,
-                      iconSize: 18,
-                      enabled: hasEpisodes,
-                      onTap: hasEpisodes ? _openEpisodes : null,
-                    ),
+                    if (_shownButton('playlist'))
+                      _CircleAction(
+                        icon: Icons.format_list_bulleted_rounded,
+                        iconSize: 18,
+                        enabled: hasEpisodes,
+                        onTap: hasEpisodes ? _openEpisodes : null,
+                      ),
                   ],
                 ),
               ],
@@ -2549,6 +2660,19 @@ class _ChromeGradient extends StatelessWidget {
   }
 }
 
+/// 给一排按钮之间插入等宽间隔。
+///
+/// 按钮可以逐个关掉；如果还按固定位置写 SizedBox，关掉一个就会留下肉眼
+/// 可见的空洞。这里只对「真正构建出来的」按钮插间隔。
+List<Widget> _rowWithGaps(List<Widget> children, {double gap = 12}) {
+  final out = <Widget>[];
+  for (var i = 0; i < children.length; i++) {
+    if (i > 0) out.add(SizedBox(width: gap));
+    out.add(children[i]);
+  }
+  return out;
+}
+
 class _CircleAction extends StatelessWidget {
   const _CircleAction({
     required this.icon,
@@ -3006,21 +3130,29 @@ class _PressScaleState extends State<_PressScale> {
       cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => setState(() => _down = true) : null,
+        onTapDown: enabled
+            ? (_) {
+                // 播放器里所有裸按钮共用这一条触感通道：轻触一下给短震，
+                // 桌面端 KazumiHaptics 内部自动短路，不会报错。
+                KazumiHaptics.tap();
+                setState(() => _down = true);
+              }
+            : null,
         onTapCancel: enabled ? () => setState(() => _down = false) : null,
         onTapUp: enabled ? (_) => setState(() => _down = false) : null,
         onTap: widget.onTap,
         onLongPress: widget.onLongPress,
         child: AnimatedScale(
           scale: _down ? _PressScale.scale : 1,
-          // 按下要跟手（短），松手带回弹（长一点，easeOutBack 过冲约 2%），
-          // 以前两头都是 100ms 线性，按下去和弹回来一样快，就显得「木」。
-          duration: Duration(milliseconds: _down ? 110 : 240),
-          curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
+          // 按下要跟手（instant），松手带回弹（base + spring 过冲），
+          // 和全局 KzPressable 用同一组时长/曲线，整 App 手感才一致。
+          duration: _down ? KazumiMotion.instant : KazumiMotion.base,
+          curve: _down ? Curves.easeOutCubic : KazumiMotion.spring,
           child: widget.dim
               ? AnimatedOpacity(
                   opacity: _down ? 0.45 : 1,
-                  duration: const Duration(milliseconds: 90),
+                  duration: KazumiMotion.fast,
+                  curve: KazumiMotion.standard,
                   child: widget.child,
                 )
               : widget.child,

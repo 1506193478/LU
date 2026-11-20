@@ -924,6 +924,29 @@ class SettingsKeys {
     group: SettingGroup.emby,
   );
 
+  /// 自定义弹幕 API 域名（对应 SenPlayer 的「自定义弹幕 API」）。
+  /// 留空走弹弹Play 官方 `https://api.dandanplay.net`；填了就用它替换域名，
+  /// 且路径约定与弹弹Play 一致（/api/v2/search/episodes 等）。
+  static const embyDanmakuApiBase = SettingKey<String>(
+    'embyDanmakuApiBase',
+    '',
+    group: SettingGroup.emby,
+  );
+
+  /// 外挂字幕加载规则：sameName=仅同名 / sameFolder=同文件夹全部 / off=不自动加载。
+  static const embySubtitleLoadRule = SettingKey<String>(
+    'embySubtitleLoadRule',
+    'sameName',
+    group: SettingGroup.emby,
+  );
+
+  /// 字幕缓存开关：把在线/外挂字幕缓存到本地，下次秒开。
+  static const embySubtitleCache = SettingKey<bool>(
+    'embySubtitleCache',
+    true,
+    group: SettingGroup.emby,
+  );
+
   /// 首选字幕语言（三字码，`chi` / `eng` / 空=不指定）。
   static const embySubtitleLanguage = SettingKey<String>(
     _SettingBoxKey.embySubtitleLanguage,

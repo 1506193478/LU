@@ -235,6 +235,8 @@ class EmbyMorePanelActions {
     this.onStreamMode,
     this.onInfo,
     this.onChapters,
+    this.onNotes,
+    this.onPlayerButtons,
     this.episodeCount = 0,
     this.decodeLabel = '硬解',
     this.playbackModeLabel = '顺序播放',
@@ -253,6 +255,8 @@ class EmbyMorePanelActions {
   final VoidCallback? onStreamMode;
   final VoidCallback? onInfo;
   final VoidCallback? onChapters;
+  final VoidCallback? onNotes;
+  final VoidCallback? onPlayerButtons;
   final int episodeCount;
   final String decodeLabel;
   final String playbackModeLabel;
@@ -294,10 +298,19 @@ Widget buildEmbyMorePanel(BuildContext context, EmbyMorePanelActions a) {
         onTap: a.onSleep,
       ),
       const _GroupTitle('工具'),
+      if (a.onNotes != null)
+        _PanelRow(title: '视频笔记', chevron: true, onTap: a.onNotes),
       if (a.onChapters != null)
         _PanelRow(title: '章节', chevron: true, onTap: a.onChapters),
       if (a.onInfo != null)
         _PanelRow(title: '媒体信息', chevron: true, onTap: a.onInfo),
+      if (a.onPlayerButtons != null)
+        _PanelRow(
+          title: '播放器按钮',
+          subtitle: '逐个显示 / 隐藏控制栏按钮',
+          chevron: true,
+          onTap: a.onPlayerButtons,
+        ),
       _PanelRow(
         title: '后台音频',
         subtitle: a.background ? '继续播放声音' : '随画面一起暂停',
@@ -892,6 +905,25 @@ Widget buildEmbySubtitleSettingsPanel({
         ),
         onPlus: () => onChanged(
           settings.copyWith(opacity: (settings.opacity + 0.1).clamp(0.1, 1)),
+        ),
+      ),
+      // HDR 字幕亮度：对应 SenPlayer 的「HDR 字幕亮度」，调高时给自绘
+      // 字幕加深色描边+半透明底，避免白字被 HDR 高光吞掉。
+      _StepperRow(
+        label: 'HDR 字幕亮度',
+        value:
+            settings.hdrBrightness <= 0
+                ? '关'
+                : '${(settings.hdrBrightness * 100).round()}%',
+        onMinus: () => onChanged(
+          settings.copyWith(
+            hdrBrightness: (settings.hdrBrightness - 0.1).clamp(0, 1),
+          ),
+        ),
+        onPlus: () => onChanged(
+          settings.copyWith(
+            hdrBrightness: (settings.hdrBrightness + 0.1).clamp(0, 1),
+          ),
         ),
       ),
       if (onHanModeChanged != null) ...[

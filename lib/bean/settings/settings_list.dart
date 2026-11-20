@@ -334,13 +334,28 @@ class SettingsSliderTile extends StatelessWidget {
                   color: PvColors.searchFill(context),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  valueLabel,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: PvColors.ink2(context),
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                // 拖动时数值变化做 90ms 交叉淡换，避免数字硬跳。
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 90),
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.3),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: Text(
+                    valueLabel,
+                    key: ValueKey(valueLabel),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: PvColors.ink2(context),
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ),
               ),

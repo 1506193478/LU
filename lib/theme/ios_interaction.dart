@@ -830,29 +830,28 @@ class _KzPressableState extends State<KzPressable> {
     if (widget.onTap == null && widget.onLongPress == null) {
       return widget.child;
     }
-    if (!kIsCupertinoPlatform) {
-      // Android 保持 Material 语义（涟漪由主题控制，这里只做点击转发）。
-      return InkWell(
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        child: widget.child,
-      );
-    }
+    // 全平台统一走 iOS 式按压反馈：按下瞬间降透明度+轻微缩放，松手弹性回位。
+    // 之前 Android 退化成 Material 方涟漪，和 SenPlayer 的质感差一档——现在
+    // 双端一致。触感由 KazumiHaptics 内部判断平台，桌面端自动短路。
     return GestureDetector(
       behavior: widget.behavior,
-      onTapDown: (_) => _set(true),
+      onTapDown: (_) {
+        _set(true);
+        KazumiHaptics.tap();
+      },
       onTapUp: (_) => _set(false),
       onTapCancel: () => _set(false),
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
       child: AnimatedScale(
         scale: _pressed ? widget.pressedScale : 1.0,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOutCubic,
+        // 按下要跟手（instant），松手带回弹（base + spring 过冲）。
+        duration: _pressed ? KazumiMotion.instant : KazumiMotion.base,
+        curve: _pressed ? Curves.easeOut : KazumiMotion.spring,
         child: AnimatedOpacity(
           opacity: _pressed ? widget.pressedOpacity : 1,
-          duration: const Duration(milliseconds: 90),
-          curve: Curves.easeOut,
+          duration: KazumiMotion.fast,
+          curve: KazumiMotion.standard,
           child: widget.child,
         ),
       ),

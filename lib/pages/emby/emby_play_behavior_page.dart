@@ -5,6 +5,7 @@ import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_setting_rows.dart';
 import 'package:XL/services/platform/cast_service.dart';
+import 'package:XL/services/storage/storage.dart';
 import 'package:XL/theme/ios_interaction.dart';
 
 /// 「播放行为」：把原来散落在「我的 → 播放器」里的七个开关收成一处。
@@ -16,6 +17,39 @@ import 'package:XL/theme/ios_interaction.dart';
 /// 设置键沿用原来的 `pv.*`，所以升级后用户的选择不会丢。
 class EmbyPlayBehaviorPage extends StatelessWidget {
   const EmbyPlayBehaviorPage({super.key});
+
+  String _loadRuleLabel(String value) => switch (value) {
+        'sameFolder' => '同文件夹全部',
+        'off' => '不自动加载',
+        _ => '仅同名',
+      };
+
+  Future<void> _pickLoadRule(BuildContext context) async {
+    final current = GStorage.getSetting(SettingsKeys.embySubtitleLoadRule);
+    await showPvMenu<Object>(
+      context: context,
+      position: const RelativeRect.fromLTRB(120, 260, 20, 400),
+      minWidth: 220,
+      items: [
+        for (final entry in <(String, String)>[
+          ('sameName', '仅同名'),
+          ('sameFolder', '同文件夹全部'),
+          ('off', '不自动加载'),
+        ])
+          PvMenuItem(
+            entry.$2,
+            checked: current == entry.$1,
+            onTap: () async {
+              await GStorage.putSetting(
+                SettingsKeys.embySubtitleLoadRule,
+                entry.$1,
+              );
+              KazumiDialog.showToast(message: '外挂字幕加载：${entry.$2}');
+            },
+          ),
+      ],
+    );
+  }
 
   Future<void> _openCast(BuildContext context) async {
     if (!CastService.supported) {
@@ -48,8 +82,8 @@ class EmbyPlayBehaviorPage extends StatelessWidget {
                 children: <Widget>[
                   const PvGroupLabel('字幕'),
                   PvGroup(
-                    children: const <Widget>[
-                      PvSwitchRow(
+                    children: <Widget>[
+                      const PvSwitchRow(
                         icon: Icons.subtitles_rounded,
                         iconColor: Color(0xFF5E5CE6),
                         title: '双字幕',
@@ -57,13 +91,42 @@ class EmbyPlayBehaviorPage extends StatelessWidget {
                         prefKey: 'pv.doubleSubtitle',
                         defaultValue: true,
                       ),
-                      PvSwitchRow(
+                      const PvSwitchRow(
                         icon: Icons.translate_rounded,
                         iconColor: Color(0xFFFF375F),
                         title: '字幕翻译',
                         subtitle: '简繁转换 · 跟随字幕设置',
                         prefKey: 'pv.subtitleTranslate',
                         defaultValue: false,
+                      ),
+                      PvRow(
+                        icon: Icons.folder_open_rounded,
+                        iconColor: const Color(0xFF34C759),
+                        title: '外挂字幕加载',
+                        value: _loadRuleLabel(
+                          GStorage.getSetting(SettingsKeys.embySubtitleLoadRule),
+                        ),
+                        onTap: () => _pickLoadRule(context),
+                      ),
+                      PvRow(
+                        icon: Icons.cached_rounded,
+                        iconColor: const Color(0xFF64D2FF),
+                        title: '字幕缓存',
+                        subtitle: '在线/外挂字幕缓存到本地，下次秒开',
+                        value: GStorage.getSetting(SettingsKeys.embySubtitleCache)
+                            ? '开'
+                            : '关',
+                        onTap: () async {
+                          final next =
+                              !GStorage.getSetting(SettingsKeys.embySubtitleCache);
+                          await GStorage.putSetting(
+                            SettingsKeys.embySubtitleCache,
+                            next,
+                          );
+                          KazumiDialog.showToast(
+                            message: next ? '字幕缓存已开启' : '字幕缓存已关闭',
+                          );
+                        },
                         showDivider: false,
                       ),
                     ],

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:flutter/material.dart';
+import 'package:XL/pages/player/player_icon_button.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:XL/bean/widget/kazumi_menu.dart';
@@ -399,7 +400,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
       builder: (context) {
         final danmakuLoading = playerController.danmaku.danmakuLoading;
         final danmakuOn = playerController.danmaku.danmakuOn;
-        return IconButton(
+        return PlayerIconButton(
           color: Colors.white,
           icon: danmakuLoading
               ? SizedBox(
@@ -422,7 +423,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
       message: '快进${playerController.playback.buttonSkipTime}秒，长按修改时间',
       child: GestureDetector(
         onLongPress: _showForwardChange,
-        child: IconButton(
+        child: PlayerIconButton(
           icon: Image.asset(
             'assets/images/forward_80.png',
             color: Colors.white,
@@ -675,11 +676,11 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
     onVisibilityChanged: widget.onMenuVisibilityChanged,
     builder: (context, toggle) => tooltip == null
         ? TextButton(onPressed: toggle, child: child)
-        : IconButton(onPressed: toggle, icon: child, tooltip: tooltip),
+        : PlayerIconButton(onPressed: toggle, icon: child, tooltip: tooltip),
     menuChildren: items,
   );
 
-  Widget get _danmakuSettingsButton => IconButton(
+  Widget get _danmakuSettingsButton => PlayerIconButton(
     onPressed: _showDanmakuSettings,
     color: Colors.white,
     icon: _cachedDanmakuSettingsIcon,
@@ -710,7 +711,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
     children: [
       if (isDesktop()) Expanded(child: _desktopDanmakuControls),
       if (!isDesktop()) ...[
-        IconButton(
+        PlayerIconButton(
           color: Colors.white,
           icon: playerController.danmaku.danmakuOn
               ? _danmakuOnIcon(context)
@@ -728,7 +729,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
         child: const Text('超分辨率', style: TextStyle(color: Colors.white)),
         items: _superResolutionItems,
       ),
-      IconButton(
+      PlayerIconButton(
         color: Colors.white,
         tooltip: '快捷键（?）',
         onPressed: () => showPlayerShortcutSheet(context),
@@ -750,7 +751,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
         items: _aspectRatioItems,
       ),
       if (widget.onToggleSidePanel != null)
-        IconButton(
+        PlayerIconButton(
           color: Colors.white,
           icon: const Icon(Icons.menu_open_rounded),
           tooltip: '选集面板',
@@ -777,7 +778,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
           MediaQuery.sizeOf(context),
           desktop: isDesktop(),
         ),
-        playPause: IconButton(
+        playPause: PlayerIconButton(
           tooltip: playerController.playback.playing ? '暂停' : '播放',
           onPressed: () => playerController.playOrPause(),
           icon: PlayPauseIcon(
@@ -785,7 +786,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
             playing: playerController.playback.playing,
           ),
         ),
-        nextEpisode: IconButton(
+        nextEpisode: PlayerIconButton(
           color: Colors.white,
           icon: const Icon(Icons.skip_next_rounded),
           tooltip: '下一集',
@@ -847,7 +848,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
         !videoPageController.isFullscreen) {
       return const SizedBox.shrink();
     }
-    return IconButton(
+    return PlayerIconButton(
       color: Colors.white,
       icon: Icon(
         videoPageController.isFullscreen
@@ -876,7 +877,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
               : SystemMouseCursors.basic,
           child: Row(
             children: [
-              IconButton(
+              PlayerIconButton(
                 color: Colors.white,
                 icon: const Icon(Icons.arrow_back_rounded),
                 tooltip: '返回',
@@ -908,7 +909,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
               if ((isDesktop() &&
                       (compact || !videoPageController.isFullscreen)) ||
                   Platform.isAndroid)
-                IconButton(
+                PlayerIconButton(
                   onPressed: () async {
                     if (isDesktop()) {
                       if (videoPageController.isPip) {
@@ -939,7 +940,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                 acquirePlayerPanelHold: widget.acquirePlayerPanelHold,
                 onVisibilityChanged: widget.onMenuVisibilityChanged,
                 builder: (context, toggle) {
-                  return IconButton(
+                  return PlayerIconButton(
                     onPressed: toggle,
                     tooltip: '更多选项',
                     icon: const Icon(Icons.more_vert, color: Colors.white),
@@ -1066,7 +1067,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
           children: [
             const Spacer(),
             if (!playerController.panel.lockPanel)
-              IconButton(
+              PlayerIconButton(
                 icon: const Icon(
                   Icons.photo_camera_outlined,
                   color: Colors.white,
@@ -1076,7 +1077,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
               ),
             // 手机上也要有独立音量入口：手势能调，但摸不到「我现在多少」。
             _VolumeButton(playerController: playerController),
-            IconButton(
+            PlayerIconButton(
               icon: Icon(
                 playerController.panel.lockPanel
                     ? Icons.lock_outline
@@ -1145,7 +1146,7 @@ class _VolumeButton extends StatelessWidget {
               width: 236,
               child: Row(
                 children: [
-                  IconButton(
+                  PlayerIconButton(
                     tooltip: volume > 0 ? '静音' : '取消静音',
                     onPressed: () => playerController.toggleMute(),
                     icon: Icon(_iconFor(volume), size: 20),
@@ -1175,7 +1176,7 @@ class _VolumeButton extends StatelessWidget {
               ),
             ),
           ],
-          builder: (context, controller, child) => IconButton(
+          builder: (context, controller, child) => PlayerIconButton(
             color: Colors.white,
             tooltip: '音量 ${volume.round()}%（只影响本应用）',
             onPressed: () =>

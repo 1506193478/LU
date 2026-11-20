@@ -58,6 +58,7 @@ class EmbySubtitleSettings {
     this.verticalOffset = 0,
     this.scale = 1,
     this.opacity = 1,
+    this.hdrBrightness = 0,
   });
 
   final double delay; // 秒，负数为提前
@@ -65,16 +66,22 @@ class EmbySubtitleSettings {
   final double scale; // 0.5~2
   final double opacity; // 0~1
 
+  /// HDR 字幕亮度（0~1）。HDR 画面峰值亮度高，白字容易被高光吞掉；
+  /// 调高时给自绘字幕加一层深色描边+半透明底，提升在亮场景下的可读性。
+  final double hdrBrightness;
+
   EmbySubtitleSettings copyWith({
     double? delay,
     double? verticalOffset,
     double? scale,
     double? opacity,
+    double? hdrBrightness,
   }) => EmbySubtitleSettings(
     delay: delay ?? this.delay,
     verticalOffset: verticalOffset ?? this.verticalOffset,
     scale: scale ?? this.scale,
     opacity: opacity ?? this.opacity,
+    hdrBrightness: hdrBrightness ?? this.hdrBrightness,
   );
 }
 

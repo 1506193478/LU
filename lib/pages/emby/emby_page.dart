@@ -11,6 +11,9 @@ import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_res_pane.dart';
+import 'package:XL/pages/emby/emby_records_pane.dart';
+import 'package:XL/pages/emby/emby_files_pane.dart';
+import 'package:XL/pages/emby/emby_tab_manager.dart';
 import 'package:XL/pages/emby/emby_home_panels.dart';
 import 'package:XL/pages/emby/emby_search_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
@@ -21,8 +24,10 @@ import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/pages/emby/emby_vault_browse_page.dart';
 import 'package:XL/pages/emby/emby_vault_lock_page.dart';
 import 'package:XL/services/emby/res_card_prefs.dart';
+import 'package:XL/services/emby/sen_tab_prefs.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/theme/rex_big_view.dart';
+import 'package:XL/utils/motion.dart';
 
 /// Emby 首页：底部二级导航「媒体库 / 资源库 / 我的」。
 ///
@@ -60,19 +65,17 @@ class _HomeCacheEntry {
 _HomeCacheEntry? _homeCache;
 
 class _EmbyPageState extends State<EmbyPage> {
-  int _pane = 0;
+  /// 当前页签的稳定 id（来自 [SenTabPrefs]）。
+  ///
+  /// 迁移到 SenPlayer 式可配置 Tab 后，页签可显隐、可排序，数字索引不再
+  /// 稳定——隐藏一个 Tab 后原来的 index 2 可能指向别的页。所以内部一律
+  /// 用 id，只有 IndexedStack 的槽位按 [SenTabPrefs.allIds] 的固定顺序换算。
+  String _tabId = 'home';
 
-  /// 已经真正构建过的页签。
-  ///
-  /// `IndexedStack` 会**布局全部 children**，哪怕只显示一个。四个页签
-  /// （媒体库/资源库/搜索/我的）一次性全建出来，就是「点底栏切到 Emby
-  /// 卡一下」的主要成本——切进去的那一帧要同时完成四棵树的构建与布局，
-  /// 其中媒体库还带着大图和横向滑轨。
-  ///
-  /// 改成按需构建：第一次只建当前页签，其余等真正点过去再建。
-  /// 没建过的用 `SizedBox.shrink()` 占位——它尺寸为 0，布局成本可以忽略，
-  /// 但保持了 children 长度固定（`IndexedStack` 的 index 依赖它）。
-  final Set<int> _built = <int>{0};
+  /// 已经真正构建过的页签（存 id，不存索引）。IndexedStack 会布局全部
+  /// children，按需构建能省掉「点进 Emby 卡一下」的成本；没建过的用
+  /// `SizedBox.shrink()` 占位（尺寸 0，布局成本可忽略），保持 children 长度固定。
+  final Set<String> _built = <String>{'home'};
   Future<_HomeData>? _future;
   bool _opening = false;
 
@@ -86,6 +89,10 @@ class _EmbyPageState extends State<EmbyPage> {
     // `load()` 里没有真正的 await，同步读一次就能拿到已保存的服务器。
     unawaited(EmbyService.instance.load());
     _server = EmbyService.instance.activeServer;
+    // SenPlayer 式默认 Tab：用户可在导航条的「管理」里改。
+    _tabId = SenTabPrefs.instance.defaultTab;
+    _built.add(_tabId);
+    SenTabPrefs.instance.revision.addListener(_onTabsChanged);
     // 「设为默认首页」：进 Emby 模块直接落在那台服务器（媒体库）或
     // 那个本地库。没有设置就保持原样（媒体库 + 上次选的服务器）。
     final String? homeKey = ResCardPrefs.instance.defaultHome;
@@ -114,7 +121,21 @@ class _EmbyPageState extends State<EmbyPage> {
   @override
   void dispose() {
     EmbyService.instance.revision.removeListener(_onRevisionChanged);
+    SenTabPrefs.instance.revision.removeListener(_onTabsChanged);
     super.dispose();
+  }
+
+  /// Tab 显隐 / 排序 / 默认页变更：若当前 Tab 被隐藏，落到第一个可见 Tab。
+  void _onTabsChanged() {
+    if (!mounted) return;
+    final List<String> visible = SenTabPrefs.instance.visibleIds;
+    final String next = visible.isEmpty
+        ? 'home'
+        : (visible.contains(_tabId) ? _tabId : visible.first);
+    setState(() {
+      _tabId = next;
+      _built.add(next);
+    });
   }
 
   void _onRevisionChanged() {
@@ -194,6 +215,7 @@ class _EmbyPageState extends State<EmbyPage> {
     // 这两块是「锦上添花」，服务器不支持或者超时都不该让整页变成错误态。
     var resume = <EmbyItem>[];
     var latest = <EmbyItem>[];
+    var nextUp = <EmbyItem>[];
     EmbyItemCounts? counts;
     try {
       resume = await client.fetchResume(userId: server.userId);
@@ -204,6 +226,11 @@ class _EmbyPageState extends State<EmbyPage> {
       latest = await client.fetchLatest(userId: server.userId);
     } catch (e) {
       KazumiLogger().w('Emby home: failed to load latest', error: e);
+    }
+    try {
+      nextUp = await client.fetchNextUp(userId: server.userId);
+    } catch (e) {
+      KazumiLogger().w('Emby home: failed to load nextUp', error: e);
     }
 
     // 每个内容库一条海报滑轨（预览稿的「3.追番」「4.日番」就是这种轨）。
@@ -260,6 +287,7 @@ class _EmbyPageState extends State<EmbyPage> {
       latest: latest,
       rails: rails,
       counts: counts,
+      nextUp: nextUp,
     );
     _homeCache = _HomeCacheEntry(server.id, data);
     return data;
@@ -377,14 +405,74 @@ class _EmbyPageState extends State<EmbyPage> {
     }
   }
 
-  void _pickPane(int index) {
-    if (!mounted) {
-      return;
-    }
+  /// 按稳定 id 切换页签。
+  void _pickTab(String id) {
+    if (!mounted) return;
+    if (!SenTabPrefs.instance.isVisible(id)) return;
     setState(() {
-      _pane = index;
-      _built.add(index);
+      _tabId = id;
+      _built.add(id);
     });
+  }
+
+  /// 兼容旧调用点：数字是旧的四页签布局，映射到稳定 id。
+  void _pickPane(int index) {
+    const List<String> legacy = <String>[
+      'library',
+      'resources',
+      'search',
+      'settings',
+    ];
+    _pickTab(index >= 0 && index < legacy.length ? legacy[index] : 'home');
+  }
+
+  /// 按稳定 id 构建对应页签。
+  Widget _buildPane(String id) {
+    switch (id) {
+      case 'home':
+        // 首页暂用媒体库页（后续任务换成 SenPlayer 四段式）。
+        return _LibraryPane(
+          onOpenDiscover: () => _pickTab('search'),
+          future: _future,
+          server: _server,
+          onRetry: _onRevisionChanged,
+          onSwitchServer: _openServers,
+          onPlay: _play,
+          onOpenDetail: _openDetail,
+          onOpenLibrary: _openLibrary,
+          onSearchServer: _openServerSearch,
+        );
+      case 'resources':
+        return EmbyResourcePane(
+          onSwitchServer: _switchServer,
+          onEditServer: _openServers,
+          onOpenLibrary: () => _pickTab('library'),
+        );
+      case 'files':
+        return const EmbyFilesPane();
+      case 'library':
+        return _LibraryPane(
+          onOpenDiscover: () => _pickTab('search'),
+          future: _future,
+          server: _server,
+          onRetry: _onRevisionChanged,
+          onSwitchServer: _openServers,
+          onPlay: _play,
+          onOpenDetail: _openDetail,
+          onOpenLibrary: _openLibrary,
+          onSearchServer: _openServerSearch,
+        );
+      case 'records':
+        return const EmbyRecordsPane();
+      case 'search':
+        return EmbySearchPane(
+          onOpenDetail: _openDetail,
+          onPlay: (EmbyItem item) => _play(item),
+        );
+      case 'settings':
+      default:
+        return EmbyMinePane(libraryCount: _libCount);
+    }
   }
 
   @override
@@ -399,44 +487,16 @@ class _EmbyPageState extends State<EmbyPage> {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          // IndexedStack 保三个页签的状态：切走再回来不用重新拉数据，
-          // 滚动位置也还在。空服务器时三个页签都给引导。
+          // IndexedStack 的 children 按 SenTabPrefs.allIds 固定顺序排列，
+          // 长度也固定；显示的 index 由稳定 id 换算。切走再回来状态还在。
           IndexedStack(
-            index: _pane,
+            index: SenTabPrefs.instance.slotOf(_tabId),
             children: <Widget>[
-              if (_built.contains(0))
-                _LibraryPane(
-                  onOpenDiscover: () => _pickPane(2),
-                  future: _future,
-                  server: _server,
-                  onRetry: _onRevisionChanged,
-                  onSwitchServer: _openServers,
-                  onPlay: _play,
-                  onOpenDetail: _openDetail,
-                  onOpenLibrary: _openLibrary,
-                  onSearchServer: _openServerSearch,
-                )
-              else
-                const SizedBox.shrink(),
-              if (_built.contains(1))
-                EmbyResourcePane(
-                  onSwitchServer: _switchServer,
-                  onEditServer: _openServers,
-                  onOpenLibrary: () => _pickPane(0),
-                )
-              else
-                const SizedBox.shrink(),
-              if (_built.contains(2))
-                EmbySearchPane(
-                  onOpenDetail: _openDetail,
-                  onPlay: (item) => _play(item),
-                )
-              else
-                const SizedBox.shrink(),
-              if (_built.contains(3))
-                EmbyMinePane(libraryCount: _libCount)
-              else
-                const SizedBox.shrink(),
+              for (final String id in SenTabPrefs.allIds)
+                if (_built.contains(id))
+                  _buildPane(id)
+                else
+                  const SizedBox.shrink(),
             ],
           ),
           // 二级导航：浮在底栏上方，不占内容高度。
@@ -458,9 +518,22 @@ class _EmbyPageState extends State<EmbyPage> {
           Positioned(
             left: 0,
             right: 0,
-            bottom: MediaQuery.paddingOf(context).bottom + 6,
+            top: SenTabPrefs.instance.dockAtTop
+                ? MediaQuery.paddingOf(context).top + 6
+                : null,
+            bottom: SenTabPrefs.instance.dockAtTop
+                ? null
+                : MediaQuery.paddingOf(context).bottom + 6,
             child: Center(
-              child: _EmbySubDock(index: _pane, onChanged: _pickPane),
+              child: AnimatedBuilder(
+                animation: SenTabPrefs.instance.revision,
+                builder: (context, _) => _EmbySubDock(
+                  selectedId: _tabId,
+                  ids: SenTabPrefs.instance.visibleIds,
+                  onChanged: _pickTab,
+                  onManage: () => showEmbyTabManager(context),
+                ),
+              ),
             ),
           ),
         ],
@@ -477,24 +550,24 @@ class _EmbyPageState extends State<EmbyPage> {
 /// 用户明确说过「不是要薄，是要位置往下」——所以厚度保持这个比例，
 /// 靠上面的 Positioned 去调位置。
 class _EmbySubDock extends StatelessWidget {
-  const _EmbySubDock({required this.index, required this.onChanged});
+  const _EmbySubDock({
+    required this.selectedId,
+    required this.ids,
+    required this.onChanged,
+    required this.onManage,
+  });
 
-  final int index;
-  final ValueChanged<int> onChanged;
-
-  static const _items = <(IconData, String)>[
-    (Icons.grid_view_rounded, '媒体库'),
-    (Icons.dns_rounded, '资源库'),
-    (Icons.search_rounded, '搜索'),
-    (Icons.person_outline_rounded, '我的'),
-  ];
+  final String selectedId;
+  final List<String> ids;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onManage;
 
   @override
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
 
-    // 二级导航胶囊：背后先模糊一层再叠半透明白，才是「磨砂玻璃」，
-    // 纯 68% 白在浅色背景上还是会读成一块白板。
+    // 二级导航胶囊：背后先模糊一层再叠半透明白，才是「磨砂玻璃」。
+    // 可配置成 7 个 Tab，超过屏宽时横向滚动；末尾固定一个「管理」入口。
     return ClipRRect(
       borderRadius: BorderRadius.circular(30),
       child: BackdropFilter(
@@ -516,17 +589,34 @@ class _EmbySubDock extends StatelessWidget {
           shadowColor: const Color(0x21141E32),
           child: Padding(
             padding: const EdgeInsets.all(3),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < _items.length; i++)
-                  _SubDockButton(
-                    icon: _items[i].$1,
-                    label: _items[i].$2,
-                    selected: i == index,
-                    onTap: () => onChanged(i),
-                  ),
-              ],
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width - 24,
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    for (final String id in ids)
+                      () {
+                        final SenTabMeta? meta = SenTabPrefs.metaOf(id);
+                        return _SubDockButton(
+                          icon: meta?.icon ?? Icons.circle,
+                          label: meta?.label ?? id,
+                          selected: id == selectedId,
+                          onTap: () => onChanged(id),
+                        );
+                      }(),
+                    _SubDockButton(
+                      icon: Icons.tune_rounded,
+                      label: '管理',
+                      selected: false,
+                      onTap: onManage,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -554,11 +644,13 @@ class _SubDockButton extends StatelessWidget {
         ? PvColors.subInk(context)
         : const Color(0xFF6C6C72);
 
-    return PressableInk(
+    return KzPressable(
       onTap: onTap,
+      pressedOpacity: 0.72,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
+        // 选中态切换用弹簧：iOS Tab 指示器的那一下轻微过冲。
+        duration: KazumiMotion.base,
+        curve: KazumiMotion.spring,
         height: 26,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         alignment: Alignment.center,
@@ -586,26 +678,6 @@ class _SubDockButton extends StatelessWidget {
   }
 }
 
-/// 无主题依赖的按压缩放包装（预览稿的按下反馈很轻，只要一点透明度）。
-class PressableInk extends StatelessWidget {
-  const PressableInk({super.key, required this.onTap, required this.child});
-
-  final VoidCallback onTap;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: child,
-      ),
-    );
-  }
-}
-
 class _HomeData {
   const _HomeData({
     required this.server,
@@ -614,6 +686,7 @@ class _HomeData {
     required this.latest,
     this.rails = const [],
     this.counts,
+    this.nextUp = const [],
   });
 
   final EmbyServer? server;
@@ -622,6 +695,9 @@ class _HomeData {
   final List<EmbyItem> latest;
   final List<_LibRail> rails;
   final EmbyItemCounts? counts;
+
+  /// 接下来观看（SenPlayer 首页四段式之一）。
+  final List<EmbyItem> nextUp;
 }
 
 /// 每个内容库一条滑轨的数据。
@@ -759,6 +835,23 @@ class _HomeBodyState extends State<_HomeBody> {
                     data: data,
                     // 顶部状态栏压在大图上，先给顶栏留出安全区。
                     onPlay: widget.onPlay,
+                  ),
+                ),
+              ],
+              // 接下来观看（SenPlayer 四段式）：服务端按续播进度挑的下一集。
+              if (data.nextUp.isNotEmpty) ...[
+                PvSliverHead(
+                  title: '接下来观看',
+                  count: '${data.nextUp.length}',
+                  onMore: () {},
+                ),
+                SliverToBoxAdapter(
+                  child: _PosterRail(
+                    server: server,
+                    items: data.nextUp,
+                    onTap: (item) => item.isSeries
+                        ? widget.onOpenDetail(item)
+                        : widget.onPlay(item),
                   ),
                 ),
               ],

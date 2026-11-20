@@ -53,6 +53,19 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
   bool _mouseDrag = false;
   double? _hoverFraction;
 
+  // —— 相对拖动（速度自适应增益）——
+  // 之前是绝对映射（全宽 = 全片时长），长视频稍微拖一下就跳好几分钟。
+  // 现在拖动以「按下时的播放位置」为锚点做相对偏移：
+  // 慢拖精细（全屏最多约 4 分钟），快甩跨越（增益提至 1.3x），
+  // 轻点（位移 <6px 且 <300ms）仍按按下位置绝对跳转。
+  Duration? _dragTime;
+  double _lastX = 0;
+  Duration? _lastTs;
+  double _vel = 0; // px/ms，EMA 平滑后的瞬时速度
+  double _absDx = 0;
+  DateTime _downWall = DateTime.now();
+  double? _tapFraction;
+
   bool get _seekable => widget.total > Duration.zero;
 
   double? get _previewFraction {
@@ -103,27 +116,92 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
 
   void _handleDragStart(DragStartDetails details, _Track track) {
     if (!_seekable || track.isEmpty) return;
-    final fraction = track.fractionAt(details.localPosition.dx);
+    final dx = details.localPosition.dx;
     setState(() {
-      _dragFraction = fraction;
+      _dragTime = widget.progress; // 锚点 = 当前播放位置
+      _dragFraction = _fractionOf(widget.progress);
       _mouseDrag = details.kind == PointerDeviceKind.mouse;
       _hoverFraction = null;
+      _lastX = dx;
+      _lastTs = details.sourceTimeStamp;
+      _vel = 0;
+      _absDx = 0;
+      _downWall = DateTime.now();
+      _tapFraction = track.fractionAt(dx); // 轻点时的绝对目标
     });
     _syncPreview();
     widget.onDragStart();
-    widget.onDragUpdate(_timeAt(fraction));
+    widget.onDragUpdate(widget.progress);
+  }
+
+  /// 拖动增益：慢拖全屏最多约 4 分钟，快甩按绝对比例 1.3x。
+  /// 返回的是「相对绝对基准速率的倍率」。
+  double _dragGain(double speedPxMs, _Track track) {
+    final base = track.secondsPerMs(widget.total); // 绝对映射的 s/ms
+    if (base <= 0) return 0;
+    final span = math.max(track.end - track.start, 1);
+    // 精细端：全屏拖动 ≈ 240s；短视频下不低于绝对比例的 35%
+    final fineSecondsPerPx = math.min(base * 1000 * 0.35, 240.0 / span);
+    final fastSecondsPerPx = base * 1000 * 1.3;
+    double secondsPerPx;
+    if (speedPxMs <= 0.3) {
+      secondsPerPx = fineSecondsPerPx;
+    } else if (speedPxMs >= 1.2) {
+      secondsPerPx = fastSecondsPerPx;
+    } else {
+      final t = (speedPxMs - 0.3) / 0.9;
+      secondsPerPx =
+          fineSecondsPerPx + (fastSecondsPerPx - fineSecondsPerPx) * t * t;
+    }
+    return secondsPerPx / (base * 1000);
   }
 
   void _handleDragUpdate(DragUpdateDetails details, _Track track) {
-    if (_dragFraction == null) return;
-    final fraction = track.fractionAt(details.localPosition.dx);
-    setState(() => _dragFraction = fraction);
-    widget.onDragUpdate(_timeAt(fraction));
+    if (_dragTime == null) return;
+    final dx = details.localPosition.dx;
+    final ts = details.sourceTimeStamp;
+    final dtMs = (ts != null && _lastTs != null)
+        ? math.max((ts - _lastTs!).inMilliseconds, 1)
+        : 16;
+    _lastTs = ts;
+    final instant = (dx - _lastX).abs() / dtMs;
+    _vel = _vel * 0.55 + instant * 0.45; // EMA 平滑，避免抖动突变
+    _absDx += (dx - _lastX).abs();
+
+    final gain = _dragGain(_vel, track);
+    final base = track.secondsPerMs(widget.total);
+    var next = _dragTime! +
+        Duration(milliseconds: ((dx - _lastX) * base * gain * 1000).round());
+    if (next < Duration.zero) next = Duration.zero;
+    if (next > widget.total) next = widget.total;
+    _lastX = dx;
+    setState(() {
+      _dragTime = next;
+      _dragFraction = _fractionOf(next);
+    });
+    widget.onDragUpdate(next);
   }
 
   void _handleDragEnd({required bool cancelled}) {
-    if (_dragFraction == null) return;
-    setState(() => _dragFraction = null);
+    if (_dragTime == null) return;
+    final elapsed = DateTime.now().difference(_downWall).inMilliseconds;
+    // 轻点：按按下位置绝对跳转（保持旧行为里的点击直达）
+    if (!cancelled &&
+        _seekable &&
+        _absDx < 6 &&
+        elapsed < 300 &&
+        _tapFraction != null) {
+      final target = _timeAt(_tapFraction!);
+      _dragTime = target;
+      _dragFraction = _tapFraction;
+      widget.onDragUpdate(target);
+    }
+    setState(() {
+      _dragTime = null;
+      _dragFraction = null;
+      _tapFraction = null;
+      _lastTs = null;
+    });
     _syncPreview();
     widget.onDragEnd(cancelled || !_seekable);
   }
@@ -275,6 +353,10 @@ class _Track {
 
   double fractionAt(double dx) =>
       isEmpty ? 0 : ((dx - start) / (end - start)).clamp(0.0, 1.0);
+
+  /// 绝对映射下每毫秒对应的像素值（total.ms / 有效轨道 ms 的倒数，单位 s/ms）。
+  double secondsPerMs(Duration total) =>
+      isEmpty ? 0 : total.inMilliseconds / 1000 / (end - start);
 
   bool covers(double dx) => !isEmpty && dx >= inset && dx <= width - inset;
 }

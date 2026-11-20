@@ -730,6 +730,28 @@ class EmbyClient {
     return _itemsOf(body);
   }
 
+  /// 接下来观看：服务端按续播进度挑出的下一集（Emby/Jellyfin `/Shows/NextUp`）。
+  ///
+  /// SenPlayer 首页四段式里的「接下来观看」就是这一段。个别服务端不支持时
+  /// 会抛异常，调用方 catch 住即可——首页缺一段不该变错误态。
+  Future<List<EmbyItem>> fetchNextUp({
+    required String userId,
+    int limit = 12,
+  }) async {
+    final body = await _getJson(
+      '/Shows/NextUp',
+      query: {
+        'UserId': userId,
+        'Limit': '$limit',
+        'Recursive': 'true',
+        'Fields': _itemFields,
+        'ImageTypeLimit': '1',
+        'EnableImageTypes': 'Primary,Backdrop',
+      },
+    );
+    return _itemsOf(body);
+  }
+
   /// 某个剧的所有季。
   Future<List<EmbyItem>> fetchSeasons({
     required String seriesId,

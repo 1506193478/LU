@@ -86,15 +86,27 @@ class _MaterialSheetSurface extends StatefulWidget {
 }
 
 class _MaterialSheetSurfaceState extends State<_MaterialSheetSurface>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final _entrance = AnimationController.unbounded(vsync: this);
+  late final _content = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 240),
+    value: 0,
+  );
+  late final CurvedAnimation _contentCurve =
+      CurvedAnimation(parent: _content, curve: Curves.easeOutCubic);
   bool _started = false;
+
+  // 内容层次：底板 spring 上来之后，内容再延迟 60ms 轻滑入（14px 收尾），
+  // 避免「整块面板连人带内容一起怼进屏幕」的生硬感。
+  // （impeccable：routine transition 底板先行，内容做 8–16px 的收尾。）
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (MediaQuery.disableAnimationsOf(context)) {
       _started = true;
+      _content.value = 1;
       _entrance.value = 1;
     } else if (!_started) {
       _started = true;
@@ -111,6 +123,9 @@ class _MaterialSheetSurfaceState extends State<_MaterialSheetSurface>
           0,
           snapToEnd: false,
         ));
+        Future.delayed(const Duration(milliseconds: 60), () {
+          if (mounted) _content.forward();
+        });
       });
     }
   }
@@ -118,6 +133,7 @@ class _MaterialSheetSurfaceState extends State<_MaterialSheetSurface>
   @override
   void dispose() {
     _entrance.dispose();
+    _content.dispose();
     super.dispose();
   }
 
@@ -179,7 +195,19 @@ class _MaterialSheetSurfaceState extends State<_MaterialSheetSurface>
                     ),
                   ),
                 ),
-                Flexible(child: widget.child),
+                Flexible(
+                  child: AnimatedBuilder(
+                    animation: _contentCurve,
+                    builder: (context, child) => Opacity(
+                      opacity: _contentCurve.value.clamp(0.0, 1.0),
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - _contentCurve.value) * 14),
+                        child: child,
+                      ),
+                    ),
+                    child: widget.child,
+                  ),
+                ),
               ],
             ),
           ),

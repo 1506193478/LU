@@ -29,6 +29,8 @@ class LuCloudDrive {
     'aliyun',
     'onedrive',
     'dropbox',
+    'google',
+    'quark',
   };
 
   static bool isCloudType(String type) => cloudTypes.contains(type);
@@ -37,7 +39,13 @@ class LuCloudDrive {
   static String authMode(String type) => switch (type) {
         '123' => 'password',
         '115' => 'qrcode',
-        'aliyun' || 'baidu' || 'onedrive' || 'dropbox' => 'token',
+        'aliyun' ||
+        'baidu' ||
+        'onedrive' ||
+        'dropbox' ||
+        'google' ||
+        'quark' =>
+        'token',
         _ => 'none',
       };
 
@@ -49,6 +57,8 @@ class LuCloudDrive {
         'aliyun' => '阿里网盘',
         'onedrive' => 'OneDrive',
         'dropbox' => 'Dropbox',
+        'google' => 'Google Drive',
+        'quark' => '夸克网盘',
         _ => type,
       };
 
@@ -58,6 +68,8 @@ class LuCloudDrive {
         'baidu' => '在百度网盘开放平台控制台拿 access_token',
         'onedrive' => '在 Microsoft Graph 拿 access_token（需应用注册）',
         'dropbox' => '在 Dropbox App Console 拿 access_token',
+        'google' => 'Google OAuth access_token（作用域 drive.readonly）',
+        'quark' => '夸克网盘网页版 Cookie（含登录凭据）',
         _ => '粘贴该网盘的访问令牌',
       };
 
@@ -687,6 +699,114 @@ class LuCloudApi {
     return body is Map ? body['link']?.toString() : null;
   }
 
+  // ------------------------------------------------------------ Google Drive
+  // OAuth access_token，作用域需含 https://www.googleapis.com/auth/drive.readonly
+
+  static Future<List<LuCloudFile>> _listGoogle(
+    LuCloudAccount a, {
+    required String parentId,
+  }) async {
+    final dio = _dio({..._ua, 'Authorization': 'Bearer ${a.token}'});
+    final q = "'${parentId.isEmpty ? 'root' : parentId}' in parents and trashed=false";
+    final res = await dio.get(
+      'https://www.googleapis.com/drive/v3/files',
+      queryParameters: {
+        'q': q,
+        'pageSize': 1000,
+        'fields': 'files(id,name,mimeType,size),nextPageToken',
+        'supportsAllDrives': true,
+        'includeItemsFromAllDrives': true,
+      },
+    );
+    final body = res.data;
+    final list = body is Map ? body['files'] : null;
+    if (list is! List) {
+      throw LuCloudException('Google Drive 目录读取失败：${res.statusCode}');
+    }
+    return [
+      for (final e in list)
+        if (e is Map)
+          LuCloudFile(
+            id: e['id']?.toString() ?? '',
+            name: e['name']?.toString() ?? '',
+            isDir: (e['mimeType']?.toString() ?? '').contains('folder'),
+            size: (e['size'] as num?)?.toInt() ?? 0,
+            raw: Map<String, dynamic>.from(e),
+          ),
+    ];
+  }
+
+  static Future<String?> _playGoogle(LuCloudAccount a, LuCloudFile f) async {
+    final dio = _dio({..._ua, 'Authorization': 'Bearer ${a.token}'});
+    final res = await dio.get(
+      'https://www.googleapis.com/drive/v3/files/${f.id}',
+      queryParameters: {'alt': 'media', 'supportsAllDrives': true},
+      options: Options(followRedirects: false, validateStatus: (_) => true),
+    );
+    // 302 的 location 就是直链。
+    final location = res.headers.value('location');
+    if (location != null && location.isNotEmpty) return location;
+    return null;
+  }
+
+  // ------------------------------------------------------------ 夸克网盘
+  // 夸克无公开开放平台，走 web API（cookie 里带 _u / cknet 等鉴权字段）。
+
+  static Future<List<LuCloudFile>> _listQuark(
+    LuCloudAccount a, {
+    required String parentId,
+  }) async {
+    final dio = _dio({..._ua, 'Cookie': a.token});
+    final res = await dio.post(
+      'https://drive.quark.cn/1/clouddrive/file/sort',
+      queryParameters: {
+        'pr': 'ucpro',
+        'fr': 'pc',
+        'uc_param_str': '',
+      },
+      data: {
+        'pdir_fid': parentId.isEmpty ? '0' : parentId,
+        '_page': 1,
+        '_size': 500,
+        '_fetch_total': 1,
+        '_sort': 'file_name:asc',
+      },
+    );
+    final body = res.data;
+    final data = body is Map ? body['data'] : null;
+    final list = data is Map ? data['list'] : null;
+    if (list is! List) {
+      throw LuCloudException('夸克网盘目录读取失败：${body is Map ? body['message'] : res.statusCode}');
+    }
+    return [
+      for (final e in list)
+        if (e is Map)
+          LuCloudFile(
+            id: e['fid']?.toString() ?? '',
+            name: e['file_name']?.toString() ?? '',
+            isDir: e['file_type'] == 0,
+            size: (e['size'] as num?)?.toInt() ?? 0,
+            raw: Map<String, dynamic>.from(e),
+          ),
+    ];
+  }
+
+  static Future<String?> _playQuark(LuCloudAccount a, LuCloudFile f) async {
+    final dio = _dio({..._ua, 'Cookie': a.token});
+    final res = await dio.post(
+      'https://drive.quark.cn/1/clouddrive/file/download',
+      queryParameters: {'pr': 'ucpro', 'fr': 'pc'},
+      data: {'fids': [f.id]},
+    );
+    final body = res.data;
+    final data = body is Map ? body['data'] : null;
+    final list = data is Map ? data['list'] : null;
+    if (list is List && list.isNotEmpty && list.first is Map) {
+      return (list.first as Map)['download_url']?.toString();
+    }
+    return null;
+  }
+
   // ------------------------------------------------------------ 统一入口
 
   static Future<List<LuCloudFile>> list(
@@ -707,6 +827,10 @@ class LuCloudApi {
           return await _listOneDrive(a, parentId: parentId);
         case 'dropbox':
           return await _listDropbox(a, parentId: parentId);
+        case 'google':
+          return await _listGoogle(a, parentId: parentId);
+        case 'quark':
+          return await _listQuark(a, parentId: parentId);
         default:
           throw LuCloudException(
             '${LuCloudDrive.labelOf(a.type)} 没有公开接口，暂时只能保存账号，取不到目录',
@@ -732,6 +856,10 @@ class LuCloudApi {
           return await _playOneDrive(a, f);
         case 'dropbox':
           return await _playDropbox(a, f);
+        case 'google':
+          return await _playGoogle(a, f);
+        case 'quark':
+          return await _playQuark(a, f);
         default:
           return null;
       }

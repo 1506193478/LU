@@ -23,7 +23,10 @@ import 'package:XL/pages/emby/emby_vault_lock_settings_page.dart';
 import 'package:XL/services/emby/vault_lock.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_play_behavior_page.dart';
+import 'package:XL/pages/emby/player/emby_player_buttons_page.dart';
 import 'package:XL/pages/emby/emby_scan_page.dart';
+import 'package:XL/pages/emby/emby_tab_manager.dart';
+import 'package:XL/pages/emby/emby_iptv_page.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/res_card_prefs.dart';
 import 'package:XL/theme/kz_context_menu.dart';
@@ -1852,6 +1855,15 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 onTap: () => context.pushNamed('/emby/media'),
               ),
               PvRow(
+                icon: Icons.live_tv_rounded,
+                iconColor: const Color(0xFFFF375F),
+                title: 'IPTV',
+                subtitle: 'M3U / M3U8 订阅 · 频道分组',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const EmbyIptvPage()),
+                ),
+              ),
+              PvRow(
                 icon: Icons.favorite_rounded,
                 iconColor: const Color(0xFFFF375F),
                 title: '收藏',
@@ -1983,6 +1995,37 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
               ),
             ],
           ),
+          const PvGroupLabel('界面与模块'),
+          PvGroup(
+            children: [
+              PvRow(
+                icon: Icons.dashboard_customize_rounded,
+                iconColor: const Color(0xFF0A84FF),
+                title: '模块管理',
+                subtitle: '显隐 / 排序 / 默认页 / 导航位置',
+                onTap: () => showEmbyTabManager(context),
+              ),
+              PvRow(
+                icon: Icons.toggle_on_rounded,
+                iconColor: const Color(0xFF0A84FF),
+                title: '播放器按钮',
+                subtitle: '逐个显示 / 隐藏控制栏按钮',
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const EmbyPlayerButtonsPage(),
+                  ),
+                ),
+              ),
+              PvRow(
+                icon: Icons.settings_rounded,
+                iconColor: const Color(0xFF8E8E93),
+                title: '全部设置',
+                subtitle: '播放 · 字幕 · 弹幕 · 界面 · 同步',
+                onTap: () => context.pushNamed('/settings/'),
+                showDivider: false,
+              ),
+            ],
+          ),
           const PvGroupLabel('其他'),
           PvGroup(
             children: [
@@ -1992,13 +2035,6 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 title: '添加服务器',
                 subtitle: '连接 Emby / Jellyfin',
                 onTap: () => context.pushNamed('/emby/media'),
-              ),
-              PvRow(
-                icon: Icons.settings_rounded,
-                iconColor: const Color(0xFF8E8E93),
-                title: '设置',
-                onTap: () => context.pushNamed('/settings/'),
-                showDivider: false,
               ),
             ],
           ),

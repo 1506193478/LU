@@ -12,7 +12,9 @@ import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/pages/emby/emby_server_form_page.dart';
+import 'package:XL/pages/emby/emby_cloud_sheet.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
+import 'package:XL/services/emby/lu_cloud_drive.dart';
 import 'package:XL/theme/ios_interaction.dart';
 
 class EmbyProviderPickerPage extends StatelessWidget {
@@ -61,6 +63,20 @@ class EmbyProviderPickerPage extends StatelessWidget {
       Color(0xFF2C2C2E),
       'local',
     ),
+    _Provider(
+      'Google Drive',
+      'Google 云端硬盘（OAuth token）',
+      Icons.drive_folder_upload_rounded,
+      Color(0xFF4285F4),
+      'google',
+    ),
+    _Provider(
+      '夸克网盘',
+      '夸克网盘（网页版 Cookie）',
+      Icons.cloud_queue_rounded,
+      Color(0xFFFF6B2C),
+      'quark',
+    ),
   ];
 
   Future<void> _pick(BuildContext context, _Provider p) async {
@@ -71,6 +87,11 @@ class EmbyProviderPickerPage extends StatelessWidget {
     if (p.type == 'local') {
       // 本地来源在资源库里（本地文件 / 本地私密 / 相册），不在这里再开一套。
       await context.pushNamed('/emby');
+      return;
+    }
+    // 网盘走各自的授权流程（token / cookie）。
+    if (LuCloudDrive.isCloudType(p.type)) {
+      await showLuCloudSheet(context, type: p.type);
       return;
     }
     await showEmbyServerSheet(context, type: p.type);

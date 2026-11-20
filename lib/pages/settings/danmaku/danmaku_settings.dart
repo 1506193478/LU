@@ -161,6 +161,55 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
   }
 
   @override
+  /// 自定义弹幕 API 域名输入。留空恢复官方接口。
+  Future<void> _editDanmakuApi() async {
+    final controller = TextEditingController(
+      text: GStorage.getSetting(SettingsKeys.embyDanmakuApiBase),
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('自定义弹幕 API'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '填入服务根地址，不含结尾斜杠，例如 https://api.example.com。'
+              '留空则使用官方弹弹Play 接口。',
+              style: TextStyle(fontSize: 12, height: 1.45),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                hintText: 'https://api.dandanplay.net',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      await GStorage.putSetting(SettingsKeys.embyDanmakuApiBase, result);
+    }
+    controller.dispose();
+  }
+
   Widget build(BuildContext context) {
     return SettingsDetailScaffold(
       title: const Text('弹幕设置'),
@@ -193,6 +242,21 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
                     setting: SettingsKeys.danmakuSource,
                   );
                   if (changed && mounted) setState(() {});
+                },
+              ),
+              SettingsTile(
+                leading: Icons.api_rounded,
+                title: Text('自定义弹幕 API'),
+                description: Text(
+                  GStorage.getSetting(SettingsKeys.embyDanmakuApiBase).isEmpty
+                      ? '留空使用官方接口；路径约定与弹弹Play 一致'
+                      : GStorage.getSetting(SettingsKeys.embyDanmakuApiBase),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onPressed: (context) async {
+                  await _editDanmakuApi();
+                  if (mounted) setState(() {});
                 },
               ),
             ],

@@ -5,6 +5,8 @@ import 'package:flutter/cupertino.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:XL/utils/motion.dart';
+
 /// 播放器里的 iOS 风格弹出菜单（对标 `UIMenu`）。
 ///
 /// 为什么不用 bottom sheet：播放器是横屏全屏画面，从底部升起来一张大板子，
@@ -294,7 +296,10 @@ class _MenuPressState extends State<_MenuPress> {
       behavior: HitTestBehavior.opaque,
       onTapDown: widget.onTap == null
           ? null
-          : (_) => setState(() => _down = true),
+          : (_) {
+              KazumiHaptics.tap();
+              setState(() => _down = true);
+            },
       onTapUp: widget.onTap == null
           ? null
           : (_) => setState(() => _down = false),
@@ -303,8 +308,9 @@ class _MenuPressState extends State<_MenuPress> {
           : () => setState(() => _down = false),
       onTap: widget.onTap,
       child: AnimatedContainer(
-        duration: Duration(milliseconds: _down ? 80 : 180),
-        curve: Curves.easeOut,
+        // 按下立刻着色（跟手），松手慢一点褪掉，和全局按压反馈同一节奏。
+        duration: _down ? KazumiMotion.instant : KazumiMotion.base,
+        curve: KazumiMotion.standard,
         color: _down ? embyMenuPressed : Colors.transparent,
         child: widget.child,
       ),

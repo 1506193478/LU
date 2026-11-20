@@ -41,7 +41,7 @@ class EmbyImage extends StatefulWidget {
     required this.url,
     this.headers,
     this.fit = BoxFit.cover,
-    this.fadeIn = const Duration(milliseconds: 180),
+    this.fadeIn = const Duration(milliseconds: 320),
   });
 
   final String url;
