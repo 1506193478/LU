@@ -10,6 +10,7 @@ import 'package:XL/services/download/background_download_service.dart';
 import 'package:XL/services/download/download_manager.dart';
 import 'package:XL/utils/format.dart';
 import 'package:XL/services/logging/logger.dart';
+import 'package:XL/services/notification/lu_notification_center.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/services/video_source/services.dart';
 import 'package:XL/request/apis/danmaku_api.dart';
@@ -173,6 +174,19 @@ abstract class _DownloadController with Store {
         episodeNumber,
         episode.downloadDirectory,
       );
+    }
+    // 下载完成/失败进通知中心（用固定 id 防重复：同一集多次完成只留一条）。
+    if (episode.status == DownloadStatus.completed ||
+        episode.status == DownloadStatus.failed) {
+      unawaited(LuNotificationCenter.instance.add(
+        category: episode.status == DownloadStatus.completed
+            ? LuNotificationCategory.download
+            : LuNotificationCategory.system,
+        title: episode.status == DownloadStatus.completed ? '下载完成' : '下载失败',
+        body: '${record.bangumiName} 第 $episodeNumber 集',
+        id: 'download-${record.key}-$episodeNumber',
+        route: '/settings/download/',
+      ));
     }
 
     final key = '${recordKey}_$episodeNumber';

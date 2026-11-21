@@ -83,6 +83,9 @@ class _PluginViewPageState extends State<PluginViewPage> {
       case RuleAddSource.create:
         context.pushNamed('/settings/plugin/editor',
             arguments: Plugin.fromTemplate());
+      case RuleAddSource.jsonApi:
+        context.pushNamed('/settings/plugin/editor',
+            arguments: Plugin.jsonApiTemplate());
       case RuleAddSource.clipboard:
         String? initialValue;
         try {

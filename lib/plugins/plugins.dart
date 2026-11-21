@@ -147,6 +147,44 @@ class Plugin {
     );
   }
 
+  /// Animeko 式 JSON API 数据源模板：搜索/选集都走 API 模式，
+  /// 预填常见 JSONPath，用户只需填两个接口地址即可跑通。
+  factory Plugin.jsonApiTemplate() {
+    return Plugin(
+      api: ApiEndpoints.apiLevel.toString(),
+      type: 'anime',
+      name: 'JSON API 数据源',
+      version: '1.0',
+      muliSources: true,
+      useWebview: false,
+      useNativePlayer: true,
+      usePost: false,
+      useLegacyParser: false,
+      adBlocker: false,
+      userAgent: '',
+      baseUrl: '',
+      searchURL: '',
+      searchList: '',
+      searchName: '',
+      searchResult: '',
+      chapterRoads: '',
+      chapterResult: '',
+      referer: '',
+      searchMode: RuleMode.api,
+      chapterMode: RuleMode.api,
+      searchApiConfig: ApiSearchConfig(
+        request: ApiRequestConfig(url: ''),
+        listPath: r'$.data[*]',
+        namePath: r'$.name',
+        sourcePath: r'$.url',
+      ),
+      chapterApiConfig: ApiChapterConfig(
+        request: ApiRequestConfig(url: ''),
+      ),
+      antiCrawlerConfig: AntiCrawlerConfig.empty(),
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'api': api,

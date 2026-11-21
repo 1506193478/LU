@@ -13,7 +13,7 @@ import 'package:XL/services/plugin/plugin_import_parser.dart';
 import 'package:XL/utils/encoding.dart';
 import 'package:XL/bean/widget/clay.dart';
 
-enum RuleAddSource { catalog, clipboard, file, create }
+enum RuleAddSource { catalog, clipboard, file, create, jsonApi }
 
 Future<RuleAddSource?> showRuleAddDialog(BuildContext context) =>
     KazumiDialog.show<RuleAddSource>(
@@ -52,7 +52,13 @@ Future<RuleAddSource?> showRuleAddDialog(BuildContext context) =>
                   RuleAddSource.create,
                   Icons.edit_note_rounded,
                   '新建规则',
-                  '从模板开始编写'
+                  '从 XPath 模板开始编写'
+                ),
+                (
+                  RuleAddSource.jsonApi,
+                  Icons.data_object_rounded,
+                  '新建 JSON API 数据源',
+                  '从 JSON 接口模板开始配置'
                 ),
               ])
                 Padding(

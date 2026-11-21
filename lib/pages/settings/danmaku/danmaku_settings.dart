@@ -5,6 +5,7 @@ import 'package:XL/bean/settings/settings_detail_scaffold.dart';
 import 'package:XL/bean/settings/settings_list.dart';
 import 'package:XL/bean/settings/network_mirror_settings.dart';
 import 'package:XL/pages/settings/danmaku/danmaku_ch_convert_tile.dart';
+import 'package:XL/pages/settings/danmaku/danmaku_source_convert_tile.dart';
 import 'package:XL/services/network/danmaku_source.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/bean/widget/clay.dart';
@@ -316,6 +317,7 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
             title: Text('弹幕显示'),
             tiles: [
               const DanmakuChConvertTile(),
+              const DanmakuSourceConvertTile(),
               SettingsSliderTile(
                 leading: Icons.crop_free_rounded,
                 title: Text('弹幕区域'),

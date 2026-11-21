@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -18,6 +19,18 @@ import 'package:flutter/services.dart';
 class AvPlayerEngine extends ChangeNotifier {
   static const MethodChannel _channel = MethodChannel('xl/avplayer');
   static const EventChannel _events = EventChannel('xl/avplayer/events');
+
+  /// 设备是否支持系统画中画（与当前内核无关，任何时机都能查）。
+  /// 原生侧 AVPictureInPictureController.isPictureInPictureSupported()
+  /// 是类方法，不依赖播放器实例，所以这里用静态方法探测即可。
+  static Future<bool> isDevicePipSupported() async {
+    if (!Platform.isIOS) return false;
+    try {
+      return await _channel.invokeMethod<bool>('isPipAvailable') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   StreamSubscription<dynamic>? _sub;
 
@@ -226,7 +239,11 @@ class AvPlayerEngine extends ChangeNotifier {
   void _onEvent(dynamic raw) {
     if (_disposed || raw is! Map) return;
     final event = Map<String, dynamic>.from(raw);
-    switch (event['type']) {
+    // 原生主动进小窗的失败事件用的是 `event` 键（历史协议），
+    // 其余事件用 `type` 键。这里两种都认，避免失败被 default 吞掉、
+    // 用户点了按钮却「没反应」。
+    final kind = event['type']?.toString() ?? event['event']?.toString() ?? '';
+    switch (kind) {
       case 'state':
         position = Duration(milliseconds: (event['position'] as int?) ?? 0);
         duration = Duration(milliseconds: (event['duration'] as int?) ?? 0);
@@ -252,6 +269,10 @@ class AvPlayerEngine extends ChangeNotifier {
         pipActive = event['active'] == true;
         final message = event['message']?.toString() ?? '';
         if (message.isNotEmpty) pipError = message;
+      case 'pip_error':
+        // 原生 emitPipFailure 的格式：event=pip_error, message=原因。
+        pipActive = false;
+        pipError = event['message']?.toString() ?? '画中画启动失败';
       default:
         return;
     }

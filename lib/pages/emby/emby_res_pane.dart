@@ -18,6 +18,8 @@ import 'package:XL/pages/emby/emby_cloud_sheet.dart';
 import 'package:XL/pages/emby/emby_display_prefs_page.dart';
 import 'package:XL/pages/emby/emby_favorites_page.dart';
 import 'package:XL/pages/emby/emby_gesture_settings_page.dart';
+import 'package:XL/pages/emby/emby_pip_settings_page.dart';
+import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/pages/emby/emby_stream_settings_page.dart';
 import 'package:XL/pages/emby/emby_vault_lock_settings_page.dart';
 import 'package:XL/services/emby/vault_lock.dart';
@@ -1955,8 +1957,23 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                     builder: (_) => const EmbyPlayBehaviorPage(),
                   ),
                 ),
-                showDivider: false,
               ),
+              if (Platform.isIOS)
+                PvRow(
+                  icon: Icons.picture_in_picture_alt_rounded,
+                  iconColor: const Color(0xFF34C759),
+                  title: '画中画',
+                  value: EmbyPipPrefs.autoEnter ? '自动开启' : '手动',
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const EmbyPipSettingsPage(),
+                      ),
+                    );
+                    if (mounted) setState(() {});
+                  },
+                  showDivider: false,
+                ),
             ],
           ),
           const PvGroupLabel('画质与性能'),

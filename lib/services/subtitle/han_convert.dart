@@ -107,6 +107,26 @@ class HanConvert {
     unawaited(_ensureTable(_mode));
   }
 
+  /// 确保某个方向的表已加载（公开给「按来源转换」和预览用）。
+  /// 字幕渲染走同步 [apply]，弹幕按来源转换与预览可以 await 这个方法。
+  static Future<void> ensureMode(HanConvertMode mode) async {
+    if (mode == HanConvertMode.off) return;
+    _failed.remove(mode); // 允许重试上次加载失败的方向。
+    await _ensureTable(mode);
+  }
+
+  /// 用显式方向转换文本（不受全局字幕设置影响）。
+  /// 词表没就绪时原样返回，避免阻塞渲染；调用方可先 await [ensureMode]。
+  static String applyWithMode(String text, HanConvertMode mode) {
+    if (mode == HanConvertMode.off || text.isEmpty) return text;
+    final table = _tables[mode];
+    if (table == null) {
+      unawaited(_ensureTable(mode));
+      return text;
+    }
+    return table.convert(text);
+  }
+
   static Future<void> _ensureTable(HanConvertMode mode) async {
     if (mode == HanConvertMode.off) return;
     if (_tables.containsKey(mode) ||

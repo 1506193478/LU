@@ -553,7 +553,7 @@ import app_links
     }
 
     private func emitPipFailure(_ message: String) {
-        eventSink?(["event": "pip_error", "message": message])
+        eventSink?(["type": "pip", "active": false, "message": message] as [String: Any])
     }
 
     // MARK: - AVPictureInPictureControllerDelegate
@@ -563,6 +563,7 @@ import app_links
     ) {
         // 小窗里已经在放了，App 内的画面先藏起来，避免同一路画面出现两份。
         playerController?.view.isHidden = true
+        eventSink?(["type": "pip", "active": true] as [String: Any])
     }
 
     public func pictureInPictureControllerDidStopPictureInPicture(
@@ -570,6 +571,7 @@ import app_links
     ) {
         playerController?.view.isHidden = false
         teardownPipLayer()
+        eventSink?(["type": "pip", "active": false] as [String: Any])
     }
 
     public func pictureInPictureController(

@@ -17,6 +17,7 @@ import 'package:XL/services/network/metered_network_service.dart';
 import 'package:XL/services/network/ech_http_licenses.dart';
 import 'package:XL/services/network/proxy_manager.dart';
 import 'package:XL/services/network/system_proxy_service.dart';
+import 'package:XL/services/notification/lu_notification_center.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
@@ -68,6 +69,8 @@ void main() async {
     final hivePath = '${(await getApplicationSupportDirectory()).path}/hive';
     await Hive.initFlutter(hivePath);
     await GStorage.init();
+    // 通知中心首启播一条欢迎消息（版本化 seed，升级后可再播一次）。
+    await LuNotificationCenter.instance.seedIfNeeded(429);
     await _migrateBackgroundPlayback();
     await _collectNativeCrashLog();
   } catch (e) {

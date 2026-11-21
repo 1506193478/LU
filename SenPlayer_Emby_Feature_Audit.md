@@ -151,4 +151,19 @@
 
 ---
 
+## 十一、对齐 Animeko v6.4.1 的上游功能（2026-11-22）
+
+> v6.4.1 本身只有 1 个桌面端安全修复（关闭 HotSpot Base64 intrinsic，改 `app/desktop/build.gradle.kts` 一行），与 Flutter 工程无关、无需跟进。以下按用户要求补齐的是它前面大版本（v6.4.0 / v6.3.0）里我们缺的项。
+
+| Animeko 项 | 版本 | LU 本轮实现 | 落点 | 结论 |
+|---|---|---|---|---|
+| 通知中心（互动/系统/更新分类） | 6.4.0 | 本地通知中心：分类聚合、未读红点、全部已读、左滑删除、按类型开关；下载完成/失败自动进通知 | `services/notification/lu_notification_center.dart` / `pages/notification/notifications_page.dart` | ✅（本地事件版，无消息后端） |
+| 弹幕文字转换：按来源单独配置 + 预览 | 6.4.0 | `DanmakuSourceConvertPrefs` 按 B站/游戏/弹弹play/其它四桶独立配简繁；复用 OpenCC 引擎，设置页实时预览 | `services/danmaku/danmaku_source_convert_prefs.dart` / `pages/settings/danmaku/danmaku_source_convert_tile.dart` | ✅ |
+| JSON API 数据源 | 6.4.0 | 工程已有 `RuleMode.api` 配置驱动引擎；补「添加规则 → 新建 JSON API 数据源」一键模板（预填 JSONPath），自动进现有搜索/选集/播放链路 | `plugins.dart::jsonApiTemplate()` / `rule_dialogs.dart` / `plugin_view_page.dart` | ✅ |
+| 系统画中画（iOS Emby） | 6.3.0 | 根因修复：PiP 按钮原绑「已是 AVPlayer 内核」→ 默认 mpv 直连永不显示。改为设备级能力探测（`isDevicePipSupported`），按钮显示后 mpv 走「确认切转码」兜底路径；原生失败事件键名 `event`→`type` 统一、补 `pipActive` 回调；「自动开启画中画」设置页接入我的页 | `avplayer_engine.dart` / `emby_player_controller.dart` / `emby_player_page.dart` / `AppDelegate.swift` / `emby_res_pane.dart` | ✅ |
+
+> 编译验证：`flutter analyze` 0 error（170 条既有 info/warning）；Android debug 构建成功。
+
+---
+
 _本文件随实施推进持续更新。_

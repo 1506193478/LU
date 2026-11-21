@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 
 import 'package:XL/modules/danmaku/danmaku_module.dart';
 import 'package:XL/request/apis/danmaku_api.dart';
+import 'package:XL/services/danmaku/danmaku_source_convert_prefs.dart';
 import 'package:XL/services/storage/storage.dart';
 
 class EmbyDanmakuController extends ChangeNotifier {
@@ -205,6 +206,8 @@ class EmbyDanmakuController extends ChangeNotifier {
   }
 
   void _apply(List<DanmakuEntry> list, {required String label}) {
+    // 各来源独立简繁转换（与全局弹幕共用同一套规则）。
+    DanmakuSourceConvertPrefs.instance.convertAll(list);
     entries = list;
     matchedTitle = label;
     _bySecond.clear();

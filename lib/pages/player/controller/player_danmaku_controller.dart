@@ -6,6 +6,7 @@ import 'package:XL/modules/danmaku/danmaku_module.dart';
 import 'package:XL/pages/download/download_controller.dart';
 import 'package:XL/request/apis/bilibili_danmaku_api.dart';
 import 'package:XL/request/apis/danmaku_api.dart';
+import 'package:XL/services/danmaku/danmaku_source_convert_prefs.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:mobx/mobx.dart';
@@ -451,6 +452,8 @@ abstract class _PlayerDanmakuController with Store {
   }
 
   void addDanmakus(List<DanmakuEntry> danmakus) {
+    // 按来源做简繁转换（各来源独立配置，全部 off 时是无副作用的原样返回）。
+    DanmakuSourceConvertPrefs.instance.convertAll(danmakus);
     final bool danmakuDeduplicationEnable =
         GStorage.getSetting(SettingsKeys.danmakuDeduplication);
 

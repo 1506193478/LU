@@ -23,6 +23,7 @@ import 'package:XL/pages/settings/sync/webdav_server_page.dart';
 import 'package:XL/pages/settings/sync/webdav_sync_page.dart';
 import 'package:XL/pages/settings/theme_settings_page.dart';
 import 'package:XL/pages/settings/update_settings.dart';
+import 'package:XL/pages/notification/notifications_page.dart';
 import 'package:XL/request/config/api_endpoints.dart';
 import 'package:XL/services/sync/danmaku_shield_sync_service.dart';
 
@@ -86,6 +87,14 @@ final settingsModule = createModule(
           ..route(
             '/download-settings',
             child: (context, state) => const DownloadSettingsPage(),
+          )
+          ..route(
+            '/notifications',
+            child: (context, state) => const NotificationsPage(),
+          )
+          ..route(
+            '/notifications/categories',
+            child: (context, state) => const NotificationCategoriesPage(),
           );
       },
     );

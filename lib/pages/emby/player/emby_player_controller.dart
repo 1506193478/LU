@@ -20,6 +20,7 @@ import 'package:XL/services/emby/emby_stream_resolver.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/emby/emby_subtitle_picker.dart';
 import 'package:XL/services/emby/emby_watch_log.dart';
+import 'package:XL/services/danmaku/danmaku_source_convert_prefs.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/player/avplayer_engine.dart';
 import 'package:XL/services/emby/emby_pip_prefs.dart';
@@ -224,8 +225,12 @@ class EmbyPlayerController extends ChangeNotifier {
   /// AV 路径的当前字幕文本（Dart 层渲染，跟着 position 走）。
   String avSubtitleText = '';
 
-  /// 进画中画（仅 iOS AVPlayer 内核）：设备支持 + 当前流走 AV 才可用。
-  bool get pipAvailable => _av?.pipAvailable ?? false;
+  /// 进画中画（iOS）：设备支持即可用。
+  /// 以前这里要求「当前流已经走 AVPlayer 内核」，但 Emby 默认走 mpv 直连，
+  /// 导致按钮永远不显示、切转码的兜底路径也不可达。改成设备级能力：
+  /// 按钮先显示，点下去由 [_pipSupported]/页面决定直接进还是切转码。
+  bool _pipDeviceSupported = false;
+  bool get pipAvailable => _pipDeviceSupported;
   bool get pipActive => _av?.pipActive ?? false;
 
   /// 画中画意图：用户点了小窗 / 退后台自动触发。mpv 内核时切转码走
@@ -480,6 +485,12 @@ class EmbyPlayerController extends ChangeNotifier {
   Future<void> start() async {
     // 简繁转换：先把设置读进内存（词表懒加载，不转换就不加载）。
     HanConvert.init();
+    // 弹幕按来源转换：预热已启用的方向（全部 off 时无副作用）。
+    unawaited(DanmakuSourceConvertPrefs.instance.warmUpEnabled());
+    // 画中画是设备级能力，与走哪个内核无关；提前探测好，页面据此显示按钮。
+    if (Platform.isIOS) {
+      _pipDeviceSupported = await AvPlayerEngine.isDevicePipSupported();
+    }
     await _open(launch.initialIndex);
   }
 
@@ -1008,9 +1019,11 @@ class EmbyPlayerController extends ChangeNotifier {
     }
     // 画中画失败：原生会带原因，直接告诉用户，别让按钮「点了没反应」。
     if (engine.pipError.isNotEmpty) {
-      final message = engine.pipError;
+      var message = engine.pipError;
       engine.resetPipError();
-      KazumiDialog.showError(message: '画中画启动失败：$message');
+      // 原生失败文案已经自带「画中画启动失败」前缀，别重复拼。
+      if (!message.startsWith('画中画')) message = '画中画启动失败：$message';
+      KazumiDialog.showError(message: message);
     }
     // 内嵌字幕（HLS 里的 mov_text 等）AVPlayerItemVideoOutput 的像素缓冲里
     // 不带渲染结果，列出来也看不了，干脆不进面板；外挂字幕走 _loadAvSubtitle。

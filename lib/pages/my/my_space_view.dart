@@ -10,12 +10,14 @@ import 'package:XL/pages/my/profile_card.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/request/config/api_endpoints.dart';
 import 'package:XL/services/lu_profile.dart';
+import 'package:XL/services/notification/lu_notification_center.dart';
 import 'package:XL/utils/immersive_theme.dart';
 import 'package:material_new_shapes/material_new_shapes.dart';
 
 enum MyDestination {
   theme,
   player,
+  notifications,
   timeline,
   danmaku,
   rules,
@@ -96,6 +98,7 @@ class _PreviewSpaceLayout extends StatelessWidget {
               subtitle: '按星期看本季更新',
               onTap: () => onOpen(MyDestination.timeline),
             ),
+            _NotificationEntry(onOpen: onOpen),
             PvRow(
               icon: Icons.schedule_rounded,
               iconColor: const Color(0xFF30B0C7),
@@ -157,6 +160,49 @@ class _PreviewSpaceLayout extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// 通知入口：带未读红点，数字跟着通知中心 revision 实时变。
+class _NotificationEntry extends StatelessWidget {
+  const _NotificationEntry({required this.onOpen});
+
+  final ValueChanged<MyDestination> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: LuNotificationCenter.instance.revision,
+      builder: (context, _, __) {
+        final unread = LuNotificationCenter.instance.unreadCount;
+        return PvRow(
+          icon: Icons.notifications_none_rounded,
+          iconColor: const Color(0xFFFF375F),
+          title: '通知中心',
+          trailing: PvRowTrailing.widget,
+          trailingWidget: unread > 0
+              ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  constraints: const BoxConstraints(minWidth: 20),
+                  decoration: BoxDecoration(
+                    color: PvColors.red,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    unread > 99 ? '99+' : '$unread',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(),
+          onTap: () => onOpen(MyDestination.notifications),
+        );
+      },
     );
   }
 }
