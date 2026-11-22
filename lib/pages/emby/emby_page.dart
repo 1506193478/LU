@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/theme/ios_interaction.dart';
+import 'package:XL/theme/lu_liquid_glass.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
@@ -566,56 +566,54 @@ class _EmbySubDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = PvColors.isDark(context);
 
-    // 二级导航胶囊：背后先模糊一层再叠半透明白，才是「磨砂玻璃」。
+    // 二级导航胶囊：iOS 26 液态玻璃（真折射 + 镜面边缘光）。
     // 可配置成 7 个 Tab，超过屏宽时横向滚动；末尾固定一个「管理」入口。
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(30),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Material(
-          color: dark
-              ? Colors.black.withValues(alpha: 0.42)
-              : Colors.white.withValues(alpha: 0.52),
-          shape: StadiumBorder(
-            side: BorderSide(
-              color: dark
-                  ? Colors.white.withValues(alpha: 0.12)
-                  : Colors.white.withValues(alpha: 0.75),
-              width: 1,
-            ),
+    return LuLiquidGlass.surface(
+      context: context,
+      radius: 30,
+      child: Material(
+        color: dark
+            ? Colors.black.withValues(alpha: 0.30)
+            : Colors.white.withValues(alpha: 0.34),
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: dark
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.white.withValues(alpha: 0.55),
+            width: 1,
           ),
-          clipBehavior: Clip.antiAlias,
-          elevation: 6,
-          shadowColor: const Color(0x21141E32),
-          child: Padding(
-            padding: const EdgeInsets.all(3),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width - 24,
-              ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    for (final String id in ids)
-                      () {
-                        final SenTabMeta? meta = SenTabPrefs.metaOf(id);
-                        return _SubDockButton(
-                          icon: meta?.icon ?? Icons.circle,
-                          label: meta?.label ?? id,
-                          selected: id == selectedId,
-                          onTap: () => onChanged(id),
-                        );
-                      }(),
-                    _SubDockButton(
-                      icon: Icons.tune_rounded,
-                      label: '管理',
-                      selected: false,
-                      onTap: onManage,
-                    ),
-                  ],
-                ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        elevation: 0,
+        shadowColor: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.sizeOf(context).width - 24,
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  for (final String id in ids)
+                    () {
+                      final SenTabMeta? meta = SenTabPrefs.metaOf(id);
+                      return _SubDockButton(
+                        icon: meta?.icon ?? Icons.circle,
+                        label: meta?.label ?? id,
+                        selected: id == selectedId,
+                        onTap: () => onChanged(id),
+                      );
+                    }(),
+                  _SubDockButton(
+                    icon: Icons.tune_rounded,
+                    label: '管理',
+                    selected: false,
+                    onTap: onManage,
+                  ),
+                ],
               ),
             ),
           ),
@@ -1162,66 +1160,31 @@ class _HomeSearchFab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dark = PvColors.isDark(context);
-    // 液态玻璃 v2：实时模糊 + 三段白渐变 + 渐变描边环（上亮下暗）。
+    // iOS 26 液态玻璃悬浮搜索球：真折射 + 镜面高光。
     return KzPressable(
       onTap: onTap,
       pressedOpacity: 0.7,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(23),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-          child: Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: dark
-                    ? const <Color>[
-                        Color(0x2EFFFFFF),
-                        Color(0x14FFFFFF),
-                        Color(0x22FFFFFF),
-                      ]
-                    : const <Color>[
-                        Color(0xEFFFFFFF),
-                        Color(0xC2FFFFFF),
-                        Color(0xD9FFFFFF),
-                      ],
-              ),
-              shape: BoxShape.circle,
-              // Flutter 3.9 的 Container 没有顶层 boxShadow，走 decoration。
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 20,
-                  offset: Offset(0, 8),
-                ),
-              ],
+      child: LuLiquidGlass.surface(
+        context: context,
+        radius: 23,
+        child: Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: dark
+                  ? const <Color>[Color(0x2EFFFFFF), Color(0x14FFFFFF)]
+                  : const <Color>[Color(0xB0FFFFFF), Color(0x88FFFFFF)],
             ),
-            // 渐变描边环 + 顶部液面高光。
-            foregroundDecoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: dark
-                    ? Colors.white.withValues(alpha: 0.28)
-                    : Colors.white.withValues(alpha: 0.85),
-                width: 0.9,
-              ),
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.center,
-                colors: dark
-                    ? <Color>[Colors.white.withValues(alpha: 0.26), Colors.transparent]
-                    : <Color>[Colors.white.withValues(alpha: 0.9), Colors.transparent],
-              ),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              Icons.search_rounded,
-              size: 21,
-              color: dark ? const Color(0xFFF2F5FF) : const Color(0xFF1B1B1F),
-            ),
+            borderRadius: BorderRadius.circular(23),
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            Icons.search_rounded,
+            size: 21,
+            color: dark ? const Color(0xFFF2F5FF) : const Color(0xFF1B1B1F),
           ),
         ),
       ),
@@ -1229,10 +1192,7 @@ class _HomeSearchFab extends StatelessWidget {
   }
 }
 
-/// 液态玻璃底板：圆角裁切 + 背景模糊 + 半透明着色 + 顶部高光。
-///
-/// `BackdropFilter` 必须包在 `ClipRRect` 里，否则模糊会溢出圆角，看起来
-/// 就是一块糊掉的方块而不是玻璃。
+/// iOS 26 液态玻璃底板：真折射 + 镜面边缘光，用于 chip / 悬浮装饰底。
 class _GlassPlate extends StatelessWidget {
   const _GlassPlate({
     required this.child,
@@ -1251,38 +1211,24 @@ class _GlassPlate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dark = PvColors.isDark(context);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          width: width,
-          height: height,
-          padding: padding,
-          decoration: BoxDecoration(
-            // 渐变玻璃：左上亮、右下暗，模拟材质的入射光衰减。
-            //
-            // 这里是**没有描边**的。原来那圈 0.8px 白边是「像画的」最直接的
-            // 来源——真实材质靠的是内部渐变 + 极淡的外投影，一旦描一圈实边，
-            // 立刻变成贴图上的一个框。
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: dark
-                  ? const [Color(0x38FFFFFF), Color(0x12FFFFFF)]
-                  : const [Color(0xE6FFFFFF), Color(0xA8FFFFFF)],
-            ),
-            borderRadius: BorderRadius.circular(radius),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x14141E32),
-                blurRadius: 12,
-                offset: Offset(0, 3),
-              ),
-            ],
+    return LuLiquidGlass.surface(
+      context: context,
+      radius: radius,
+      child: Container(
+        width: width,
+        height: height,
+        padding: padding,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: dark
+                ? const [Color(0x24FFFFFF), Color(0x0CFFFFFF)]
+                : const [Color(0x9CFFFFFF), Color(0x70FFFFFF)],
           ),
-          child: child,
+          borderRadius: BorderRadius.circular(radius),
         ),
+        child: child,
       ),
     );
   }

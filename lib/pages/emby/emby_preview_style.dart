@@ -1,8 +1,8 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/theme/lu_glass.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:XL/bean/widget/window_drag.dart';
 
 /// LU_3.9.19_预览.html 的设计令牌与 iOS 风组件。
@@ -391,14 +391,19 @@ class PvSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // iOS 26 液态玻璃开关：拖动时滑块变真玻璃透镜 + 弹簧回弹 + 触感。
+    // 外层尺寸照旧锁 47×29，保证设置行布局不因换控件而跳动。
     return SizedBox(
       width: 47,
       height: 29,
       child: FittedBox(
-        child: CupertinoSwitch(
+        child: GlassSwitch(
           value: value,
-          activeTrackColor: const Color(0xFF34C759),
           onChanged: onChanged,
+          width: 58,
+          height: 32,
+          activeColor: const Color(0xFF34C759),
+          enableHaptics: true,
         ),
       ),
     );

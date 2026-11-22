@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:XL/utils/motion.dart';
 
 /// 是否按 iOS 原生交互渲染。
@@ -118,19 +119,20 @@ class KzSwitch extends StatelessWidget {
         activeTrackColor: activeColor ?? Theme.of(context).colorScheme.primary,
       );
     }
+    // iOS 26 液态玻璃开关：拖动时滑块变透镜，弹簧回弹 + 内置触感。
+    // 尺寸锁 51×31，保持设置行高度不变。
     return SizedBox(
       width: 51,
       height: 31,
       child: FittedBox(
-        child: CupertinoSwitch(
+        child: GlassSwitch(
           value: value,
-          activeTrackColor: activeColor ?? kCupertinoGreen,
-          onChanged: onChanged == null
-              ? null
-              : (v) {
-                  KazumiHaptics.select();
-                  onChanged!(v);
-                },
+          width: 58,
+          height: 32,
+          activeColor: activeColor ?? kCupertinoGreen,
+          enableHaptics: true,
+          // GlassSwitch 自带 lightImpact 触感，不再叠加 KazumiHaptics。
+          onChanged: onChanged,
         ),
       ),
     );

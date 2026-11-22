@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
+import 'package:XL/theme/lu_liquid_glass.dart';
 
 import 'package:XL/services/theme/lu_background.dart';
 
@@ -248,19 +248,16 @@ abstract final class LuGlass {
       ),
     );
 
-    final Widget clipped = ClipRRect(
-      borderRadius: r,
-      child: blur
-          ? BackdropFilter(
-              filter: ImageFilter.blur(
-                sigmaX: sigma,
-                sigmaY: sigma,
-                tileMode: TileMode.clamp,
-              ),
-              child: inner,
-            )
-          : inner,
-    );
+    // 显式开模糊的浮层（菜单 / 弹窗）升级为 iOS 26 真玻璃折射。
+    // blur=false 的卡片/列表行仍走纯渐变路径，零 shader 成本（HIG：内容层不用玻璃）。
+    final Widget clipped = blur
+        ? LuLiquidGlass.surface(
+            context: context,
+            radius: r.topLeft.x,
+            overlay: true,
+            child: inner,
+          )
+        : ClipRRect(borderRadius: r, child: inner);
 
     final Widget card = DecoratedBox(
       decoration: BoxDecoration(borderRadius: r, boxShadow: s.shadows),

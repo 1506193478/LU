@@ -23,6 +23,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:XL/pages/error/storage_error_page.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:XL/utils/device.dart';
 import 'package:XL/utils/window_corner.dart';
 import 'package:XL/services/platform/desktop_window_config.dart';
@@ -52,6 +53,9 @@ void main() async {
   AppDeepLinks().start();
   registerEchHttpLicenses();
   MediaKit.ensureInitialized();
+  // 液态玻璃 shader 字节码预加载：必须在 runApp 之前完成，避免首帧白闪/卡顿。
+  // 自适应画质：先按 standard 起，benchmark 通过后自动升 premium（Impeller）。
+  await LiquidGlassWidgets.initialize();
   if (Platform.isAndroid || Platform.isIOS) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -142,15 +146,23 @@ void main() async {
   await MeteredNetworkService.refresh();
   ProxyManager.applyProxy();
   runApp(
-    ModularApp(
-      module: appModule,
-      navigatorKey: rootNavigatorKey,
-      navigatorObservers: [KazumiDialog.observer, rootRouteObserver],
-      defaultTransition: TransitionType.material,
-      provide: (scoped) {
-        scoped.addChangeNotifier<ThemeProvider>(ThemeProvider.new);
-      },
-      child: const AppWidget(),
+    // 液态玻璃外壳：注入 iOS 26 GlassTheme + 自适应画质（standard→premium）。
+    // brightnessResolver 走 Material 的 Theme，保证 App 内切主题时玻璃跟着变。
+    LiquidGlassWidgets.wrap(
+      adaptiveQuality: true,
+      respectSystemAccessibility: true,
+      brightnessResolver: Theme.maybeBrightnessOf,
+      theme: const GlassThemeData.ios26(),
+      child: ModularApp(
+        module: appModule,
+        navigatorKey: rootNavigatorKey,
+        navigatorObservers: [KazumiDialog.observer, rootRouteObserver],
+        defaultTransition: TransitionType.material,
+        provide: (scoped) {
+          scoped.addChangeNotifier<ThemeProvider>(ThemeProvider.new);
+        },
+        child: const AppWidget(),
+      ),
     ),
   );
 }

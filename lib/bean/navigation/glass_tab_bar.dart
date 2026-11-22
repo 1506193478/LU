@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:XL/theme/lu_liquid_glass.dart';
 import 'package:XL/utils/immersive_theme.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -104,22 +105,18 @@ class KazumiTabBar extends StatelessWidget {
             // 外扩 40px 的投影重新切掉，等于白改。
             clipBehavior: Clip.none,
             children: [
-              // 静态模糊底：投影、裁剪、模糊都在这一层，不含任何动画子节点。
+              // iOS 26 液态玻璃底：真 shader 折射 + 镜面边缘光。
               //
-              // 两处修正：
-              // 1. boxShadow 必须放在 ClipRRect **外面**。原来它在 ClipRRect
-              //    里面，同一个圆角把外扩的投影整块裁掉了 —— 下面留的那 14px
-              //    空白等于白留，浮起来的厚度感其实一直没画出来。
-              // 2. 选中指示器不能再待在 BackdropFilter 子树里。它每帧都在动，
-              //    只要它在模糊层内部，sigma=24 的高斯模糊就得跟着每帧重算，
-              //    低端机上切 tab 会明显掉帧。挪出来之后这层是完全静态的，
-              //    合成器可以整块缓存。
+              // 选中指示器与按钮保持在模糊层**之上**（下面独立的 Positioned.fill），
+              // 不在 AdaptiveGlass 子树里——它们每帧都在动，若被包进折射层，
+              // 低端机上切 tab 会掉帧。这层本身完全静态，合成器可整块缓存。
+              //
+              // boxShadow 放在玻璃层**外面**，别被圆角裁掉。
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(_radius),
                     boxShadow: [
-                      // 胶囊浮起来要有一圈"落地"的暗边，但别重到压住内容。
                       BoxShadow(
                         color: Colors.black.withValues(
                           alpha: dark ? 0.46 : 0.12,
@@ -129,29 +126,18 @@ class KazumiTabBar extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(_radius),
-                    // **不再用 BackdropFilter。**
-                    //
-                    // 这层是满宽、常驻、sigma=30 的高斯模糊。它背后是滚动
-                    // 列表——只要有东西在动，这层每帧都要重新采样一次全宽
-                    // 画面，是「滑动不跟手」最大的来源（跟手感和帧率不是
-                    // 一回事：模糊会额外引入 1~2 帧延迟）。
-                    //
-                    // 底栏本来就不需要真模糊：底色不透明度调到 92% 之后，
-                    // 背后有没有被糊过根本看不出来，而玻璃感来自半透明 +
-                    // 顶部高光 + 渐变，这三样都还在。
+                  child: LuLiquidGlass.surface(
+                    context: context,
+                    radius: _radius,
                     child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: surfaceTint,
-                          gradient: surfaceGradient,
-                          borderRadius: BorderRadius.circular(_radius),
-                          // 只留顶部 1px 高光。整圈描边是「贴图上的框」，
-                          // 真实材质的边是上面受光、下面背光。
-                          border: Border(
-                            top: BorderSide(color: highlight, width: 0.8),
-                          ),
+                      decoration: BoxDecoration(
+                        color: surfaceTint,
+                        gradient: surfaceGradient,
+                        borderRadius: BorderRadius.circular(_radius),
+                        border: Border(
+                          top: BorderSide(color: highlight, width: 0.8),
                         ),
+                      ),
                     ),
                   ),
                 ),

@@ -166,4 +166,25 @@
 
 ---
 
+## 十二、iOS 26 液态玻璃（Liquid Glass）整体 UI 改造
+
+用户要求把整体 UI 换成 iOS 26+ 液态玻璃、所有面板与控件、交互视觉动效重做。经查 GitHub 近期活跃高星项目，选用 **sdegenaar/liquid_glass_widgets**（MIT，pub.dev 1.19.0，871★，当日仍在维护，零外部依赖、全平台、真实 fragment shader 折射/镜面高光/色散）。
+
+| 改造层 | 做法 | 落点 |
+|---|---|---|
+| 全局基座 | `LiquidGlassWidgets.initialize()` 预热 shader；`wrap(theme: GlassThemeData.ios26(), adaptiveQuality: true, brightnessResolver: Theme.maybeBrightnessOf)` —— 设备 benchmark 后 standard→premium 自动升级，跟随 App 主题明暗 | `main.dart` |
+| 统一适配层 | `LuLiquidGlass.surface()` 一处接入：真玻璃层 + iOS26 校准参数（chrome 薄/overlay 厚），`enabled` 一键降级 | `theme/lu_liquid_glass.dart`（新） |
+| 主导航胶囊 | 静态 `BackdropFilter` 假玻璃 → 真 shader 玻璃，保留原选中指示器/弹簧动画/触感与 `reservedHeight` 布局契约 | `bean/navigation/glass_tab_bar.dart` |
+| Emby 二级 dock / 搜索球 / 玻璃底板 | 三处常驻假玻璃全部升级真折射玻璃 | `pages/emby/emby_page.dart` |
+| 玻璃材质基座 | `LuGlass.box(blur:true)` 的浮层（长按菜单等显式开模糊处）走真玻璃；`blur:false` 的卡片/列表行保持零 shader（HIG：玻璃只在导航/控件层，不在内容层） | `theme/lu_glass.dart` |
+| 开关控件 | `PvSwitch` 从 `CupertinoSwitch` → `GlassSwitch`（拖动时滑块变玻璃透镜 + 弹簧 + 触感），行高锁定 47×29 不跳动 | `pages/emby/emby_preview_style.dart` |
+| 全局 iOS 开关 | `KzSwitch`（设置页 / 播放器按钮设置 / 插件编辑 / 时间线等通用开关）iOS 分支同步换 `GlassSwitch`，去掉与内置触感重复的手动 haptic | `theme/ios_interaction.dart` |
+| 明暗主题同步 | 修正暗色主题下玻璃参数仍取浅色的缺陷：`LuLiquidGlass.surface()` 从 `BuildContext` 实时读主题，删除无调用点的静态亮度缓存 | `theme/lu_liquid_glass.dart` + 4 处调用点 |
+
+> 遵守 Apple HIG：玻璃只用于导航与控件浮层；滚动内容卡片、视频画面、长按菜单本体保持实色/高不透明，保证可读性。全屏背景虚化（长按菜单背景）保留系统式 `BackdropFilter`，因为它是背景滤镜而非玻璃容器。
+>
+> 验证：`flutter analyze` 0 error（170 条既有 info）；Android release 构建成功（88.9MB，shader 资源已打包）。iOS 原生插件走 podspec/SwiftPM 自动集成，由 CI 编译验证。
+
+---
+
 _本文件随实施推进持续更新。_
