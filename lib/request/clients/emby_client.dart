@@ -459,6 +459,74 @@ class EmbyClient {
     return EmbyItem.fromJson(body);
   }
 
+  /// 让 POST 接口原样返回（RemoteSearch 返回的是数组，不是 {Items:[]}）。
+  Future<Object?> _postJsonAny(
+    String path, {
+    Object? data,
+    Map<String, dynamic> query = const {},
+  }) async {
+    try {
+      final response = await _send(
+        (baseUrl) => _dio.request<dynamic>(
+          '$baseUrl$path',
+          data: data,
+          queryParameters: _query(query),
+          options: Options(method: 'POST', headers: _authHeaders),
+        ),
+      );
+      return response.data;
+    } on DioException catch (e) {
+      throw _translate(e);
+    }
+  }
+
+  /// 服务端元数据刮削：按名称/年份向已配置的元数据提供者（TMDB 等）找候选。
+  /// [isSeries] 选 Movie / Series 两个端点，[itemId] 只作为上下文，可为空。
+  Future<List<EmbyRemoteSearchResult>> remoteSearch({
+    required String name,
+    required bool isSeries,
+    String itemId = '',
+    int? year,
+  }) async {
+    if (name.trim().isEmpty) return const [];
+    final searchInfo = <String, dynamic>{
+      'Name': name.trim(),
+      'IsAutomated': false,
+      if (year != null && year > 0) 'Year': year,
+    };
+    final body = <String, dynamic>{
+      'SearchInfo': searchInfo,
+      'IncludeDisabledProviders': false,
+      if (itemId.isNotEmpty) 'ItemId': itemId,
+    };
+    final response = await _postJsonAny(
+      isSeries ? '/Items/RemoteSearch/Series' : '/Items/RemoteSearch/Movie',
+      data: body,
+    );
+    if (response is! List) return const [];
+    return [
+      for (final r in response)
+        if (r is Map) EmbyRemoteSearchResult.fromJson(Map<String, dynamic>.from(r)),
+    ];
+  }
+
+  /// 把选中的候选写回条目（下载图片、更新外部 ID、刷新元数据）。
+  /// Apply 成功返回 204 No Content，[_postJson] 会安全转成空 Map。
+  Future<void> applyRemoteSearch({
+    required String itemId,
+    required EmbyRemoteSearchResult result,
+    bool replaceAllImages = true,
+  }) async {
+    if (itemId.isEmpty) return;
+    final body = Map<String, dynamic>.from(result.raw)
+      ..['ReplaceAllImages'] = replaceAllImages;
+    await _postJson(
+      '/Items/RemoteSearch/Apply/$itemId',
+      data: body,
+      query: {'replaceAllImages': replaceAllImages},
+    );
+  }
+
   List<EmbyItem> _itemsOf(Map<String, dynamic> body) {
     final items = body['Items'];
     if (items is! List) return const [];
@@ -877,6 +945,52 @@ class EmbyClient {
       },
     );
     return _itemsOf(body);
+  }
+
+  /// 媒体库里出现过的类型，用于库页筛选下拉。
+  /// `/Genres` 在 Emby / Jellyfin 上都返回 `{Items:[{Name:...}]}`。
+  Future<List<String>> fetchGenres({
+    required String userId,
+    String parentId = '',
+  }) async {
+    final body = await _getJson(
+      '/Genres',
+      query: {
+        'UserId': userId,
+        'Recursive': 'true',
+        if (parentId.isNotEmpty) 'ParentId': parentId,
+      },
+    );
+    final items = body['Items'];
+    if (items is! List) return const [];
+    return <String>[
+      for (final g in items)
+        if (g is Map && g['Name'] != null) g['Name'].toString(),
+    ].where((s) => s.isNotEmpty).toList();
+  }
+
+  /// 媒体库里出现过的年份（降序），用于库页筛选下拉。
+  /// `/Items/Years` 直接返回 int 数组，[_getJsonList] 会统一成 `{Items:[...]}`。
+  Future<List<int>> fetchYears({
+    required String userId,
+    String parentId = '',
+  }) async {
+    final body = await _getJsonList(
+      '/Items/Years',
+      query: {
+        'UserId': userId,
+        'Recursive': 'true',
+        if (parentId.isNotEmpty) 'ParentId': parentId,
+      },
+    );
+    final items = body['Items'];
+    if (items is! List) return const [];
+    final years = <int>[
+      for (final y in items)
+        if (y is int) y else int.tryParse(y.toString()) ?? -1,
+    ].where((y) => y > 0).toList();
+    years.sort((a, b) => b.compareTo(a));
+    return years;
   }
 
   static const String _itemFields =

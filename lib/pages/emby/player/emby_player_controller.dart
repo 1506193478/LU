@@ -86,6 +86,50 @@ class EmbySubtitleSettings {
   );
 }
 
+/// 视频色彩调节（mpv 原生六轴，范围均 -100~100）。
+/// 只写 mpv 属性，AVPlayer 内核无等价能力，UI 会在 AV 下隐藏。
+class EmbyVideoColorSettings {
+  const EmbyVideoColorSettings({
+    this.brightness = 0,
+    this.contrast = 0,
+    this.saturation = 0,
+    this.gamma = 0,
+    this.hue = 0,
+    this.sharpness = 0,
+  });
+
+  final double brightness;
+  final double contrast;
+  final double saturation;
+  final double gamma;
+  final double hue;
+  final double sharpness;
+
+  bool get isDefault =>
+      brightness == 0 &&
+      contrast == 0 &&
+      saturation == 0 &&
+      gamma == 0 &&
+      hue == 0 &&
+      sharpness == 0;
+
+  EmbyVideoColorSettings copyWith({
+    double? brightness,
+    double? contrast,
+    double? saturation,
+    double? gamma,
+    double? hue,
+    double? sharpness,
+  }) => EmbyVideoColorSettings(
+    brightness: brightness ?? this.brightness,
+    contrast: contrast ?? this.contrast,
+    saturation: saturation ?? this.saturation,
+    gamma: gamma ?? this.gamma,
+    hue: hue ?? this.hue,
+    sharpness: sharpness ?? this.sharpness,
+  );
+}
+
 /// Emby 专用播放器。
 ///
 /// 为什么不复用番剧那条链路：`PlayerController` 背着一整套番剧语义
@@ -159,6 +203,15 @@ class EmbyPlayerController extends ChangeNotifier {
   /// 音频增强倍率：1=关闭，1.5/3/5/10 对应 150%/300%/500%/1000%。
   /// 桌面端 media_kit 走 MPV，音量可超过 100 实现放大；移动端 ExoPlayer 上限 100。
   double audioGain = 1;
+
+  /// 音频延迟（秒）。蓝牙耳机/串流音画不同步时手动补偿。
+  /// 只写 mpv 的 `audio-delay`；AVPlayer 内核无等价属性，改了也不生效，
+  /// 面板会在 AV 内核下隐藏调节项（见 emby_player_panels.dart）。
+  double audioDelay = GStorage.getSetting(SettingsKeys.embyAudioDelay);
+
+  /// 视频色彩六轴（亮度/对比度/饱和度/gamma/色相/锐化）。默认值全 0。
+  /// 不持久化：色彩调整通常按片源不同，跟着当前播放会话走即可。
+  EmbyVideoColorSettings videoColor = const EmbyVideoColorSettings();
 
   /// 锁定后点击画面不再唤出控件（Rex 的 `player.action.lock_controls`）。
   bool locked = false;
@@ -696,6 +749,8 @@ class EmbyPlayerController extends ChangeNotifier {
 
     _attachStreams(player);
     _applySubtitleSettings();
+    unawaited(_applyAudioDelay());
+    unawaited(_applyVideoColor());
     loading = false;
     _notify();
 
@@ -1270,6 +1325,57 @@ class EmbyPlayerController extends ChangeNotifier {
   Future<void> setAudioGain(double gain) async {
     audioGain = gain;
     await _applyVolume();
+  }
+
+  /// 音频延迟（秒）。写 mpv 的 `audio-delay` 并持久化；AV 内核无此属性，跳过。
+  Future<void> setAudioDelay(double seconds) async {
+    audioDelay = seconds.clamp(-10, 10);
+    await GStorage.putSetting(SettingsKeys.embyAudioDelay, audioDelay);
+    await _applyAudioDelay();
+    _notify();
+  }
+
+  Future<void> _applyAudioDelay() async {
+    if (_av != null || _disposed) return;
+    final platform = playback.mediaPlayer?.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      await platform.setProperty(
+        'audio-delay',
+        audioDelay.toStringAsFixed(3),
+      );
+    } catch (e) {
+      KazumiLogger().w('Emby player: set audio-delay failed', error: e);
+    }
+  }
+
+  /// 视频色彩六轴写 mpv 属性（-100~100），AV 内核无此能力，跳过。
+  Future<void> setVideoColor(EmbyVideoColorSettings next) async {
+    videoColor = next;
+    await _applyVideoColor();
+    _notify();
+  }
+
+  Future<void> resetVideoColor() =>
+      setVideoColor(const EmbyVideoColorSettings());
+
+  Future<void> _applyVideoColor() async {
+    if (_av != null || _disposed) return;
+    final platform = playback.mediaPlayer?.platform;
+    if (platform is! NativePlayer) return;
+    final c = videoColor;
+    try {
+      await Future.wait([
+        platform.setProperty('brightness', '${c.brightness.round()}'),
+        platform.setProperty('contrast', '${c.contrast.round()}'),
+        platform.setProperty('saturation', '${c.saturation.round()}'),
+        platform.setProperty('gamma', '${c.gamma.round()}'),
+        platform.setProperty('hue', '${c.hue.round()}'),
+        platform.setProperty('sharpness', '${c.sharpness.round()}'),
+      ]);
+    } catch (e) {
+      KazumiLogger().w('Emby player: set video color failed', error: e);
+    }
   }
 
   /// 实际送给播放器的音量 = 用户音量 × 增益。桌面端 MPV 允许 >100 实现放大，

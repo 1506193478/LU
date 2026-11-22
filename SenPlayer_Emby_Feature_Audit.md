@@ -187,4 +187,31 @@
 
 ---
 
+## 十三、Emby 模块功能增强（第一档 + 第二档，2026-11-23）
+
+用户要求：先做第一档（小改动高收益）→ 不出包 → 再做第二档 → 统一检验。期间追加 TMDB 直连配置需求（自定义 API）。
+
+### 第一档（全部完成）
+| 项 | 做法 | 落点 |
+|---|---|---|
+| 库页筛选 | `fetchGenres` / `fetchYears` 两个新端点；观看状态三态 + 年份 + 类型 chip 横条，参数传给 `fetchItemsPaged` | `emby_client.dart` / `emby_library_page.dart` |
+| 音频延迟 | mpv `audio-delay` 写属性 + 持久化；音轨面板复用 `_StepperRow` ±0.1s，AV 内核隐藏 | `settings_keys.dart` / `emby_player_controller.dart` / `emby_player_panels.dart` |
+| 设置假值 | 「渲染后端 / 硬件解码」从写死字符串改为读真实设置（含解码器显示名映射） | `emby_res_pane.dart` |
+| 视频色彩六轴 | mpv brightness/contrast/saturation/gamma/hue/sharpness ±100 步进，更多→工具入口，AV 隐藏，不持久化按片源走 | `emby_player_controller.dart` / `emby_player_panels.dart` |
+| 截图格式 | PNG/JPG/WebP 选择 + 有损质量，`image` 包转码，文件名/mime 跟随格式 | `settings_keys.dart` / `emby_player_page.dart` |
+
+### 第二档（全部完成）
+| 项 | 做法 | 落点 |
+|---|---|---|
+| DLNA 接入 Emby | 投屏按钮 iOS 弹「系统投屏 / DLNA」二选一，其它平台直接进 DLNA；推当前 `streamUrl` + 片名，复用 Bangumi 那条已修好的设备过滤链路 | `emby_player_page.dart` / `remote.dart` / `emby_play_behavior_page.dart` |
+| 观看记录合并 | 记录页按服务器拉服务端 Resume，与本地 watch log 按 `emby:{server}:{item}` 去重合并；进度取服务端（跨设备最准），其它设备看过的也显示 | `emby_records_pane.dart` |
+| TMDB 元数据刮削（路线 A） | 服务端 `/Items/RemoteSearch/Movie|Series` + `/Items/RemoteSearch/Apply/{id}` 封装，详情页操作行加「识别元数据」按钮和候选面板 | `emby_client.dart` / `emby_detail_page.dart` |
+| TMDB 直连（路线 B，用户追加） | 自定义 API Key/读取令牌（自动识别 Bearer）、API 地址、图片地址、测试连接；识别面板可切「服务端 / TMDB 直连」，直连候选桥接服务端 Apply 写回 | `tmdb_prefs.dart` / `tmdb_client.dart` / `tmdb_settings_page.dart` / `emby_detail_page.dart` |
+| 设置聚合 | 「我的」页播放组补「字幕与弹幕」「TMDB 配置」入口，一处可达；播放行为副标题修正为真实内容 | `emby_res_pane.dart` |
+| Wi-Fi 传文件 | `dart:io HttpServer` 局域网上传页 + 流式落盘到「下载目录/WiFi传输」，同名加时间戳；iOS 补 `NSLocalNetworkUsageDescription` | `wifi_transfer_service.dart` / `wifi_transfer_page.dart` / `Info.plist` |
+
+> 验证：`flutter analyze` 0 error（176 条既有 info，新增文件 0 lint）；Android / Windows release 构建通过。按用户要求**不出包、不升版本、不发布**。
+
+---
+
 _本文件随实施推进持续更新。_

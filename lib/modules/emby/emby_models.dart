@@ -619,6 +619,59 @@ int embyBangumiId(String itemId) {
   return hash == 0 ? 1 : hash;
 }
 
+/// 服务端元数据刮削的候选结果（`/Items/RemoteSearch/Movie|Series` 返回项）。
+/// 只保留展示和 Apply 需要的字段，其余原样存在 [raw] 里回传给 Apply 接口。
+class EmbyRemoteSearchResult {
+  const EmbyRemoteSearchResult({
+    required this.name,
+    this.year,
+    this.overview = '',
+    this.imageUrl = '',
+    this.providerName = '',
+    this.providerIds = const <String, String>{},
+    this.raw = const <String, dynamic>{},
+  });
+
+  final String name;
+  final int? year;
+  final String overview;
+  final String imageUrl;
+  final String providerName;
+  final Map<String, String> providerIds;
+
+  /// Apply 时原样回传，避免漏掉服务端返回的其它字段（PremiereDate 等）。
+  final Map<String, dynamic> raw;
+
+  /// 详情副标题：年份 + 来源（TMDB / TVDB…）。
+  String get subtitle {
+    final parts = <String>[];
+    if (year != null && year! > 0) parts.add('$year');
+    if (providerName.isNotEmpty) parts.add(providerName);
+    return parts.join(' · ');
+  }
+
+  factory EmbyRemoteSearchResult.fromJson(Map<String, dynamic> json) {
+    final ids = <String, String>{};
+    final rawIds = json['ProviderIds'];
+    if (rawIds is Map) {
+      rawIds.forEach((k, v) {
+        if (v != null) ids[k.toString()] = v.toString();
+      });
+    }
+    return EmbyRemoteSearchResult(
+      name: json['Name']?.toString() ?? '',
+      year: json['ProductionYear'] is num
+          ? (json['ProductionYear'] as num).toInt()
+          : null,
+      overview: json['Overview']?.toString() ?? '',
+      imageUrl: json['ImageUrl']?.toString() ?? '',
+      providerName: json['SearchProviderName']?.toString() ?? '',
+      providerIds: ids,
+      raw: json,
+    );
+  }
+}
+
 /// 规范化用户填进来的服务器地址。
 ///
 /// 用户经常直接粘贴 Emby 网页地址（带 /web/index.html），或者漏了协议。

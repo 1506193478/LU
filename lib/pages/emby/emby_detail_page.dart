@@ -1,6 +1,9 @@
+import 'package:flutter/cupertino.dart' show CupertinoSlidingSegmentedControl;
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 
+import 'package:XL/request/clients/tmdb_client.dart';
+import 'package:XL/services/emby/tmdb_prefs.dart';
 import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/modules/emby/emby_models.dart';
@@ -286,6 +289,28 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
     }
   }
 
+  /// 元数据刮削：走服务端 RemoteSearch/Apply（路线 A），不依赖客户端直连 TMDB。
+  /// 搜索和写回都由服务端用已配置的元数据提供者完成，结果即时刷新详情页。
+  Future<void> _openIdentify(EmbyServer server, EmbyItem item) async {
+    final confirmed = await showKzConfirm(
+      context: context,
+      title: '识别元数据',
+      message: '让服务端用 TMDB 等已配置的元数据源重新匹配这部作品，'
+          '匹配后会自动更新标题、简介、演职员和海报。',
+    );
+    if (!confirmed || !mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _IdentifySheet(
+        server: server,
+        item: item,
+        onApplied: _reload,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return EmbyPageShell(
@@ -470,6 +495,7 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
                 onPlayPicked: (items, index) => _play(items, index),
                 onToggleFavorite: () => _toggleFavorite(server),
                 onTogglePlayed: () => _togglePlayed(server),
+                onIdentify: () => _openIdentify(server, data.item),
                 currentSeasonId: _seasonId ?? '',
                 onPickedFromAllPage: (i) =>
                     _episodesFuture?.then((eps) => _pick(eps, i)),
@@ -585,6 +611,7 @@ class _InfoColumn extends StatelessWidget {
     required this.onPlayPicked,
     required this.onToggleFavorite,
     required this.onTogglePlayed,
+    required this.onIdentify,
     required this.currentSeasonId,
     required this.onPickedFromAllPage,
   });
@@ -609,6 +636,7 @@ class _InfoColumn extends StatelessWidget {
   final void Function(List<EmbyItem> items, int index) onPlayPicked;
   final VoidCallback onToggleFavorite;
   final VoidCallback onTogglePlayed;
+  final VoidCallback onIdentify;
 
   /// 当前选中的季 id（state 持有）。
   final String currentSeasonId;
@@ -701,6 +729,7 @@ class _InfoColumn extends StatelessWidget {
               favorite: favorite,
               onTogglePlayed: onTogglePlayed,
               onToggleFavorite: onToggleFavorite,
+              onIdentify: onIdentify,
             ),
             // —— 简介：单集没有就退到整部剧的简介，再没有才不显示
             if (overview != null) ...[
@@ -1044,12 +1073,14 @@ class _ActionRow extends StatelessWidget {
     required this.favorite,
     required this.onTogglePlayed,
     required this.onToggleFavorite,
+    required this.onIdentify,
   });
 
   final bool played;
   final bool favorite;
   final VoidCallback onTogglePlayed;
   final VoidCallback onToggleFavorite;
+  final VoidCallback onIdentify;
 
   @override
   Widget build(BuildContext context) {
@@ -1103,6 +1134,13 @@ class _ActionRow extends StatelessWidget {
               : Icons.favorite_border_rounded,
           tip: favorite ? '取消收藏' : '收藏',
           onTap: onToggleFavorite,
+        ),
+        const SizedBox(width: 34),
+        circle(
+          on: false,
+          icon: Icons.auto_fix_high_rounded,
+          tip: '识别元数据（TMDB 等）',
+          onTap: onIdentify,
         ),
       ],
     );
@@ -2016,6 +2054,262 @@ class _AllEpisodeCard extends StatelessWidget {
               color: p.inkPrimary,
               fontSize: 12.5,
               fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 元数据识别面板：服务端 RemoteSearch 候选列表 → 选中 Apply → 刷新详情。
+class _IdentifySheet extends StatefulWidget {
+  const _IdentifySheet({
+    required this.server,
+    required this.item,
+    required this.onApplied,
+  });
+
+  final EmbyServer server;
+  final EmbyItem item;
+  final VoidCallback onApplied;
+
+  @override
+  State<_IdentifySheet> createState() => _IdentifySheetState();
+}
+
+class _IdentifySheetState extends State<_IdentifySheet> {
+  late Future<List<EmbyRemoteSearchResult>> _future;
+  String? _applyingKey;
+
+  /// default=服务端 RemoteSearch（路线 A）；tmdb=客户端直连（路线 B）。
+  String _source = 'server';
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _search();
+  }
+
+  Future<List<EmbyRemoteSearchResult>> _search() {
+    if (_source == 'tmdb') {
+      return TmdbClient().search(widget.item.name);
+    }
+    return EmbyService.instance
+        .clientFor(widget.server)
+        .remoteSearch(
+          name: widget.item.name,
+          isSeries: widget.item.isSeries,
+          itemId: widget.item.id,
+          year: widget.item.productionYear,
+        );
+  }
+
+  void _switchSource(String source) {
+    if (source == _source) return;
+    setState(() {
+      _source = source;
+      _future = _search();
+    });
+  }
+
+  String _resultKey(EmbyRemoteSearchResult r, int i) =>
+      '${r.providerName}:${r.providerIds.values.join(',')}:$i';
+
+  Future<void> _apply(EmbyRemoteSearchResult result, String key) async {
+    setState(() => _applyingKey = key);
+    try {
+      await EmbyService.instance.clientFor(widget.server).applyRemoteSearch(
+            itemId: widget.item.id,
+            result: result,
+          );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onApplied();
+      KazumiDialog.showToast(message: '已应用「${result.name}」的元数据');
+    } catch (e) {
+      KazumiLogger().w('Emby detail: apply remote search failed', error: e);
+      if (mounted) {
+        setState(() => _applyingKey = null);
+        KazumiDialog.showToast(message: '应用失败：$e');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = RexPalette.of(context);
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+      ),
+      decoration: BoxDecoration(
+        color: p.canvas,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: p.hairlineStrong,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '识别「${widget.item.name}」',
+                  style: RexText.headline.copyWith(color: p.inkPrimary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close_rounded, color: p.inkSecondary),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // 数据源切换：服务端元数据源 / 客户端直连 TMDB（自定义 API）。
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoSlidingSegmentedControl<String>(
+              groupValue: _source,
+              onValueChanged: (v) {
+                if (v != null) _switchSource(v);
+              },
+              children: const <String, Widget>{
+                'server': Padding(
+                  padding: EdgeInsets.symmetric(vertical: 7),
+                  child: Text('服务端', style: TextStyle(fontSize: 13)),
+                ),
+                'tmdb': Padding(
+                  padding: EdgeInsets.symmetric(vertical: 7),
+                  child: Text('TMDB 直连', style: TextStyle(fontSize: 13)),
+                ),
+              },
+            ),
+          ),
+          if (_source == 'tmdb' && !TmdbPrefs.configured)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '还没配置 TMDB API，请先到「我的 → TMDB 配置」填写 API Key。',
+                style: RexText.caption.copyWith(color: p.danger),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: EmbyFutureView<List<EmbyRemoteSearchResult>>(
+              future: _future,
+              onRetry: () => setState(() => _future = _search()),
+              emptyTitle: '没有找到匹配结果',
+              emptyMessage: '换个标题，或确认服务端已启用 TMDB 等元数据源。',
+              builder: (context, results) => ListView.separated(
+                itemCount: results.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final r = results[index];
+                  final key = _resultKey(r, index);
+                  final applying = _applyingKey == key;
+                  return Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: p.surface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        if (r.imageUrl.isNotEmpty)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.network(
+                              r.imageUrl,
+                              width: 44,
+                              height: 62,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => SizedBox(
+                                width: 44,
+                                height: 62,
+                                child: Icon(Icons.image_not_supported_outlined,
+                                    color: p.inkTertiary),
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            width: 44,
+                            height: 62,
+                            decoration: BoxDecoration(
+                              color: p.surfaceSunken,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(Icons.movie_outlined,
+                                color: p.inkTertiary),
+                          ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                r.name,
+                                style: RexText.bodyStrong.copyWith(
+                                  color: p.inkPrimary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (r.subtitle.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  r.subtitle,
+                                  style: RexText.caption.copyWith(
+                                    color: p.inkSecondary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        applying
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : KzPressable(
+                                onTap: () => _apply(r, key),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: p.accent,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Text(
+                                    '应用',
+                                    style: RexText.caption.copyWith(
+                                      color: p.accentInk,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],

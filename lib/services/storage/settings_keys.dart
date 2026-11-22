@@ -947,6 +947,46 @@ class SettingsKeys {
     group: SettingGroup.emby,
   );
 
+  /// 音频延迟（秒，正=声音滞后画面，负=声音提前）。写 mpv `audio-delay`。
+  /// 存 double：蓝牙耳机/网络串流的音画不同步量级通常在 ±5s 内。
+  static const embyAudioDelay = SettingKey<double>(
+    'embyAudioDelay',
+    0.0,
+    group: SettingGroup.emby,
+  );
+
+  /// 客户端直连 TMDB：API Key / 读取令牌、API 地址、图片地址。
+  /// 用于「识别元数据」的客户端侧搜索；不填也能用服务端 RemoteSearch。
+  static const tmdbApiKey = SettingKey<String>(
+    'tmdbApiKey',
+    '',
+    group: SettingGroup.emby,
+  );
+  static const tmdbApiBase = SettingKey<String>(
+    'tmdbApiBase',
+    'https://api.themoviedb.org/3',
+    group: SettingGroup.emby,
+  );
+  static const tmdbImageBase = SettingKey<String>(
+    'tmdbImageBase',
+    'https://image.tmdb.org/t/p',
+    group: SettingGroup.emby,
+  );
+
+  /// 截图格式：`png` / `jpg` / `webp`（默认 PNG 无损）。
+  static const embyScreenshotFormat = SettingKey<String>(
+    'embyScreenshotFormat',
+    'png',
+    group: SettingGroup.emby,
+  );
+
+  /// JPG / WebP 截图质量 1~100，仅对有损格式生效。
+  static const embyScreenshotQuality = SettingKey<int>(
+    'embyScreenshotQuality',
+    90,
+    group: SettingGroup.emby,
+  );
+
   /// 首选字幕语言（三字码，`chi` / `eng` / 空=不指定）。
   static const embySubtitleLanguage = SettingKey<String>(
     _SettingBoxKey.embySubtitleLanguage,

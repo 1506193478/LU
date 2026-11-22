@@ -57,6 +57,9 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- Wi-Fi 传文件：App 在本机开 HTTP 服务供局域网浏览器上传。 -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>允许同一 Wi-Fi 下的设备通过浏览器向 App 传文件。</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>使用面容 ID 解锁本地私密内容。</string>
 	<key>NSCameraUsageDescription</key>

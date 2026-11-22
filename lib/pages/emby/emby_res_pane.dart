@@ -19,6 +19,9 @@ import 'package:XL/pages/emby/emby_display_prefs_page.dart';
 import 'package:XL/pages/emby/emby_favorites_page.dart';
 import 'package:XL/pages/emby/emby_gesture_settings_page.dart';
 import 'package:XL/pages/emby/emby_pip_settings_page.dart';
+import 'package:XL/pages/emby/tmdb_settings_page.dart';
+import 'package:XL/pages/emby/wifi_transfer_page.dart';
+import 'package:XL/services/emby/tmdb_prefs.dart';
 import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/pages/emby/emby_stream_settings_page.dart';
 import 'package:XL/pages/emby/emby_vault_lock_settings_page.dart';
@@ -30,6 +33,8 @@ import 'package:XL/pages/emby/emby_scan_page.dart';
 import 'package:XL/pages/emby/emby_tab_manager.dart';
 import 'package:XL/pages/emby/emby_iptv_page.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/services/storage/storage.dart';
+import 'package:XL/utils/constants.dart';
 import 'package:XL/services/emby/res_card_prefs.dart';
 import 'package:XL/theme/kz_context_menu.dart';
 import 'package:XL/pages/emby/emby_server_form_page.dart';
@@ -1819,6 +1824,19 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
   @override
   Widget build(BuildContext context) {
     final server = EmbyService.instance.activeServer;
+    // 渲染后端 / 硬件解码显示真实配置，不再是写死的装饰值。
+    final String rendererLabel;
+    if (Platform.isAndroid) {
+      final r = GStorage.getSetting(SettingsKeys.androidVideoRenderer);
+      rendererLabel = androidVideoRenderersList[r] ?? r;
+    } else {
+      rendererLabel = 'mpv · GPU';
+    }
+    final bool hwEnabled = GStorage.getSetting(SettingsKeys.hAenable);
+    final String hwDecoder = GStorage.getSetting(SettingsKeys.hardwareDecoder);
+    final String hwLabel = hwEnabled
+        ? (hardwareDecodersList[hwDecoder] ?? hwDecoder)
+        : '关闭';
     return SafeArea(
       bottom: false,
       child: ListView(
@@ -1951,10 +1969,29 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 icon: Icons.play_circle_outline_rounded,
                 iconColor: const Color(0xFFAF52DE),
                 title: '播放行为',
-                subtitle: '字幕 · 弹幕 · 片头片尾 · 投屏',
+                subtitle: '片头片尾 · 投屏 · 后台音频',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => const EmbyPlayBehaviorPage(),
+                  ),
+                ),
+              ),
+              PvRow(
+                icon: Icons.subtitles_rounded,
+                iconColor: const Color(0xFFFF9F0A),
+                title: '字幕与弹幕',
+                subtitle: '字幕样式 · 弹幕来源与转换规则',
+                onTap: () => context.pushNamed('/settings/danmaku'),
+              ),
+              PvRow(
+                icon: Icons.movie_filter_rounded,
+                iconColor: const Color(0xFF0A84FF),
+                title: 'TMDB 配置',
+                subtitle: '自定义 API · 识别元数据',
+                value: TmdbPrefs.configured ? '已配置' : '未配置',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const TmdbSettingsPage(),
                   ),
                 ),
               ),
@@ -1999,14 +2036,14 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 icon: Icons.monitor_rounded,
                 iconColor: const Color(0xFF5856D6),
                 title: '渲染后端',
-                value: 'GPU · mpv',
+                value: rendererLabel,
                 onTap: () => context.pushNamed('/settings/player'),
               ),
               PvRow(
                 icon: Icons.memory_rounded,
                 iconColor: const Color(0xFF34C759),
                 title: '硬件解码',
-                value: '自动',
+                value: hwLabel,
                 onTap: () => context.pushNamed('/settings/player'),
                 showDivider: false,
               ),
@@ -2052,6 +2089,17 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 title: '添加服务器',
                 subtitle: '连接 Emby / Jellyfin',
                 onTap: () => context.pushNamed('/emby/media'),
+              ),
+              PvRow(
+                icon: Icons.wifi_tethering_rounded,
+                iconColor: const Color(0xFF5E5CE6),
+                title: 'Wi-Fi 传文件',
+                subtitle: '浏览器上传到设备',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const WifiTransferPage(),
+                  ),
+                ),
               ),
             ],
           ),

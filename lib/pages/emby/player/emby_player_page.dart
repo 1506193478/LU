@@ -12,6 +12,7 @@ import 'package:flutter_modular/flutter_modular.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:image/image.dart' as img;
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
 import 'package:share_plus/share_plus.dart';
@@ -30,6 +31,7 @@ import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/emby/player_button_prefs.dart';
 import 'package:XL/services/player/pip_utils.dart';
+import 'package:XL/services/player/remote.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/services/subtitle/han_convert.dart';
@@ -601,6 +603,83 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     }
   }
 
+  /// 投屏入口：iOS 给「系统投屏 / DLNA」二选一，其它平台直接 DLNA。
+  /// DLNA 推送的是当前 Emby 片源直链（转码流或原盘由当前线路决定）。
+  Future<void> _openCast() async {
+    _pauseAutoHide();
+    if (!Platform.isIOS) {
+      await _openDlna();
+      return;
+    }
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C2C2E),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Text(
+                  '投屏方式',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.airplay, color: Colors.white),
+                title: const Text('AirPlay / 系统投屏',
+                    style: TextStyle(color: Colors.white)),
+                subtitle: const Text('Apple TV 等设备',
+                    style: TextStyle(color: Colors.white54)),
+                onTap: () {
+                  Navigator.of(ctx).pop('airplay');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.cast_rounded, color: Colors.white),
+                title: const Text('DLNA',
+                    style: TextStyle(color: Colors.white)),
+                subtitle: const Text('智能电视 / 电视盒子',
+                    style: TextStyle(color: Colors.white54)),
+                onTap: () {
+                  Navigator.of(ctx).pop('dlna');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.close_rounded, color: Colors.white70),
+                title: const Text('取消',
+                    style: TextStyle(color: Colors.white70)),
+                onTap: () => Navigator.of(ctx).pop(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'airplay') {
+      await _openAirplay();
+    } else if (choice == 'dlna') {
+      await _openDlna();
+    }
+  }
+
+  Future<void> _openDlna() async {
+    final url = controller.streamUrl;
+    if (url.isEmpty) {
+      _toast('当前片源还没有地址，稍后再试');
+      return;
+    }
+    final title = controller.current?.name ?? widget.launch.title;
+    await RemotePlay().castVideo(url, title: title);
+  }
+
   Future<void> _openMore() async {
     _pauseAutoHide();
     await _showMenuPage(
@@ -623,6 +702,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           onChapters: controller.chapters.isEmpty ? null : _openChapters,
           onNotes: _openNotes,
           onPlayerButtons: _openPlayerButtons,
+          onVideoColor: controller.isAvBackend ? null : _openVideoColor,
+          onScreenshotFormat: _openScreenshotFormat,
           onBackground: () {
             controller.setBackgroundAudio(!controller.backgroundAudio);
             Navigator.of(ctx).pop();
@@ -634,6 +715,37 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
             Navigator.of(ctx).pop();
           },
         ),
+      ),
+    );
+  }
+
+  Future<void> _openScreenshotFormat() async {
+    _pauseAutoHide();
+    await _showMenuPage(
+      '截图格式',
+      (ctx) => buildEmbyScreenshotFormatPanel(
+        format: GStorage.getSetting(SettingsKeys.embyScreenshotFormat),
+        quality: GStorage.getSetting(SettingsKeys.embyScreenshotQuality),
+        onFormatChanged: (value) async {
+          await GStorage.putSetting(SettingsKeys.embyScreenshotFormat, value);
+          if (mounted) setState(() {});
+        },
+        onQualityChanged: (value) async {
+          await GStorage.putSetting(SettingsKeys.embyScreenshotQuality, value);
+          if (mounted) setState(() {});
+        },
+      ),
+    );
+  }
+
+  Future<void> _openVideoColor() async {
+    _pauseAutoHide();
+    await _showMenuPage(
+      '画面色彩',
+      (ctx) => buildEmbyVideoColorPanel(
+        settings: controller.videoColor,
+        onChanged: (next) => controller.setVideoColor(next),
+        onReset: () => controller.resetVideoColor(),
       ),
     );
   }
@@ -816,7 +928,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     }
   }
 
-  /// 截图：取当前帧 → 预览弹窗（分享 / 保存到相册）。
+  /// 截图：取当前帧 → 按用户选的格式转码 → 预览弹窗（分享 / 保存到相册）。
   Future<void> _openScreenshot() async {
     Uint8List? bytes;
     try {
@@ -829,11 +941,21 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       _toast('截图失败：当前内核不支持取帧');
       return;
     }
-    final Uint8List shot = bytes;
+    final String format = GStorage.getSetting(SettingsKeys.embyScreenshotFormat);
+    final int quality = GStorage.getSetting(SettingsKeys.embyScreenshotQuality);
+    late final _ShotResult shot;
+    try {
+      shot = _encodeScreenshot(bytes, format, quality);
+    } catch (_) {
+      // 转码失败就退回 PNG，不能让用户一张图都存不下来。
+      shot = _ShotResult(bytes, 'png', 'image/png');
+    }
     await showDialog<void>(
       context: context,
       builder: (_) => _ScreenshotDialog(
-        bytes: shot,
+        bytes: shot.bytes,
+        extension: shot.extension,
+        mimeType: shot.mimeType,
         title: controller.current?.name ?? '截图',
       ),
     );
@@ -953,6 +1075,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           Navigator.of(ctx).pop();
         },
         onEnhance: _openGain,
+        audioDelay: controller.audioDelay,
+        audioDelaySupported: !controller.isAvBackend,
+        onAudioDelayChanged: (value) => controller.setAudioDelay(value),
       ),
     );
   }
@@ -1968,14 +2093,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                               ? () => Navigator.of(context).maybePop()
                               : null,
                         ),
-                      // 投屏 / AirPlay：弹系统路由选择器。
+                      // 投屏：iOS 弹「系统投屏 / DLNA」二选一，其它平台进 DLNA。
                       if (_shownButton('cast'))
                         _CircleAction(
                           icon: Platform.isIOS
                               ? Icons.airplay
                               : Icons.cast_rounded,
                           iconSize: 17,
-                          onTap: _openAirplay,
+                          onTap: _openCast,
                         ),
                       // 画面比例 / 重新加载：mpv 内核专属（AV 走系统控制条）。
                       if (!controller.isAvBackend && _shownButton('aspect'))
@@ -3436,14 +3561,58 @@ class _BareAction extends StatelessWidget {
 }
 
 /// 截图预览弹窗：左侧分享、右侧保存至相册。
+/// 截图结果：字节 + 对应扩展名 / mime，预览弹窗用它拼文件名。
+class _ShotResult {
+  const _ShotResult(this.bytes, this.extension, this.mimeType);
+
+  final Uint8List bytes;
+  final String extension;
+  final String mimeType;
+}
+
+/// 把 mpv 取回的 PNG 帧按用户设置转成 JPG / WebP。
+/// PNG 直接原样返回（无损，也是默认）。转码在隔离的 compute 开销太小，
+/// 这里直接同步做——一帧 1080p 图几十毫秒，不值得一次 isolate 往返。
+_ShotResult _encodeScreenshot(Uint8List png, String format, int quality) {
+  if (format == 'jpg' || format == 'webp') {
+    final decoded = img.decodeImage(png);
+    if (decoded != null) {
+      final q = quality.clamp(1, 100).toInt();
+      final Uint8List encoded;
+      if (format == 'jpg') {
+        encoded = Uint8List.fromList(
+          img.encodeJpg(decoded, quality: q),
+        );
+      } else {
+        encoded = Uint8List.fromList(
+          img.encodeWebP(decoded, quality: q),
+        );
+      }
+      return _ShotResult(
+        encoded,
+        format,
+        format == 'jpg' ? 'image/jpeg' : 'image/webp',
+      );
+    }
+  }
+  return _ShotResult(png, 'png', 'image/png');
+}
+
 class _ScreenshotDialog extends StatelessWidget {
-  const _ScreenshotDialog({required this.bytes, required this.title});
+  const _ScreenshotDialog({
+    required this.bytes,
+    required this.title,
+    this.extension = 'png',
+    this.mimeType = 'image/png',
+  });
 
   final Uint8List bytes;
   final String title;
+  final String extension;
+  final String mimeType;
 
   String get _fileName =>
-      'LU_${DateTime.now().millisecondsSinceEpoch}.png';
+      'LU_${DateTime.now().millisecondsSinceEpoch}.$extension';
 
   @override
   Widget build(BuildContext context) {
@@ -3480,7 +3649,7 @@ class _ScreenshotDialog extends StatelessWidget {
                   XFile.fromData(
                     bytes,
                     name: _fileName,
-                    mimeType: 'image/png',
+                    mimeType: mimeType,
                   ),
                 ],
               );

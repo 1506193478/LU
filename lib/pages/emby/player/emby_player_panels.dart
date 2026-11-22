@@ -237,6 +237,8 @@ class EmbyMorePanelActions {
     this.onChapters,
     this.onNotes,
     this.onPlayerButtons,
+    this.onVideoColor,
+    this.onScreenshotFormat,
     this.episodeCount = 0,
     this.decodeLabel = '硬解',
     this.playbackModeLabel = '顺序播放',
@@ -257,6 +259,8 @@ class EmbyMorePanelActions {
   final VoidCallback? onChapters;
   final VoidCallback? onNotes;
   final VoidCallback? onPlayerButtons;
+  final VoidCallback? onVideoColor;
+  final VoidCallback? onScreenshotFormat;
   final int episodeCount;
   final String decodeLabel;
   final String playbackModeLabel;
@@ -310,6 +314,20 @@ Widget buildEmbyMorePanel(BuildContext context, EmbyMorePanelActions a) {
           subtitle: '逐个显示 / 隐藏控制栏按钮',
           chevron: true,
           onTap: a.onPlayerButtons,
+        ),
+      if (a.onVideoColor != null)
+        _PanelRow(
+          title: '画面色彩',
+          subtitle: '亮度 / 对比度 / 饱和度等',
+          chevron: true,
+          onTap: a.onVideoColor,
+        ),
+      if (a.onScreenshotFormat != null)
+        _PanelRow(
+          title: '截图格式',
+          subtitle: 'PNG 无损 / JPG / WebP 与质量',
+          chevron: true,
+          onTap: a.onScreenshotFormat,
         ),
       _PanelRow(
         title: '后台音频',
@@ -483,6 +501,9 @@ Widget buildEmbyAudioPanel({
   required VoidCallback onDisableAudio,
   required ValueChanged<AudioTrack> onSelect,
   required VoidCallback onEnhance,
+  double audioDelay = 0,
+  ValueChanged<double>? onAudioDelayChanged,
+  bool audioDelaySupported = true,
 }) {
   final String? currentId = current?.id;
   final bool audioOff =
@@ -512,6 +533,141 @@ Widget buildEmbyAudioPanel({
         chevron: true,
         onTap: onEnhance,
       ),
+      if (audioDelaySupported && onAudioDelayChanged != null) ...[
+        _StepperRow(
+          label: '音频延迟',
+          value:
+              '${audioDelay >= 0 ? '+' : ''}${audioDelay.toStringAsFixed(1)}s',
+          onMinus: () =>
+              onAudioDelayChanged((audioDelay - 0.1).clamp(-10, 10)),
+          onPlus: () =>
+              onAudioDelayChanged((audioDelay + 0.1).clamp(-10, 10)),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          child: Text(
+            '声音比画面慢就调大，快就调小。调完立即生效。',
+            style: TextStyle(color: _inkTertiary, fontSize: 12, height: 1.45),
+          ),
+        ),
+      ],
+      const SizedBox(height: 8),
+    ],
+  );
+}
+
+/// 视频色彩面板：mpv 六轴（亮度/对比度/饱和度/gamma/色相/锐化）。
+/// 每次调整立即写 mpv，左侧数值是相对默认值 0 的偏移。
+Widget buildEmbyVideoColorPanel({
+  required EmbyVideoColorSettings settings,
+  required ValueChanged<EmbyVideoColorSettings> onChanged,
+  VoidCallback? onReset,
+}) {
+  double clamp100(double v) => v.clamp(-100, 100);
+  String label(double v) => v == 0 ? '0' : (v > 0 ? '+$v' : '$v');
+
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
+        child: Text(
+          '相对画面原始值调整，向左减小、向右增强。不同片源差异较大，按需微调。',
+          style: TextStyle(color: _inkTertiary, fontSize: 12, height: 1.45),
+        ),
+      ),
+      _StepperRow(
+        label: '亮度',
+        value: label(settings.brightness),
+        onMinus: () =>
+            onChanged(settings.copyWith(brightness: clamp100(settings.brightness - 5))),
+        onPlus: () =>
+            onChanged(settings.copyWith(brightness: clamp100(settings.brightness + 5))),
+      ),
+      _StepperRow(
+        label: '对比度',
+        value: label(settings.contrast),
+        onMinus: () =>
+            onChanged(settings.copyWith(contrast: clamp100(settings.contrast - 5))),
+        onPlus: () =>
+            onChanged(settings.copyWith(contrast: clamp100(settings.contrast + 5))),
+      ),
+      _StepperRow(
+        label: '饱和度',
+        value: label(settings.saturation),
+        onMinus: () =>
+            onChanged(settings.copyWith(saturation: clamp100(settings.saturation - 5))),
+        onPlus: () =>
+            onChanged(settings.copyWith(saturation: clamp100(settings.saturation + 5))),
+      ),
+      _StepperRow(
+        label: 'Gamma',
+        value: label(settings.gamma),
+        onMinus: () =>
+            onChanged(settings.copyWith(gamma: clamp100(settings.gamma - 5))),
+        onPlus: () =>
+            onChanged(settings.copyWith(gamma: clamp100(settings.gamma + 5))),
+      ),
+      _StepperRow(
+        label: '色相',
+        value: label(settings.hue),
+        onMinus: () => onChanged(settings.copyWith(hue: clamp100(settings.hue - 5))),
+        onPlus: () => onChanged(settings.copyWith(hue: clamp100(settings.hue + 5))),
+      ),
+      _StepperRow(
+        label: '锐化',
+        value: label(settings.sharpness),
+        onMinus: () =>
+            onChanged(settings.copyWith(sharpness: clamp100(settings.sharpness - 5))),
+        onPlus: () =>
+            onChanged(settings.copyWith(sharpness: clamp100(settings.sharpness + 5))),
+      ),
+      if (onReset != null && !settings.isDefault)
+        _PanelRow(title: '恢复默认', onTap: onReset),
+      const SizedBox(height: 8),
+    ],
+  );
+}
+
+/// 截图格式面板：PNG（无损）/ JPG / WebP + 有损质量。
+Widget buildEmbyScreenshotFormatPanel({
+  required String format,
+  required int quality,
+  required ValueChanged<String> onFormatChanged,
+  required ValueChanged<int> onQualityChanged,
+}) {
+  const formats = <String, String>{
+    'png': 'PNG · 无损（体积较大）',
+    'jpg': 'JPG · 有损（通用）',
+    'webp': 'WebP · 有损（更省空间）',
+  };
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const _GroupTitle('图片格式', first: true),
+      for (final entry in formats.entries)
+        _PanelRow(
+          title: entry.key.toUpperCase(),
+          subtitle: entry.value,
+          selected: format == entry.key,
+          onTap: () => onFormatChanged(entry.key),
+        ),
+      if (format != 'png') ...[
+        const _GroupTitle('压缩质量'),
+        _StepperRow(
+          label: '质量',
+          value: '$quality%',
+          onMinus: () => onQualityChanged((quality - 5).clamp(1, 100)),
+          onPlus: () => onQualityChanged((quality + 5).clamp(1, 100)),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          child: Text(
+            '数值越高画质越好、文件越大。PNG 为无损格式，不受质量影响。',
+            style: TextStyle(color: _inkTertiary, fontSize: 12, height: 1.45),
+          ),
+        ),
+      ],
       const SizedBox(height: 8),
     ],
   );

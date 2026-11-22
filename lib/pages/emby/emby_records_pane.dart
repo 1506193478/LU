@@ -121,15 +121,92 @@ class EmbyRecordsPane extends StatefulWidget {
 
 class _EmbyRecordsPaneState extends State<EmbyRecordsPane> {
   List<EmbyWatchRecord> _records = const <EmbyWatchRecord>[];
+  bool _loadingServer = false;
 
   @override
   void initState() {
     super.initState();
     _reload();
+    _mergeServerResume();
   }
 
   void _reload() {
     setState(() => _records = EmbyWatchLog.instance.records);
+  }
+
+  /// 把服务端「继续观看」并进本地记录，解决多设备续播只在首页看得到的问题。
+  ///
+  /// 去重键和本地写入保持一致（`emby:{serverId}:{itemId}`）：
+  ///   * 同 key：进度取服务端（最准、跨设备），时间取两者较新的；
+  ///   * 服务端独有：其它设备看过的也加进来。
+  /// 服务端拉取失败不影响本地记录展示。
+  Future<void> _mergeServerResume() async {
+    if (_loadingServer) return;
+    _loadingServer = true;
+    try {
+      final service = EmbyService.instance;
+      await service.load();
+      final merged = <String, EmbyWatchRecord>{
+        for (final r in EmbyWatchLog.instance.records) r.key: r,
+      };
+      for (final server in service.servers) {
+        try {
+          final items = await service
+              .clientFor(server)
+              .fetchResume(userId: server.userId, limit: 30);
+          for (final item in items) {
+            if (item.id.isEmpty) continue;
+            final key = 'emby:${server.id}:${item.id}';
+            final position = item.resumePosition;
+            final total = item.runTime;
+            if (position == null || total == null) continue;
+            final serverRecord = EmbyWatchRecord(
+              key: key,
+              title: item.name,
+              subtitle: item.cardSubtitle,
+              itemId: item.id,
+              serverId: server.id,
+              serverName: server.name,
+              positionMs: position.inMilliseconds,
+              durationMs: total.inMilliseconds,
+              // 服务端没有本地观看时间戳，用 0 让本地记录的时间优先。
+              playedAt: 0,
+            );
+            final local = merged[key];
+            if (local == null) {
+              merged[key] = serverRecord;
+            } else {
+              // 进度用服务端；时间取更新的那个，保证排序不倒退。
+              merged[key] = EmbyWatchRecord(
+                key: key,
+                title: local.title,
+                subtitle: local.subtitle.isEmpty
+                    ? serverRecord.subtitle
+                    : local.subtitle,
+                itemId: local.itemId,
+                serverId: local.serverId,
+                serverName: local.serverName,
+                source: local.source,
+                positionMs: serverRecord.positionMs,
+                durationMs: serverRecord.durationMs,
+                playedAt: local.playedAt > 0 ? local.playedAt : serverRecord.playedAt,
+              );
+            }
+          }
+        } catch (e) {
+          KazumiLogger().w(
+            'Emby records: server resume failed for ${server.name}',
+            error: e,
+          );
+        }
+      }
+      if (!mounted) return;
+      final list = merged.values.toList()
+        ..sort((a, b) => b.playedAt.compareTo(a.playedAt));
+      setState(() => _records = list);
+    } finally {
+      _loadingServer = false;
+    }
   }
 
   /// 按服务器名分组，组内保持「最近播放在前」。

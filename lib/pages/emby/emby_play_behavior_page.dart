@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'package:XL/bean/dialog/dialog.dart';
@@ -183,7 +185,7 @@ class EmbyPlayBehaviorPage extends StatelessWidget {
                           icon: Icons.cast_rounded,
                           iconColor: const Color(0xFF0A84FF),
                           title: '投屏',
-                          subtitle: 'AirPlay / DLNA',
+                          subtitle: Platform.isIOS ? 'AirPlay 系统路由' : '系统投屏入口',
                           value: CastService.supported ? '未连接' : '不支持',
                           onTap: () => _openCast(ctx),
                           showDivider: false,
