@@ -126,6 +126,15 @@ class EmbyLibrary {
         collectionType: json['CollectionType']?.toString() ?? '',
         imageTag: _imageTagOf(json),
       );
+
+  Map<String, dynamic> toJson() => {
+        'Id': id,
+        'Name': name,
+        if (collectionType.isNotEmpty) 'CollectionType': collectionType,
+        'ImageTags': {
+          if (imageTag != null) 'Primary': imageTag,
+        },
+      };
 }
 
 /// 服务器内容统计（`/Items/Counts`），媒体库页统计条用。
@@ -145,6 +154,12 @@ class EmbyItemCounts {
         series: (json['SeriesCount'] as num?)?.toInt() ?? 0,
         episodes: (json['EpisodeCount'] as num?)?.toInt() ?? 0,
       );
+
+  Map<String, dynamic> toJson() => {
+        'MovieCount': movies,
+        'SeriesCount': series,
+        'EpisodeCount': episodes,
+      };
 }
 
 /// 媒体条目：剧集（Series）、电影（Movie）、单集（Episode）都用它。
@@ -173,6 +188,7 @@ class EmbyItem {
     this.isFavorite = false,
     this.childCount,
     this.directUrl,
+    this.homeServerId,
   });
 
   /// 直接可播的地址（本地文件、相册视频、网络链接、网盘直链）。
@@ -180,6 +196,12 @@ class EmbyItem {
   /// 这不是 Emby 返回的字段，只在本地构造条目时填。填了它，播放器就跳过
   /// 服务端的 PlaybackInfo 解析，直接拿这个地址起播。
   final String? directUrl;
+
+  /// 条目来自哪台本地配置的服务器（首页跨服务器聚合时才填）。
+  ///
+  /// 这也不是 Emby 返回的字段：首页把多台服务器的「继续观看 / Next Up」
+  /// 合并到一条轨里时，点开详情 / 起播必须知道去哪台服务器取数。
+  final String? homeServerId;
 
   final String id;
   final String name;
@@ -232,6 +254,35 @@ class EmbyItem {
   final int? childCount;
 
   bool get isSeries => type == 'Series';
+
+  /// 带上来源服务器标记的副本（首页跨服务器聚合用，其余字段原样保留）。
+  EmbyItem withHomeServer(String serverId) => EmbyItem(
+        id: id,
+        name: name,
+        type: type,
+        seriesId: seriesId,
+        seriesName: seriesName,
+        indexNumber: indexNumber,
+        parentIndexNumber: parentIndexNumber,
+        productionYear: productionYear,
+        overview: overview,
+        communityRating: communityRating,
+        primaryImageTag: primaryImageTag,
+        backdropImageTag: backdropImageTag,
+        parentId: parentId,
+        seriesPrimaryImageTag: seriesPrimaryImageTag,
+        parentPrimaryImageTag: parentPrimaryImageTag,
+        runTimeTicks: runTimeTicks,
+        genres: genres,
+        officialRating: officialRating,
+        played: played,
+        playbackPositionTicks: playbackPositionTicks,
+        isFavorite: isFavorite,
+        childCount: childCount,
+        directUrl: directUrl,
+        homeServerId: serverId,
+      );
+
   bool get isMovie => type == 'Movie';
   bool get isEpisode => type == 'Episode';
   bool get isSeason => type == 'Season';
@@ -348,8 +399,46 @@ class EmbyItem {
           userData is Map ? _intOrNull(userData['PlaybackPositionTicks']) : null,
       isFavorite: userData is Map && userData['IsFavorite'] == true,
       childCount: _intOrNull(json['ChildCount']) ?? _intOrNull(json['RecursiveItemCount']),
+      directUrl: _nonEmpty(json['DirectUrl']),
+      homeServerId: _nonEmpty(json['HomeServerId']),
     );
   }
+
+  /// 转回服务端形状的 JSON（首页磁盘缓存用）。
+  /// 字段名与 [fromJson] 对齐，`homeServerId` / `directUrl` 是本地附加字段。
+  Map<String, dynamic> toJson() => {
+        'Id': id,
+        'Name': name,
+        'Type': type,
+        if (seriesId != null) 'SeriesId': seriesId,
+        if (seriesName != null) 'SeriesName': seriesName,
+        if (indexNumber != null) 'IndexNumber': indexNumber,
+        if (parentIndexNumber != null) 'ParentIndexNumber': parentIndexNumber,
+        if (productionYear != null) 'ProductionYear': productionYear,
+        if (overview != null) 'Overview': overview,
+        if (communityRating != null) 'CommunityRating': communityRating,
+        'ImageTags': {
+          if (primaryImageTag != null) 'Primary': primaryImageTag,
+          if (backdropImageTag != null) 'Backdrop': backdropImageTag,
+        },
+        if (parentId != null) 'ParentId': parentId,
+        if (seriesPrimaryImageTag != null)
+          'SeriesPrimaryImageTag': seriesPrimaryImageTag,
+        if (parentPrimaryImageTag != null)
+          'ParentPrimaryImageTag': parentPrimaryImageTag,
+        if (runTimeTicks != null) 'RunTimeTicks': runTimeTicks,
+        if (genres.isNotEmpty) 'Genres': genres,
+        if (officialRating != null) 'OfficialRating': officialRating,
+        'UserData': {
+          'Played': played,
+          if (playbackPositionTicks != null)
+            'PlaybackPositionTicks': playbackPositionTicks,
+          'IsFavorite': isFavorite,
+        },
+        if (childCount != null) 'ChildCount': childCount,
+        if (directUrl != null) 'DirectUrl': directUrl,
+        if (homeServerId != null) 'HomeServerId': homeServerId,
+      };
 }
 
 String? _nonEmpty(Object? value) {

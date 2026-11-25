@@ -2197,12 +2197,12 @@ class _IdentifySheetState extends State<_IdentifySheet> {
               },
             ),
           ),
-          if (_source == 'tmdb' && !TmdbPrefs.configured)
+          if (_source == 'tmdb')
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                '还没配置 TMDB API，请先到「我的 → TMDB 配置」填写 API Key。',
-                style: RexText.caption.copyWith(color: p.danger),
+                '直连使用内置公共 Key 与自动线路，搜索失败时可到「我的 → TMDB 配置」换线或填自己的 Key。',
+                style: RexText.caption.copyWith(color: p.inkTertiary),
               ),
             ),
           const SizedBox(height: 8),

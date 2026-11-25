@@ -877,6 +877,20 @@ class SettingsKeys {
     group: SettingGroup.emby,
   );
 
+  /// 首页「继续观看 / 接下来观看」跨服务器聚合（配置了多台服务器时生效）。
+  static const embyHomeAggregate = SettingKey<bool>(
+    _SettingBoxKey.embyHomeAggregate,
+    true,
+    group: SettingGroup.emby,
+  );
+
+  /// 收藏剧集更新检查（追更提醒），往通知中心推。
+  static const embyUpdateWatcher = SettingKey<bool>(
+    _SettingBoxKey.embyUpdateWatcher,
+    true,
+    group: SettingGroup.emby,
+  );
+
   /// 串流方式：`auto` / `direct` / `transcode`。
   ///
   /// `auto` 就是老行为（先直连、探测失败再转码）；另外两个是「转码与串流」
@@ -970,6 +984,14 @@ class SettingsKeys {
   static const tmdbImageBase = SettingKey<String>(
     'tmdbImageBase',
     'https://image.tmdb.org/t/p',
+    group: SettingGroup.emby,
+  );
+
+  /// TMDB 自动选线结果（探测成功后写入的 API 基地址）。
+  /// 为空表示还没探测过，走官方主域名。
+  static const tmdbAutoLine = SettingKey<String>(
+    'tmdbAutoLine',
+    '',
     group: SettingGroup.emby,
   );
 
@@ -1135,6 +1157,8 @@ class _SettingBoxKey {
       historySyncSnapshotInitialized = 'historySyncSnapshotInitialized',
       embyServers = 'embyServers',
       embyActiveServerId = 'embyActiveServerId',
+      embyHomeAggregate = 'embyHomeAggregate',
+      embyUpdateWatcher = 'embyUpdateWatcher',
       embyDeviceId = 'embyDeviceId',
       embyDirectPlay = 'embyDirectPlay',
       embyStreamMode = 'embyStreamMode',

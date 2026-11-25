@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_modular/flutter_modular.dart';
+import 'package:path_provider/path_provider.dart';
 
-import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/theme/lu_liquid_glass.dart';
 import 'package:XL/bean/widget/clay_neu.dart';
@@ -15,6 +17,7 @@ import 'package:XL/pages/emby/emby_records_pane.dart';
 import 'package:XL/pages/emby/emby_files_pane.dart';
 import 'package:XL/pages/emby/emby_tab_manager.dart';
 import 'package:XL/pages/emby/emby_home_panels.dart';
+import 'package:XL/pages/emby/tmdb_discover_page.dart';
 import 'package:XL/pages/emby/emby_search_pane.dart';
 import 'package:XL/pages/emby/emby_style.dart';
 import 'package:XL/pages/emby/emby_detail_page.dart';
@@ -26,6 +29,7 @@ import 'package:XL/pages/emby/emby_vault_lock_page.dart';
 import 'package:XL/services/emby/res_card_prefs.dart';
 import 'package:XL/services/emby/sen_tab_prefs.dart';
 import 'package:XL/services/logging/logger.dart';
+import 'package:XL/services/storage/storage.dart';
 import 'package:XL/theme/rex_big_view.dart';
 import 'package:XL/utils/motion.dart';
 
@@ -195,7 +199,7 @@ class _EmbyPageState extends State<EmbyPage> {
     );
   }
 
-  Future<_HomeData> _load() async {
+  Future<_HomeData> _load({bool skipDiskCache = false}) async {
     final service = EmbyService.instance;
     await service.load();
     final server = service.activeServer;
@@ -208,6 +212,26 @@ class _EmbyPageState extends State<EmbyPage> {
         rails: [],
       );
     }
+    // 冷启动（内存缓存不在）：先读上一份磁盘缓存，当帧把整页画出来，
+    // 再在背后走一遍真正的网络加载替换内容。
+    if (!skipDiskCache) {
+      final disk = await readHomeDiskCache(server.id);
+      if (disk != null) {
+        final cached = _HomeData(
+          server: server,
+          libraries: disk.libraries,
+          resume: disk.resume,
+          latest: disk.latest,
+          nextUp: disk.nextUp,
+          rails: disk.rails,
+          counts: disk.counts,
+        );
+        _homeCache = _HomeCacheEntry(server.id, cached);
+        _libCount = cached.libraries.length;
+        unawaited(_refreshSilently(skipDiskCache: true));
+        return cached;
+      }
+    }
     final client = service.clientFor(server);
     final libraries = await client.fetchLibraries(server.userId);
     if (mounted) setState(() => _libCount = libraries.length);
@@ -217,20 +241,41 @@ class _EmbyPageState extends State<EmbyPage> {
     var latest = <EmbyItem>[];
     var nextUp = <EmbyItem>[];
     EmbyItemCounts? counts;
-    try {
-      resume = await client.fetchResume(userId: server.userId);
-    } catch (e) {
-      KazumiLogger().w('Emby home: failed to load resume', error: e);
-    }
-    try {
-      latest = await client.fetchLatest(userId: server.userId);
-    } catch (e) {
-      KazumiLogger().w('Emby home: failed to load latest', error: e);
-    }
-    try {
-      nextUp = await client.fetchNextUp(userId: server.userId);
-    } catch (e) {
-      KazumiLogger().w('Emby home: failed to load nextUp', error: e);
+    if (_homeAggregateOn) {
+      // 跨服务器聚合：每台服务器的「继续观看 / 接下来观看」并行拉回来拼成
+      // 一条轨（每台最多各 10 / 6 条）。条目带 homeServerId，点开详情或
+      // 起播时会先切到对应服务器。latest / 统计仍取主服务器。
+      final others = service.servers
+          .where((s) => s.id != server.id && s.userId.isNotEmpty)
+          .toList();
+      final results = await Future.wait([
+        _loadServerHome(server),
+        for (final s in others) _loadServerHome(s),
+      ]);
+      final primary = results.first;
+      latest = primary.latest;
+      resume = [
+        for (final part in results) ...part.resume,
+      ].take(30).toList();
+      nextUp = [
+        for (final part in results) ...part.nextUp,
+      ].take(24).toList();
+    } else {
+      try {
+        resume = await client.fetchResume(userId: server.userId);
+      } catch (e) {
+        KazumiLogger().w('Emby home: failed to load resume', error: e);
+      }
+      try {
+        latest = await client.fetchLatest(userId: server.userId);
+      } catch (e) {
+        KazumiLogger().w('Emby home: failed to load latest', error: e);
+      }
+      try {
+        nextUp = await client.fetchNextUp(userId: server.userId);
+      } catch (e) {
+        KazumiLogger().w('Emby home: failed to load nextUp', error: e);
+      }
     }
 
     // 每个内容库一条海报滑轨（预览稿的「3.追番」「4.日番」就是这种轨）。
@@ -290,22 +335,184 @@ class _EmbyPageState extends State<EmbyPage> {
       nextUp: nextUp,
     );
     _homeCache = _HomeCacheEntry(server.id, data);
+    // 顺手落盘：下次杀进程重开也能秒开（24 小时内有效）。
+    unawaited(_saveHomeToDisk(data, server.id));
     return data;
+  }
+
+  /// 首页聚合开关：多台服务器 + 用户没关掉时生效。
+  bool get _homeAggregateOn =>
+      EmbyService.instance.servers.length > 1 &&
+      GStorage.getSetting(SettingsKeys.embyHomeAggregate);
+
+  /// 拉一台服务器首页聚合需要的两块数据。条目统一打上来源服务器标。
+  ///
+  /// 每台限 10 / 6 条：轨里塞太多既看不过来，聚合时也拖慢合并。
+  Future<({List<EmbyItem> resume, List<EmbyItem> latest, List<EmbyItem> nextUp})>
+  _loadServerHome(EmbyServer server) async {
+    var resume = <EmbyItem>[];
+    var latest = <EmbyItem>[];
+    var nextUp = <EmbyItem>[];
+    final client = EmbyService.instance.clientFor(server);
+    try {
+      resume = await client.fetchResume(userId: server.userId, limit: 10);
+    } catch (e) {
+      KazumiLogger().w(
+        'Emby home: failed to load resume @${server.name}',
+        error: e,
+      );
+    }
+    try {
+      nextUp = await client.fetchNextUp(userId: server.userId, limit: 6);
+    } catch (e) {
+      KazumiLogger().w(
+        'Emby home: failed to load nextUp @${server.name}',
+        error: e,
+      );
+    }
+    if (server.id == EmbyService.instance.activeServer?.id) {
+      try {
+        latest = await client.fetchLatest(userId: server.userId);
+      } catch (e) {
+        KazumiLogger().w('Emby home: failed to load latest', error: e);
+      }
+    }
+    return (
+      resume: [for (final i in resume) i.withHomeServer(server.id)],
+      latest: latest,
+      nextUp: [for (final i in nextUp) i.withHomeServer(server.id)],
+    );
   }
 
   /// 有缓存时的后台刷新：拿完新数据再替换 future。
   ///
   /// FutureBuilder 换 future 时会保留旧快照的 data（waiting 但 hasData），
   /// 所以替换那一帧不会闪转圈，新数据到了直接换内容。
-  Future<void> _refreshSilently() async {
+  Future<void> _refreshSilently({bool skipDiskCache = false}) async {
     try {
-      final data = await _load();
+      final data = await _load(skipDiskCache: skipDiskCache);
       if (!mounted) return;
       setState(() => _future = Future<_HomeData>.value(data));
     } catch (_) {
       // 静默刷新失败就维持现状——屏幕上还有上次的数据，别打断用户。
     }
   }
+
+  // ------------------------------------------------------------ 首页磁盘缓存
+
+  /// 磁盘缓存文件（临时目录）：`{serverId, savedAt, data}`。24 小时内有效。
+  ///
+  /// 杀掉 App 重开时内存缓存不在，磁盘缓存让首页当帧出内容、网络在背后
+  /// 刷新。损坏 / 过期 / 服务器对不上都返回 null，直接走正常加载。
+  static Future<Map<String, dynamic>?> readHomeDiskCacheRaw() async {
+    try {
+      final tmp = await getTemporaryDirectory();
+      final file = File('${tmp.path}/emby_home_cache.json');
+      if (!await file.exists()) return null;
+      final text = await file.readAsString();
+      if (text.isEmpty) return null;
+      final decoded = jsonDecode(text);
+      if (decoded is! Map<String, dynamic>) return null;
+      final savedAt = (decoded['savedAt'] as num?)?.toInt() ?? 0;
+      final age = DateTime.now().millisecondsSinceEpoch - savedAt;
+      if (savedAt <= 0 ||
+          age < 0 ||
+          age > const Duration(hours: 24).inMilliseconds) {
+        return null;
+      }
+      return decoded;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<_HomeData?> readHomeDiskCache(String serverId) async {
+    try {
+      final raw = await readHomeDiskCacheRaw();
+      if (raw == null) return null;
+      if (raw['serverId']?.toString() != serverId) return null;
+      final data = raw['data'];
+      if (data is! Map<String, dynamic>) return null;
+      return _homeDataFromJson(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _saveHomeToDisk(_HomeData data, String serverId) async {
+    try {
+      final tmp = await getTemporaryDirectory();
+      final file = File('${tmp.path}/emby_home_cache.json');
+      await file.writeAsString(
+        jsonEncode({
+          'serverId': serverId,
+          'savedAt': DateTime.now().millisecondsSinceEpoch,
+          'data': _homeDataToJson(data),
+        }),
+        flush: true,
+      );
+    } catch (_) {
+      // 缓存写失败不影响功能。
+    }
+  }
+
+  Map<String, dynamic> _homeDataToJson(_HomeData data) => {
+        'libraries': [for (final l in data.libraries) l.toJson()],
+        'resume': [for (final i in data.resume) i.toJson()],
+        'latest': [for (final i in data.latest) i.toJson()],
+        'nextUp': [for (final i in data.nextUp) i.toJson()],
+        'rails': [
+          for (final r in data.rails)
+            {
+              'library': r.library.toJson(),
+              'items': [for (final i in r.items) i.toJson()],
+              'count': r.count,
+            },
+        ],
+        if (data.counts != null) 'counts': data.counts!.toJson(),
+      };
+
+  _HomeData? _homeDataFromJson(Map<String, dynamic> json) {
+    _HomeData? result;
+    try {
+      List<T> itemsOf<T>(Object? raw, T Function(Map<String, dynamic>) f) =>
+          [
+            for (final e in (raw as List? ?? const []))
+              if (e is Map<String, dynamic>) f(e),
+          ];
+      final libraries = itemsOf(json['libraries'], EmbyLibrary.fromJson);
+      final resume = itemsOf(json['resume'], EmbyItem.fromJson);
+      final latest = itemsOf(json['latest'], EmbyItem.fromJson);
+      final nextUp = itemsOf(json['nextUp'], EmbyItem.fromJson);
+      final rails = <_LibRail>[
+        for (final e in (json['rails'] as List? ?? const []))
+          if (e is Map<String, dynamic>)
+            _LibRail(
+              library: EmbyLibrary.fromJson(
+                Map<String, dynamic>.from(e['library'] as Map),
+              ),
+              items: itemsOf(e['items'], EmbyItem.fromJson),
+              count: (e['count'] as num?)?.toInt() ?? 0,
+            ),
+      ];
+      final countsRaw = json['counts'];
+      result = _HomeData(
+        server: null, // 读取方按 serverId 自行取 active server
+        libraries: libraries,
+        resume: resume,
+        latest: latest,
+        nextUp: nextUp,
+        rails: rails,
+        counts: countsRaw is Map<String, dynamic>
+            ? EmbyItemCounts.fromJson(countsRaw)
+            : null,
+      );
+    } catch (_) {
+      return null;
+    }
+    return result;
+  }
+
 
   Future<void> _openServers() async {
     // 参考稿：胶囊面板「设置」/媒体库面板齿轮都进「管理媒体库」。
@@ -325,7 +532,18 @@ class _EmbyPageState extends State<EmbyPage> {
     await context.pushNamed('/emby/search', arguments: server.id);
   }
 
-  void _openDetail(EmbyItem item) {
+  /// 聚合条目点开前先切到它所属的服务器（详情页 / 播放器都从 active 取数）。
+  Future<void> _ensureItemServer(EmbyItem item) async {
+    final id = item.homeServerId;
+    if (id == null || id.isEmpty) return;
+    final active = EmbyService.instance.activeServer;
+    if (active != null && active.id == id) return;
+    await EmbyService.instance.setActive(id);
+  }
+
+  Future<void> _openDetail(EmbyItem item) async {
+    await _ensureItemServer(item);
+    if (!mounted) return;
     // 点卡片的瞬间就开始拉详情数据，转场期间网络并行跑。
     EmbyDetailPage.prefetch(item);
     context.pushNamed('/emby/detail', arguments: item);
@@ -353,6 +571,7 @@ class _EmbyPageState extends State<EmbyPage> {
   /// 单集要先把整季拉下来，否则播放器里没有「下一集」；剧集本身不能直接播，
   /// 交给详情页让用户选。电影就是自己一条。
   Future<void> _play(EmbyItem item) async {
+    await _ensureItemServer(item);
     final server = EmbyService.instance.activeServer;
     if (server == null) return;
     if (item.isSeries) {
@@ -741,25 +960,53 @@ class _LibraryPane extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: EmbyFutureView<_HomeData>(
-        future: future!,
-        onRetry: onRetry,
-        onSwitchServer: onSwitchServer,
-        builder: (context, data) {
-          if (data.server == null) {
-            return _NoServerGuide(onAdd: onSwitchServer);
-          }
-          return _HomeBody(
-            data: data,
-            onPlay: onPlay,
-            onOpenDetail: onOpenDetail,
-            onOpenLibrary: onOpenLibrary,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          EmbyFutureView<_HomeData>(
+            future: future!,
             onRetry: onRetry,
-            onOpenServers: onSwitchServer,
-            onSearchServer: onSearchServer,
-            onOpenDiscover: onOpenDiscover,
-          );
-        },
+            onSwitchServer: onSwitchServer,
+            builder: (context, data) {
+              if (data.server == null) {
+                return _NoServerGuide(onAdd: onSwitchServer);
+              }
+              return _HomeBody(
+                data: data,
+                onPlay: onPlay,
+                onOpenDetail: onOpenDetail,
+                onOpenLibrary: onOpenLibrary,
+                onRetry: onRetry,
+                onOpenServers: onSwitchServer,
+                onSearchServer: onSearchServer,
+                onOpenDiscover: onOpenDiscover,
+              );
+            },
+          ),
+          // 常驻右上服务器胶囊：加载中 / 出错 / 未连接时也不消失，
+          // 随时点开面板切线路（用户要求「不管服务器有没有连上都显示」）。
+          SafeArea(
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  embyPagePadding(context),
+                  10,
+                  embyPagePadding(context) - 6,
+                  0,
+                ),
+                child: server != null
+                    ? _ServerChipWithDrop(
+                        server: server!,
+                        onManage: onSwitchServer,
+                        onRetry: onRetry,
+                      )
+                    : _DisconnectedChip(onOpenServers: onSwitchServer),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -888,20 +1135,8 @@ class _HomeBodyState extends State<_HomeBody> {
             ],
           ),
         ),
-        // 常驻顶栏：只剩右侧服务器胶囊（参考稿把胶囊挪到了右边）。
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: _GlassTopBar(
-            server: server,
-            onManage: widget.onOpenServers,
-            onSearch: () => widget.onSearchServer(server),
-            onFavorite: () => widget.onSearchServer(server),
-            onOpenDiscover: widget.onOpenDiscover,
-            onRetry: widget.onRetry,
-          ),
-        ),
+        // 悬浮搜索：右下角圆形按钮，跟随内容浮在二级导航上方。
+        // 服务器胶囊已上移到 _LibraryPane 常驻顶层（加载/出错也不消失）。
         // 悬浮搜索：右下角圆形按钮，跟随内容浮在二级导航上方。
         Positioned(
           right: embyPagePadding(context),
@@ -994,15 +1229,11 @@ class _ServerChipWithDrop extends StatefulWidget {
   const _ServerChipWithDrop({
     required this.server,
     required this.onManage,
-    required this.onOpenDiscover,
-    required this.onSearch,
     required this.onRetry,
   });
 
   final EmbyServer server;
   final VoidCallback onManage;
-  final VoidCallback onOpenDiscover;
-  final VoidCallback onSearch;
   final VoidCallback onRetry;
 
   @override
@@ -1013,7 +1244,7 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
   final GlobalKey _chipKey = GlobalKey();
 
   /// 点胶囊：不再是「列出所有服务器」，而是当前服务器的线路面板
-  /// （参考稿：线路 + 延迟 + 发现/搜索/媒体库/设置）。
+  /// （参考稿：线路 + 延迟 + 媒体库 / 发现页 / 设置）。
   Future<void> _openDrop() async {
     await showEmbyCapsulePanel(
       context,
@@ -1026,6 +1257,9 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
           await EmbyService.instance.setActive(server.id);
           widget.onRetry();
         },
+      ),
+      onOpenDiscoverPage: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const TmdbDiscoverPage()),
       ),
       onOpenSettings: widget.onManage,
       onOpenManage: widget.onManage,
@@ -1095,54 +1329,50 @@ class _ServerChipWithDropState extends State<_ServerChipWithDrop> {
   }
 }
 
-/// 常驻顶栏：服务器胶囊 + 服务器内搜索 + 收藏。
+/// 未连接状态的服务器胶囊：点开媒体库面板（选服务器 / 添加）。
 ///
-/// 这里**不做任何背景**：既不铺色也不做 `BackdropFilter` 磨砂。
-///
-/// 原来滚动到一定距离会在顶栏后面垫一层 18px 模糊 + 88% 页面色，理由是
-/// 「滚到海报墙上要兜住文字」。实际观感是：一滚动就出现一条灰白色的雾带，
-/// 把大图切成两半，而且每帧一次全宽模糊，是中低端机上最贵的一笔开销。
-///
-/// 现在顶栏始终透明，可读性交给两颗胶囊自己（它们本身就是毛玻璃）——
-/// 这也是系统播放器/相册的做法：导航栏透明，靠按钮自身的材质压住内容。
-class _GlassTopBar extends StatelessWidget {
-  const _GlassTopBar({
-    required this.server,
-    required this.onManage,
-    required this.onSearch,
-    required this.onFavorite,
-    required this.onOpenDiscover,
-    required this.onRetry,
-  });
+/// 原来没连上服务器时右上角是空的，用户找不到入口切线路——现在胶囊
+/// 常驻顶层，未连接也能点开面板。
+class _DisconnectedChip extends StatelessWidget {
+  const _DisconnectedChip({required this.onOpenServers});
 
-  final EmbyServer server;
-  final VoidCallback onManage;
-  final VoidCallback onSearch;
-  final VoidCallback onFavorite;
-  final VoidCallback onOpenDiscover;
-  final VoidCallback onRetry;
+  final VoidCallback onOpenServers;
 
   @override
   Widget build(BuildContext context) {
-    // 参考稿：胶囊在右上，左边留空（大图自己顶到状态栏下）。
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          embyPagePadding(context),
-          10,
-          embyPagePadding(context) - 6,
-          10,
-        ),
+    final dark = PvColors.isDark(context);
+    return KzPressable(
+      onTap: onOpenServers,
+      pressedOpacity: 0.6,
+      child: _GlassPlate(
+        radius: 19,
+        height: 38,
+        padding: const EdgeInsets.fromLTRB(12, 0, 13, 0),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Spacer(),
-            _ServerChipWithDrop(
-              server: server,
-              onManage: onManage,
-              onOpenDiscover: onOpenDiscover,
-              onSearch: onSearch,
-              onRetry: onRetry,
+            Icon(
+              Icons.cloud_off_rounded,
+              size: 16,
+              color: dark ? const Color(0xFF9A9AA2) : const Color(0xFF5A5A60),
+            ),
+            const SizedBox(width: 7),
+            Text(
+              '未连接',
+              style: TextStyle(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
+                color: dark
+                    ? const Color(0xFFEDEDEF)
+                    : const Color(0xFF1B1B1F),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(
+              Icons.expand_more_rounded,
+              size: 14,
+              color: dark ? const Color(0xFF9A9AA2) : const Color(0xFF5A5A60),
             ),
           ],
         ),
@@ -1222,9 +1452,11 @@ class _GlassPlate extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
+            // 浅色压到 88-76% 白：胶囊压在大图/海报墙上时文字不发灰
+            //（用户反馈「胶囊背景和字体浅」）。
             colors: dark
-                ? const [Color(0x24FFFFFF), Color(0x0CFFFFFF)]
-                : const [Color(0x9CFFFFFF), Color(0x70FFFFFF)],
+                ? const [Color(0x2EFFFFFF), Color(0x14FFFFFF)]
+                : const [Color(0xE6FFFFFF), Color(0xC2FFFFFF)],
           ),
           borderRadius: BorderRadius.circular(radius),
         ),
@@ -1234,49 +1466,17 @@ class _GlassPlate extends StatelessWidget {
   }
 }
 
-/// 顶栏的圆形玻璃按钮（搜索 / 收藏）。
-class _GlassIconButton extends StatelessWidget {
-  const _GlassIconButton({
-    required this.icon,
-    required this.hint,
-    required this.onTap,
-    this.color,
-  });
-
-  final IconData icon;
-  final String hint;
-  final VoidCallback onTap;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool dark = PvColors.isDark(context);
-    return Semantics(
-      button: true,
-      label: hint,
-      child: KzPressable(
-        onTap: onTap,
-        pressedOpacity: 0.6,
-        child: _GlassPlate(
-          radius: 19,
-          width: 38,
-          height: 38,
-          child: Center(
-            child: Icon(
-              icon,
-              size: 19,
-              color:
-                  color ??
-                  (dark ? const Color(0xFFEDEDEF) : const Color(0xFF26262B)),
-            ),
-          ),
-        ),
-      ),
-    );
+/// 继续观看横滑：预览稿 `.resumecard`，一屏两张（58% 宽）、时间码贴右下。
+/// 条目实际所属的服务器：跨服务器聚合的条目带 homeServerId，其余回退 null。
+EmbyServer? embyServerOfItem(EmbyItem item) {
+  final id = item.homeServerId;
+  if (id == null || id.isEmpty) return null;
+  for (final s in EmbyService.instance.servers) {
+    if (s.id == id) return s;
   }
+  return null;
 }
 
-/// 继续观看横滑：预览稿 `.resumecard`，一屏两张（58% 宽）、时间码贴右下。
 class _ResumeRail extends StatelessWidget {
   const _ResumeRail({required this.data, required this.onPlay});
 
@@ -1298,14 +1498,16 @@ class _ResumeRail extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final item = data.resume[index];
+          // 聚合条目可能来自别的服务器：图片和鉴权头都用它自己的。
+          final itemServer = embyServerOfItem(item) ?? server;
           final hasOwnImage = (item.primaryImageTag ?? '').isNotEmpty;
           final seriesId = item.seriesId;
           final imageUrl = embyImageUrl(
-            serverUrl: server.url,
+            serverUrl: itemServer.url,
             itemId: !hasOwnImage && seriesId != null && seriesId.isNotEmpty
                 ? seriesId
                 : item.id,
-            accessToken: server.accessToken,
+            accessToken: itemServer.accessToken,
             maxHeight: 420,
             tag: hasOwnImage ? item.primaryImageTag : null,
           );
@@ -1313,7 +1515,7 @@ class _ResumeRail extends StatelessWidget {
             width: cardWidth,
             child: EmbyResumeCard(
               imageUrl: imageUrl,
-              headers: embyAuthHeaders(server),
+              headers: embyAuthHeaders(itemServer),
               title: item.isEpisode
                   ? (item.seriesName?.isNotEmpty == true
                         ? item.seriesName!
@@ -1436,16 +1638,18 @@ class _PosterRail extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = items[index];
         final count = item.childCount ?? 0;
+        // 聚合条目可能来自别的服务器：图片和鉴权头都用它自己的。
+        final itemServer = embyServerOfItem(item) ?? server;
         return EmbyPosterTile(
           item: item,
           imageUrl: embyImageUrl(
-            serverUrl: server.url,
+            serverUrl: itemServer.url,
             itemId: item.coverItemId,
-            accessToken: server.accessToken,
+            accessToken: itemServer.accessToken,
             maxHeight: 480,
             tag: item.coverTag,
           ),
-          headers: embyAuthHeaders(server),
+          headers: embyAuthHeaders(itemServer),
           // 预览稿海报右上角是集数徽标、右下角是评分。
           countBadge: item.isSeries && count > 0 ? _formatCount(count) : null,
           score: item.communityRating?.toStringAsFixed(1),

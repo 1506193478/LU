@@ -64,7 +64,20 @@ class AudioController {
   Future<void> _initializeAudioSession() async {
     try {
       _audioSession = await AudioSession.instance;
-      await _audioSession!.configure(const AudioSessionConfiguration.music());
+      // 与 AppDelegate.configureGlobalAudioSession / AvPlayerEnginePlugin 保持
+      // 一致：.playback + .moviePlayback。以前这里配 .music()（mode 是
+      // defaultMode），谁后配置谁生效——切到播放页会把原生设好的
+      // moviePlayback 悄悄覆盖掉，音量路由 / PiP 音频行为跟着漂。
+      await _audioSession!.configure(
+        const AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionMode: AVAudioSessionMode.moviePlayback,
+          androidAudioAttributes: AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.music,
+            usage: AndroidAudioUsage.media,
+          ),
+        ),
+      );
 
       _interruptionSubscription?.cancel();
       _interruptionSubscription = _audioSession!.interruptionEventStream.listen(

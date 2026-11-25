@@ -42,12 +42,18 @@ class EmbyImage extends StatefulWidget {
     this.headers,
     this.fit = BoxFit.cover,
     this.fadeIn = const Duration(milliseconds: 320),
+    this.memCacheWidth,
   });
 
   final String url;
   final Map<String, String>? headers;
   final BoxFit fit;
   final Duration fadeIn;
+
+  /// 解码进内存的宽度上限（ResizeImage）。海报墙一屏十几张卡，服务端虽然
+  /// 已经按 maxHeight 缩过图，降级重试（摘掉尺寸参数）时可能拉到原图，
+  /// 这里再卡一道，低配设备上详情页 / 海报墙的内存峰值能压下去不少。
+  final int? memCacheWidth;
 
   @override
   State<EmbyImage> createState() => _EmbyImageState();
@@ -121,6 +127,7 @@ class _EmbyImageState extends State<EmbyImage> {
       fit: widget.fit,
       width: double.infinity,
       height: double.infinity,
+      memCacheWidth: widget.memCacheWidth,
       fadeInDuration: widget.fadeIn,
       fadeOutDuration: Duration.zero,
       placeholder: (_, _) => const _EmbyImagePlaceholder(),

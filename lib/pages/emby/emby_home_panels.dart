@@ -23,11 +23,12 @@ const double _panelWidth = 322;
 /// 打开「服务器胶囊」面板。
 ///
 /// 内容（对齐参考稿）：线路卡片（当前服务器的所有线路 + 延迟 + 当前项打勾）、
-/// 发现 / 搜索 / 媒体库 / 设置。
+/// 媒体库 / 发现页 / 设置。
 Future<void> showEmbyCapsulePanel(
   BuildContext context, {
   required EmbyServer server,
   required VoidCallback onOpenMediaLibrary,
+  required VoidCallback onOpenDiscoverPage,
   required VoidCallback onOpenSettings,
   required VoidCallback onOpenManage,
 }) {
@@ -37,6 +38,7 @@ Future<void> showEmbyCapsulePanel(
       server: server,
       onClose: close,
       onOpenMediaLibrary: onOpenMediaLibrary,
+      onOpenDiscoverPage: onOpenDiscoverPage,
       onOpenSettings: onOpenSettings,
       onOpenManage: onOpenManage,
     ),
@@ -132,9 +134,11 @@ class _PanelShell extends StatelessWidget {
                           Colors.white.withValues(alpha: 0.11),
                         ]
                       : <Color>[
-                          Colors.white.withValues(alpha: 0.86),
-                          Colors.white.withValues(alpha: 0.72),
-                          Colors.white.withValues(alpha: 0.80),
+                          // 浅色面板压到 88-94% 白：背后的海报只是隐约透一点，
+                          // 不再把黑字衬灰（用户反馈「面板颜色浅看着别扭」）。
+                          Colors.white.withValues(alpha: 0.94),
+                          Colors.white.withValues(alpha: 0.88),
+                          Colors.white.withValues(alpha: 0.92),
                         ],
                 ),
                 borderRadius: BorderRadius.circular(22),
@@ -254,6 +258,7 @@ class _CapsulePanel extends StatefulWidget {
     required this.server,
     required this.onClose,
     required this.onOpenMediaLibrary,
+    required this.onOpenDiscoverPage,
     required this.onOpenSettings,
     required this.onOpenManage,
   });
@@ -261,6 +266,9 @@ class _CapsulePanel extends StatefulWidget {
   final EmbyServer server;
   final VoidCallback onClose;
   final VoidCallback onOpenMediaLibrary;
+
+  /// 面板里的「发现页」：进 TMDB 发现页（浏览热门影片 / 剧集）。
+  final VoidCallback onOpenDiscoverPage;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenManage;
 
@@ -350,12 +358,12 @@ class _CapsulePanelState extends State<_CapsulePanel> {
                     child: Container(
                       padding:
                           const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: dark
-                            ? Colors.white.withValues(alpha: 0.10)
-                            : Colors.white.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+              decoration: BoxDecoration(
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : Colors.white.withValues(alpha: 0.98),
+                borderRadius: BorderRadius.circular(12),
+              ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -393,8 +401,8 @@ class _CapsulePanelState extends State<_CapsulePanel> {
               margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
               decoration: BoxDecoration(
                 color: dark
-                    ? Colors.white.withValues(alpha: 0.055)
-                    : Colors.white.withValues(alpha: 0.62),
+                    ? Colors.white.withValues(alpha: 0.075)
+                    : Colors.white.withValues(alpha: 0.86),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Column(
@@ -439,6 +447,16 @@ class _CapsulePanelState extends State<_CapsulePanel> {
               onTap: () {
                 widget.onClose();
                 widget.onOpenMediaLibrary();
+              },
+            ),
+            _PanelRow(
+              icon: Icons.explore_outlined,
+              label: '发现页',
+              trailing: Icon(Icons.chevron_right_rounded,
+                  size: 18, color: PvColors.chev(context)),
+              onTap: () {
+                widget.onClose();
+                widget.onOpenDiscoverPage();
               },
             ),
             _PanelSectionLabel('配置'),
@@ -681,8 +699,8 @@ class _MediaLibraryPanelState extends State<_MediaLibraryPanel> {
                     margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
                     decoration: BoxDecoration(
                       color: dark
-                          ? Colors.white.withValues(alpha: 0.055)
-                          : Colors.white.withValues(alpha: 0.62),
+                          ? Colors.white.withValues(alpha: 0.075)
+                          : Colors.white.withValues(alpha: 0.86),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Column(

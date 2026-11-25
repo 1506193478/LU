@@ -32,6 +32,8 @@ import 'package:XL/pages/emby/player/emby_player_buttons_page.dart';
 import 'package:XL/pages/emby/emby_scan_page.dart';
 import 'package:XL/pages/emby/emby_tab_manager.dart';
 import 'package:XL/pages/emby/emby_iptv_page.dart';
+import 'package:XL/pages/emby/emby_watch_stats_page.dart';
+import 'package:XL/services/emby/emby_update_watcher.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/storage/storage.dart';
 import 'package:XL/utils/constants.dart';
@@ -1987,8 +1989,8 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 icon: Icons.movie_filter_rounded,
                 iconColor: const Color(0xFF0A84FF),
                 title: 'TMDB 配置',
-                subtitle: '自定义 API · 识别元数据',
-                value: TmdbPrefs.configured ? '已配置' : '未配置',
+                subtitle: '内置公共 Key · 自动选线 · 自定义 API',
+                value: TmdbPrefs.usingBuiltinKey ? '默认' : '已自定义',
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => const TmdbSettingsPage(),
@@ -2100,6 +2102,31 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                     builder: (_) => const WifiTransferPage(),
                   ),
                 ),
+              ),
+              PvRow(
+                icon: Icons.query_stats_rounded,
+                iconColor: const Color(0xFFFF9F0A),
+                title: '观看统计',
+                subtitle: '时长趋势 · 热门内容',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const EmbyWatchStatsPage(),
+                  ),
+                ),
+              ),
+              PvRow(
+                icon: Icons.notifications_active_rounded,
+                iconColor: const Color(0xFFFF3B30),
+                title: '追更提醒',
+                subtitle: '收藏剧集有新集时通知',
+                value: EmbyUpdateWatcher.enabled ? '开' : '关',
+                onTap: () async {
+                  final next = !EmbyUpdateWatcher.enabled;
+                  await GStorage.putSetting(SettingsKeys.embyUpdateWatcher, next);
+                  if (next) EmbyUpdateWatcher.instance.start();
+                  if (mounted) setState(() {});
+                },
+                showDivider: false,
               ),
             ],
           ),

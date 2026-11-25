@@ -998,6 +998,43 @@ class EmbyClient {
       'RunTimeTicks,UserData,Genres,OfficialRating,SeriesName,ChildCount,'
       'RecursiveItemCount,ParentIndexNumber,IndexNumber';
 
+  // ------------------------------------------------------------ 预览缩略图
+
+  /// 服务端「预览缩略图」信息（每 10 秒一帧的截图集，进度条悬停预览用）。
+  ///
+  /// 没开启 / 没生成时返回 null。响应形如
+  /// `{"Thumbnails": [{"PositionTicks": 200000000, "ImageTag": "..."}, ...]}`。
+  Future<Map<String, dynamic>?> fetchThumbnailset(String itemId) async {
+    try {
+      return await _getJson('/Items/$itemId/ThumbnailSet');
+    } on EmbyApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// 下载条目的 BIF 预览缩略图包（Roku 格式：TOC + 逐帧 JPEG）。
+  ///
+  /// 服务端没生成时是 404，返回 null；其余网络错误照常抛。
+  Future<List<int>?> fetchThumbnailBif(String itemId) async {
+    try {
+      final response = await _send(
+        (baseUrl) => _dio.get<List<int>>(
+          '$baseUrl/Videos/$itemId/index.bif',
+          queryParameters: _query(const {}),
+          options: Options(
+            headers: _authHeaders,
+            responseType: ResponseType.bytes,
+          ),
+        ),
+      );
+      return response.data;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
   // ------------------------------------------------------------ 播放上报
 
   /// 开始播放。服务端靠它把这条记进「正在播放」，也是续播进度的起点。

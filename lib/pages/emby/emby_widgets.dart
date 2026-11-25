@@ -189,7 +189,8 @@ class EmbyPosterCard extends StatelessWidget {
   }
 
   Widget _image(BuildContext context) {
-    return EmbyImage(url: imageUrl);
+    // 卡片宽 260~300：解码上限 600 够 2x 屏，内存省一半以上。
+    return EmbyImage(url: imageUrl, memCacheWidth: 600);
   }
 }
 

@@ -20,6 +20,7 @@ import 'package:XL/services/emby/emby_stream_resolver.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
 import 'package:XL/services/emby/emby_subtitle_picker.dart';
 import 'package:XL/services/emby/emby_watch_log.dart';
+import 'package:XL/services/emby/emby_watch_stats.dart';
 import 'package:XL/services/danmaku/danmaku_source_convert_prefs.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/player/avplayer_engine.dart';
@@ -294,6 +295,18 @@ class EmbyPlayerController extends ChangeNotifier {
   /// [_shouldUseAv] 消费后清零。
   bool _forceAvOnce = false;
 
+  /// 切后台自动画中画（iOS）：
+  /// 「自动进入画中画」开着 + 正在播放 + 未在小窗 + 内核有进小窗的路径。
+  /// AV 内核由系统 `canStartPictureInPictureAutomaticallyFromInline` 拉起；
+  /// mpv 内核（直连原盘）切转码重开后由 `_pipIntent` 自动进小窗。
+  bool get canAutoPipOnBackground {
+    if (!Platform.isIOS) return false;
+    if (!EmbyPipPrefs.autoEnter) return false;
+    if (_disposed || loading || !playing) return false;
+    if (pipActive) return false;
+    return isAvBackend || canSwitchToPip;
+  }
+
   /// 进画中画的统一入口（页面层负责「mpv 需要切换内核」的确认弹窗）：
   ///   * AVPlayer 内核 → 直接进小窗；
   ///   * mpv 内核 / 本地文件 → 返回 false，由页面决定提示或走
@@ -314,12 +327,13 @@ class EmbyPlayerController extends ChangeNotifier {
 
   /// mpv（直连原盘）切转码 → AVPlayer 重开当前进度 → 自动进小窗。
   /// 会中断当前播放几秒，调用前页面必须让用户确认。
-  Future<void> switchToPipByTranscode() async {
+  Future<void> switchToPipByTranscode({bool silent = false}) async {
     if (_disposed || !canSwitchToPip) return;
     _pipIntent = true;
     _forceAvOnce = true;
     _preferTranscodeRetry = true;
-    KazumiDialog.showToast(message: '正在切换到画中画播放…');
+    // 切后台触发的自动小窗：App 已经不在前台，toast 没意义还会排队。
+    if (!silent) KazumiDialog.showToast(message: '正在切换到画中画播放…');
     await _open(_index);
   }
 
@@ -2070,9 +2084,19 @@ class EmbyPlayerController extends ChangeNotifier {
           value >= outro) {
         _outroSkipped = true;
         _lastAutoSkip = DateTime.now();
-        unawaited(
-          seek(duration - const Duration(milliseconds: 300), user: false),
-        );
+        // 列表里还有下一集就直接切：老路径是 seek 到片尾等 completed、再等
+        // 2 秒定时器，片尾音乐得整个放完，观感像「卡在结尾不动」。
+        final target = _nextIndexForMode();
+        if (target != null) {
+          KazumiLogger().i(
+            'Emby outro skip → next episode (index=$target, from=${value.inSeconds}s)',
+          );
+          unawaited(openIndex(target));
+        } else {
+          unawaited(
+            seek(duration - const Duration(milliseconds: 300), user: false),
+          );
+        }
       }
     }
   }
@@ -2173,6 +2197,12 @@ class EmbyPlayerController extends ChangeNotifier {
     final key = (direct != null && direct.isNotEmpty)
         ? 'src:$direct'
         : 'emby:${server.id}:${item.id}';
+    // 观看时长统计：这个 tick 里的 10 秒算在看。
+    EmbyWatchStats.instance.addTick(
+      key: key,
+      title: launch.title,
+      subtitle: item.isEpisode ? item.name : '',
+    );
     await EmbyWatchLog.instance.put(
       EmbyWatchRecord(
         key: key,

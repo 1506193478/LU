@@ -14,6 +14,7 @@ import 'package:XL/services/download/download_directory_service.dart';
 import 'package:XL/services/logging/logger.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:XL/services/network/metered_network_service.dart';
+import 'package:XL/services/emby/emby_update_watcher.dart';
 import 'package:XL/services/network/ech_http_licenses.dart';
 import 'package:XL/services/network/proxy_manager.dart';
 import 'package:XL/services/network/system_proxy_service.dart';
@@ -55,7 +56,8 @@ void main() async {
   MediaKit.ensureInitialized();
   // 液态玻璃 shader 字节码预加载：必须在 runApp 之前完成，避免首帧白闪/卡顿。
   // 自适应画质：先按 standard 起，benchmark 通过后自动升 premium（Impeller）。
-  await LiquidGlassWidgets.initialize();
+  // 与存储链互不依赖，先并行起跑，runApp 前 await 兜底。
+  final glassInit = LiquidGlassWidgets.initialize();
   if (Platform.isAndroid || Platform.isIOS) {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -65,18 +67,21 @@ void main() async {
     ));
   }
 
-  if (Platform.isAndroid) {
-    await WebViewFeatureService.initialize();
-  }
+  // WebView 特性探测也和存储链并行（只影响 Android 首启速度）。
+  final webViewInit = Platform.isAndroid
+      ? WebViewFeatureService.initialize()
+      : Future<void>.value();
 
   try {
     final hivePath = '${(await getApplicationSupportDirectory()).path}/hive';
     await Hive.initFlutter(hivePath);
     await GStorage.init();
-    // 通知中心首启播一条欢迎消息（版本化 seed，升级后可再播一次）。
-    await LuNotificationCenter.instance.seedIfNeeded(429);
-    await _migrateBackgroundPlayback();
-    await _collectNativeCrashLog();
+    // 三个互相独立的初始化并行跑：通知欢迎语、后台播放迁移、原生崩溃日志收集。
+    await Future.wait(<Future<void>>[
+      LuNotificationCenter.instance.seedIfNeeded(429),
+      _migrateBackgroundPlayback(),
+      _collectNativeCrashLog(),
+    ]);
   } catch (e) {
     debugPrint('Storage initialization failed: $e');
 
@@ -102,7 +107,19 @@ void main() async {
         }));
     return;
   }
-  await DownloadDirectoryService().restoreAccess();
+  // 存储就绪后：目录权限恢复与计费网络判定互不依赖，并行。
+  // （两者都读 GStorage，必须在存储链完成之后。）
+  await Future.wait(<Future<void>>[
+    DownloadDirectoryService().restoreAccess(),
+    MeteredNetworkService.refresh(),
+  ]);
+  // 追更提醒轮询：自带延迟首查 + 6 小时节拍，这里只点火，不阻塞启动。
+  if (EmbyUpdateWatcher.enabled) {
+    EmbyUpdateWatcher.instance.start();
+  }
+  // 兜底：无论存储链多快，runApp 前必须保证 shader 就绪。
+  // 两个初始化互不依赖，并行收尾。
+  await Future.wait(<Future<void>>[glassInit, webViewInit]);
   final showWindowButton = DesktopWindowConfig.showWindowButton;
   if (isDesktop()) {
     await windowManager.ensureInitialized();
@@ -143,7 +160,6 @@ void main() async {
   if (Platform.isWindows) {
     SystemProxyService.init();
   }
-  await MeteredNetworkService.refresh();
   ProxyManager.applyProxy();
   runApp(
     // 液态玻璃外壳：注入 iOS 26 GlassTheme + 自适应画质（standard→premium）。

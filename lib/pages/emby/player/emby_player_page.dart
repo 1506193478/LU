@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,9 +28,13 @@ import 'package:XL/pages/emby/player/emby_notes_sheet.dart';
 import 'package:XL/pages/emby/player/emby_player_buttons_page.dart';
 import 'package:XL/pages/emby/player/emby_subtitle_search_page.dart';
 import 'package:XL/pages/settings/danmaku/danmaku_settings.dart';
+import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_gesture_prefs.dart';
 import 'package:XL/services/emby/emby_stream_prefs.dart';
+import 'package:XL/services/emby/emby_trickplay.dart';
 import 'package:XL/services/emby/player_button_prefs.dart';
+import 'package:XL/services/logging/logger.dart';
+import 'package:XL/services/player/audio_controller.dart';
 import 'package:XL/services/player/pip_utils.dart';
 import 'package:XL/services/player/remote.dart';
 import 'package:XL/services/shaders/shader_asset_service.dart';
@@ -97,6 +102,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   bool _isDesktop = false;
   bool _windowFullscreen = false;
 
+  // ---- 桌面小窗（置顶缩放窗口）----
+  bool _miniMode = false;
+  Size _savedWindowSize = const Size(1280, 720);
+  Offset? _savedWindowPos;
+
   /// 画面比例，索引对应 [buildEmbyAspectPanel] 里的四项。
   int _aspect = 0;
 
@@ -112,6 +122,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   // 进度条拖拽
   bool _dragging = false;
   Duration _dragPosition = Duration.zero;
+
+  // 进度条预览缩略图（Trickplay）。换集时重置，由 seekbar 触发加载。
+  Future<EmbyTrickplay?>? _trickplayFuture;
 
   // 手势 HUD
   //
@@ -199,6 +212,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       shaderAssetService: inject<ShaderAssetService>(),
     );
     controller.start();
+    unawaited(_bindAudioService());
     _gesture = EmbyGesturePrefs.current;
     _lastItemId = controller.current?.id ?? '';
     if (!_isDesktop) {
@@ -225,6 +239,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     _longPressTimer?.cancel();
     _singleTapTimer?.cancel();
     _statusTimer?.cancel();
+    unawaited(_audioController.deactivate());
     WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_onPlaybackChanged);
     PlayerButtonPrefs.instance.revision.removeListener(_onPlayerButtonsChanged);
@@ -232,6 +247,13 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       unawaited(controller.setSpeed(_speedBeforeLongPress));
     }
     _saveZoom();
+    // 小窗模式下退出播放器：窗口状态要还给用户，不然主窗口永远置顶缩成小方块。
+    if (_miniMode) {
+      unawaited(windowManager.setAlwaysOnTop(false));
+      unawaited(windowManager.setSize(_savedWindowSize));
+      final pos = _savedWindowPos;
+      if (pos != null) unawaited(windowManager.setPosition(pos));
+    }
     danmaku.dispose();
     if (!_isDesktop) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -279,8 +301,22 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       _wasBackgrounded = true;
       if (_pausedByBackground) return;
       if (controller.backgroundAudio) return;
+      if (controller.pipActive) return;
       if (!controller.playing) return;
-      // 直接暂停：画中画已下线，不再需要「等小窗接管」的时间窗。
+      // 自动画中画：「自动进入画中画」开着时切后台不暂停，让小窗接管。
+      //  * AV 内核：系统的 canStartPictureInPictureAutomaticallyFromInline
+      //    在离开前台瞬间自动拉起（open 时已同步 true）；
+      //  * mpv 内核（直连原盘）：抢在系统挂起前切转码重开，起播后由
+      //    _pipIntent 自动进小窗；
+      //  * 本地文件 / 关闭开关：维持原来的直接暂停。
+      if (controller.canAutoPipOnBackground) {
+        _pausedByBackground = false;
+        if (!controller.isAvBackend) {
+          unawaited(controller.switchToPipByTranscode(silent: true));
+        }
+        return;
+      }
+      // 直接暂停：没开自动小窗时退后台就停。
       _pausedByBackground = true;
       unawaited(controller.togglePlay());
       return;
@@ -375,6 +411,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     if (id != _lastItemId) {
       _saveZoom();
       _lastItemId = id;
+      _trickplayFuture = null;
       if (!_isDesktop) _restoreZoom(id);
       _orientationApplied = false;
     }
@@ -507,6 +544,32 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     );
   }
 
+  /// 桌面端小窗播放：缩到 16:9 小窗并置顶，控件只留播放键和进度条。
+  /// 再点一次（或按 M / 小窗里的按钮）恢复原来的窗口大小与位置。
+  Future<void> _toggleMiniWindow() async {
+    if (!_isDesktop) return;
+    if (!_miniMode) {
+      _savedWindowSize = await windowManager.getSize();
+      _savedWindowPos = await windowManager.getPosition();
+      if (_windowFullscreen) {
+        setState(() => _windowFullscreen = false);
+        await windowManager.setFullScreen(false);
+      }
+      await windowManager.setAlwaysOnTop(true);
+      await windowManager.setSize(const Size(560, 315));
+      setState(() => _miniMode = true);
+      controller.setControlsVisible(true);
+      _showHud('小窗播放', icon: Icons.picture_in_picture_alt_rounded);
+    } else {
+      await windowManager.setAlwaysOnTop(false);
+      await windowManager.setSize(_savedWindowSize);
+      final pos = _savedWindowPos;
+      if (pos != null) await windowManager.setPosition(pos);
+      setState(() => _miniMode = false);
+      _showHud('恢复窗口', icon: Icons.close_fullscreen_rounded);
+    }
+  }
+
   Future<void> _handleKey(KeyEvent event) async {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) return;
     final key = event.logicalKey;
@@ -531,12 +594,24 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
       );
     } else if (key == LogicalKeyboardKey.keyF) {
       await _toggleFullscreen();
+    } else if (key == LogicalKeyboardKey.keyM && _isDesktop) {
+      await _toggleMiniWindow();
+    } else if (key == LogicalKeyboardKey.bracketLeft &&
+        !controller.isAvBackend) {
+      // 字幕提前 0.5s（桌面快捷键）。
+      _nudgeSubtitleDelay(-0.5);
+    } else if (key == LogicalKeyboardKey.bracketRight &&
+        !controller.isAvBackend) {
+      // 字幕延后 0.5s。
+      _nudgeSubtitleDelay(0.5);
     } else if (key == LogicalKeyboardKey.keyL) {
       controller.toggleLock();
     } else if (key == LogicalKeyboardKey.escape) {
       if (_windowFullscreen) {
         setState(() => _windowFullscreen = false);
         await windowManager.setFullScreen(false);
+      } else if (_miniMode) {
+        await _toggleMiniWindow();
       } else if (controller.locked) {
         controller.toggleLock();
       } else if (mounted) {
@@ -557,6 +632,20 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
             : Icons.forward_10_rounded,
       );
     }
+  }
+
+  /// 桌面快捷键 [ / ] 调字幕延迟。面板里那个滑条和这里写同一个设置。
+  void _nudgeSubtitleDelay(double delta) {
+    final next = controller.subtitleSettings.copyWith(
+      delay: (controller.subtitleSettings.delay + delta).clamp(-30.0, 30.0),
+    );
+    controller.setSubtitleSettings(next);
+    _showHud(
+      next.delay < 0
+          ? '字幕提前 ${next.delay.abs().toStringAsFixed(1)}s'
+          : '字幕延后 ${next.delay.toStringAsFixed(1)}s',
+      icon: Icons.subtitles_rounded,
+    );
   }
 
   void _showHud(String label, {IconData? icon}) {
@@ -1311,7 +1400,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                         ignoreWhenHidden: false,
                         fill: true,
                       ),
-                      _buildTopBar(),
+                      // 小窗模式不要顶栏：560px 宽塞不下状态行 + 按钮排。
+                      if (!_miniMode) _buildTopBar(),
                       _buildBottomBar(),
                     ],
                     if (controller.loading) _buildLoading(),
@@ -1778,6 +1868,11 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                       filled: true,
                       onTap: controller.retry,
                     ),
+                    const SizedBox(width: 10),
+                    _PillAction(
+                      label: '复制诊断',
+                      onTap: _copyPlaybackDiagnostics,
+                    ),
                   ],
                 ),
               ],
@@ -1795,11 +1890,105 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   ///   * 网速每秒读一次 mpv 的 `cache-speed`（真实网络读取速度，
   ///     AV 内核读不到 → 不显示；控件收起时不读，省平台通道调用）；
   ///   * 电量每 30 秒查一次（拿不到就整块不显示，比如台式机）。
+  // ------------------------------------------------------------ 锁屏播放控制
+  //
+  // 复用 Kazumi 播放页同一套 AudioController（audio_service）：锁屏、
+  // 控制中心、耳机线控的 播放/暂停/上下集/拖进度 都由它转发到 Emby
+  // controller。封面走 Emby Primary 图（转本地文件再上报，锁屏能显示）。
+
+  AudioController get _audioController => inject<AudioController>();
+
+  /// 播放失败页的「复制诊断」：把排障需要的关键状态打包进剪贴板，
+  /// 用户贴给群里 / 发给维护者就能对上号，不用来回问。
+  Future<void> _copyPlaybackDiagnostics() async {
+    final server = widget.launch.server;
+    final client = EmbyService.instance.clientFor(server);
+    final item = controller.current;
+    final buffer = StringBuffer()
+      ..writeln('LU Emby 播放诊断')
+      ..writeln('时间: ${DateTime.now().toIso8601String()}')
+      ..writeln('内核: ${controller.isAvBackend ? 'AVPlayer' : 'mpv'}')
+      ..writeln('错误: ${controller.error}')
+      ..writeln(
+        '服务器: ${server.name} (${client.serverUrl})',
+      )
+      ..writeln('线路: ${client.usingBackupLine ? '备用' : '主'}')
+      ..writeln(
+        '条目: ${item?.id ?? '-'} ${item?.name ?? widget.launch.title}',
+      )
+      ..writeln('串流模式: ${EmbyStreamPrefs.mode.label}')
+      ..writeln(
+        '平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+      );
+    await Clipboard.setData(ClipboardData(text: buffer.toString()));
+    KazumiDialog.showToast(message: '诊断信息已复制');
+  }
+
+  Future<void> _bindAudioService() async {
+    try {
+      final item = controller.current;
+      final tag = item?.primaryImageTag ?? '';
+      final artwork = tag.isNotEmpty
+          ? EmbyService.instance
+              .clientFor(widget.launch.server)
+              .imageUrl(item!.id, tag: tag, maxHeight: 600)
+          : null;
+      await _audioController.bindCallbacks(
+        onPlay: () async {
+          if (!controller.playing && !controller.loading) {
+            await controller.togglePlay();
+          }
+        },
+        onPause: () async {
+          if (controller.playing) await controller.togglePlay();
+        },
+        onSkipToNext: () => controller.playNext(),
+        onSkipToPrevious: () => controller.playPrevious(),
+        onSeek: (position) => controller.seek(position),
+        artworkUrl: artwork,
+      );
+    } catch (e) {
+      KazumiLogger().w('EmbyPlayer: bind audio service failed', error: e);
+    }
+  }
+
+  void _syncAudioServiceState() {
+    try {
+      if (controller.duration <= Duration.zero) return;
+      unawaited(
+        _audioController.updateSession(
+          mediaId:
+              'emby_${widget.launch.server.id}_${controller.current?.id ?? ''}',
+          title: widget.launch.title,
+          album: 'Emby',
+          artist: controller.episodeLabel,
+          duration: controller.duration,
+          playing: controller.playing,
+          loading: controller.loading,
+          buffering: controller.buffering,
+          completed: false,
+          updatePosition: controller.position,
+          bufferedPosition: controller.buffer,
+          speed: controller.speed,
+          queueIndex: controller.index,
+          canSkipToNext: controller.hasNext,
+          canSkipToPrevious: controller.hasPrevious,
+        ),
+      );
+    } catch (e) {
+      KazumiLogger()
+          .w('EmbyPlayer: failed to sync playback state', error: e);
+    }
+  }
+
   Future<void> _onStatusTick(Timer timer) async {
     _statusTick++;
     final now = DateTime.now();
     final clock =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+    // 锁屏 / 控制中心播放控制：跟着 1s tick 刷新进度与播放状态。
+    _syncAudioServiceState();
 
     // 弹幕：按秒投喂 + 首次起播时自动匹配（dandanplay）。
     if (!controller.isAvBackend) {
@@ -2124,6 +2313,16 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                           iconSize: 17,
                           onTap: _togglePip,
                         ),
+                      // 桌面小窗（置顶缩放窗口），mpv 内核专属；小窗里换成
+                      // 「恢复」，点同个位置退出。
+                      if (_isDesktop && !controller.isAvBackend)
+                        _CircleAction(
+                          icon: _miniMode
+                              ? Icons.close_fullscreen_rounded
+                              : Icons.picture_in_picture_rounded,
+                          iconSize: 17,
+                          onTap: _toggleMiniWindow,
+                        ),
                       // 截图（mpv 才有取帧能力）。
                       if (!controller.isAvBackend && _shownButton('screenshot'))
                         _CircleAction(
@@ -2151,6 +2350,14 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
 
   // ------------------------------------------------------------ 底栏
 
+  /// 当前条目的预览缩略图加载任务（懒加载，换集时已在监听里重置）。
+  Future<EmbyTrickplay?>? _ensureTrickplay() {
+    final item = controller.current;
+    if (item == null || item.id.isEmpty) return null;
+    return _trickplayFuture ??=
+        EmbyTrickplay.forItem(widget.launch.server, item.id);
+  }
+
   Widget _buildBottomBar() {
     final Duration total = controller.duration;
     final Duration shown = _dragging ? _dragPosition : controller.position;
@@ -2177,7 +2384,9 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
               children: [
                 // 进度条上方：左「媒体信息」，右「音轨 / 字幕 / 弹幕 / 更多」。
                 // 每个按钮都能单独关；关掉后连间隔一起收起，不留空档。
-                Row(
+                // 小窗模式下整行省掉：小窗宽度只放得下时间 + 进度 + 播放键。
+                if (!_miniMode)
+                  Row(
                   children: [
                     if (_shownButton('info'))
                       _OutlineAction(
@@ -2240,6 +2449,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                     buffer: controller.buffer,
                     // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
                     enabled: total > Duration.zero && _gesture.dragProgressBar,
+                    trickplay: _ensureTrickplay(),
                     onDragStart: () {
                       KazumiHaptics.tap();
                       setState(() {
@@ -3300,6 +3510,7 @@ class _RexSeekBar extends StatefulWidget {
     required this.onDragUpdate,
     required this.onDragEnd,
     required this.onTapSeek,
+    this.trickplay,
   });
 
   final Duration position;
@@ -3310,6 +3521,9 @@ class _RexSeekBar extends StatefulWidget {
   final ValueChanged<Duration> onDragUpdate;
   final ValueChanged<Duration> onDragEnd;
   final ValueChanged<Duration> onTapSeek;
+
+  /// 预览缩略图（Trickplay）加载任务；null / 加载失败时不显示预览。
+  final Future<EmbyTrickplay?>? trickplay;
 
   @override
   State<_RexSeekBar> createState() => _RexSeekBarState();
@@ -3323,12 +3537,153 @@ class _RexSeekBarState extends State<_RexSeekBar> {
   /// 松手时用这个值才准。
   Duration _lastDrag = Duration.zero;
 
+  // ---- 预览缩略图（Trickplay）----
+  EmbyTrickplay? _tp;
+  int _tpFutureId = 0;
+  // 悬停 / 拖动时的指针位置（进度条内坐标），null 表示没有预览请求。
+  double? _hoverDx;
+  double? _dragDx;
+  ui.Image? _previewFrame;
+  int _previewIndex = -1;
+  int _previewReqId = 0;
+  static const double _previewWidth = 148;
+  static const double _previewHeight = 84;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindTrickplay();
+  }
+
+  @override
+  void didUpdateWidget(covariant _RexSeekBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.trickplay != widget.trickplay) {
+      _bindTrickplay();
+    }
+  }
+
+  void _bindTrickplay() {
+    final future = widget.trickplay;
+    if (future == null) {
+      _tp = null;
+      return;
+    }
+    final id = ++_tpFutureId;
+    future.then((value) {
+      if (!mounted || id != _tpFutureId) return;
+      setState(() {
+        _tp = value;
+        if (value == null) _previewFrame = null;
+      });
+    });
+  }
+
+  /// 指针位置对应的预览帧请求（同一帧只解一次，乱序回包按 id 丢弃）。
+  void _requestPreview(Duration time) {
+    final tp = _tp;
+    if (tp == null) return;
+    final index = tp.indexOf(time);
+    if (index == _previewIndex && _previewFrame != null) return;
+    final id = ++_previewReqId;
+    _previewIndex = index;
+    tp.imageAt(time).then((image) {
+      if (!mounted || id != _previewReqId) return;
+      setState(() => _previewFrame = image);
+    });
+  }
+
+  Duration? get _previewTime {
+    if (!widget.enabled || widget.duration <= Duration.zero) return null;
+    final dx = _active ? _dragDx : _hoverDx;
+    if (dx == null) return null;
+    return _positionFor(dx, _lastWidth);
+  }
+
+  double _lastWidth = 0;
+
   Duration _positionFor(double dx, double width) {
     if (width <= 0 || widget.duration <= Duration.zero) return Duration.zero;
     final ratio = (dx / width).clamp(0.0, 1.0);
     return Duration(
       microseconds: (widget.duration.inMicroseconds * ratio).round(),
     );
+  }
+
+  /// 预览浮层：缩略图 + 时间标签，跟随手柄水平居中（越界时贴边）。
+  Widget _buildPreviewLayer(double width, double thumbX) {
+    final time = _previewTime;
+    if (time == null) return const SizedBox.shrink();
+    final left = (thumbX - _previewWidth / 2).clamp(
+      -8.0,
+      width - _previewWidth + 8.0,
+    );
+    Widget content;
+    if (_previewFrame != null) {
+      content = ClipRRect(
+        borderRadius: BorderRadius.circular(5),
+        child: RawImage(
+          image: _previewFrame,
+          width: _previewWidth,
+          height: _previewHeight,
+          fit: BoxFit.cover,
+        ),
+      );
+    } else {
+      content = Container(
+        width: _previewWidth,
+        height: _previewHeight,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 15,
+            height: 15,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white70,
+            ),
+          ),
+        ),
+      );
+    }
+    return Positioned(
+      left: left,
+      bottom: 28,
+      child: Container(
+        padding: const EdgeInsets.all(3.5),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            content,
+            const SizedBox(height: 2),
+            Text(
+              _fmtDuration(time),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                height: 1.2,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _fmtDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(h > 0 ? 2 : 1, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
   }
 
   @override
@@ -3344,6 +3699,7 @@ class _RexSeekBarState extends State<_RexSeekBar> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final double width = constraints.maxWidth;
+        _lastWidth = width;
         const double thumb = 13;
         final bool lit = _active || _hover;
         final double thumbX = (width * progress - thumb / 2).clamp(
@@ -3356,7 +3712,16 @@ class _RexSeekBarState extends State<_RexSeekBar> {
             if (!widget.enabled) return;
             setState(() => _hover = true);
           },
+          onHover: (event) {
+            if (!widget.enabled) return;
+            _hoverDx = event.localPosition.dx;
+            final time = _positionFor(event.localPosition.dx, width);
+            _lastWidth = width;
+            _requestPreview(time);
+            if (!_hover) setState(() => _hover = true);
+          },
           onExit: (_) {
+            _hoverDx = null;
             if (!_hover) return;
             setState(() => _hover = false);
           },
@@ -3367,9 +3732,13 @@ class _RexSeekBarState extends State<_RexSeekBar> {
                       widget.onTapSeek(_positionFor(d.localPosition.dx, width))
                 : null,
             onHorizontalDragStart: widget.enabled
-                ? (_) {
+                ? (details) {
                     setState(() => _active = true);
                     _lastDrag = widget.position;
+                    _dragDx = details.localPosition.dx;
+                    _requestPreview(
+                      _positionFor(details.localPosition.dx, width),
+                    );
                     widget.onDragStart();
                   }
                 : null,
@@ -3377,16 +3746,24 @@ class _RexSeekBarState extends State<_RexSeekBar> {
                 ? (d) {
                     final value = _positionFor(d.localPosition.dx, width);
                     _lastDrag = value;
+                    _dragDx = d.localPosition.dx;
+                    _requestPreview(value);
                     widget.onDragUpdate(value);
                   }
                 : null,
             onHorizontalDragEnd: widget.enabled
                 ? (_) {
-                    setState(() => _active = false);
+                    setState(() {
+                      _active = false;
+                      _dragDx = null;
+                    });
                     widget.onDragEnd(_lastDrag);
                   }
                 : null,
-            onHorizontalDragCancel: () => setState(() => _active = false),
+            onHorizontalDragCancel: () => setState(() {
+              _active = false;
+              _dragDx = null;
+            }),
             child: SizedBox(
               height: 26,
               child: Stack(
@@ -3460,6 +3837,10 @@ class _RexSeekBarState extends State<_RexSeekBar> {
                       ),
                     ),
                   ),
+                  // 预览缩略图：桌面悬停或拖动时浮在手柄上方。
+                  // 服务端没生成缩略图时 _tp 为 null，这层整个不挂。
+                  if (_tp != null && (lit))
+                    _buildPreviewLayer(width, thumbX),
                 ],
               ),
             ),
