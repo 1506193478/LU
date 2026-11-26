@@ -118,31 +118,43 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
     required TextEditingController controller,
     bool obscure = false,
   }) {
+    // 之前给 TextField 同时设了 labelText 和 hintText：聚焦时 label 浮到
+    // 上面、hint 才出现，未聚焦时两者叠在一起，看着就是排版错位。改成
+    // 固定的「小标题 + 输入框」两行，任何状态下位置都不变。
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: PvColors.blue),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 20, color: PvColors.blue),
+          ),
           const SizedBox(width: 12),
           Expanded(
-            child: TextField(
-              controller: controller,
-              obscureText: obscure,
-              autocorrect: false,
-              enableSuggestions: false,
-              style: PvText.rowTitle(context),
-              decoration: InputDecoration(
-                labelText: label,
-                hintText: hint,
-                labelStyle: PvText.rowSub(context),
-                hintStyle: PvText.rowSub(context),
-                border: InputBorder.none,
-                isDense: true,
-              ),
-              onChanged: (_) {
-                if (_tested) setState(() => _tested = false);
-              },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: PvText.rowSub(context)),
+                const SizedBox(height: 2),
+                TextField(
+                  controller: controller,
+                  obscureText: obscure,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  style: PvText.rowTitle(context),
+                  decoration: InputDecoration(
+                    hintText: hint,
+                    hintStyle: PvText.rowSub(context),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onChanged: (_) {
+                    if (_tested) setState(() => _tested = false);
+                  },
+                ),
+              ],
             ),
           ),
         ],
@@ -207,7 +219,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
         centerTitle: true,
       ),
       body: ListView(
-        padding: const EdgeInsets.only(top: 10, bottom: 40),
+        padding: const EdgeInsets.only(top: 10, bottom: pvSubDockClearance),
         children: [
           // 开箱即用说明。
           Padding(
@@ -236,7 +248,7 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
                 if (i > 0)
                   Column(
                     children: [
-                      const Divider(height: 1, indent: 56),
+                      const Divider(height: 1, indent: 48),
                       _lineRow(i),
                     ],
                   )
@@ -276,14 +288,14 @@ class _TmdbSettingsPageState extends State<TmdbSettingsPage> {
                 hint: '留空使用内置公共 Key',
                 controller: _key,
               ),
-              const Divider(height: 1, indent: 56),
+              const Divider(height: 1, indent: 48),
               _field(
                 icon: Icons.link_rounded,
                 label: 'API 地址',
                 hint: '留空自动选择线路',
                 controller: _api,
               ),
-              const Divider(height: 1, indent: 56),
+              const Divider(height: 1, indent: 48),
               _field(
                 icon: Icons.image_rounded,
                 label: '图片地址',

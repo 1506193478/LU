@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
+import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/services/emby/emby_watch_stats.dart';
+import 'package:XL/theme/ios_interaction.dart';
 
 /// 观看统计页：本地记录的观看时长趋势 + 热门内容榜。
 ///
 /// 数据来自 [EmbyWatchStats]（播放器每 10 秒记一笔），纯展示层，
 /// 不发任何网络请求。
+///
+/// 样式统一走 [PvColors] / [PvText]：原先直接取 Theme.colorScheme 和
+/// 默认 TextStyle，在这套带渐变背景的 Emby 壳里文字会整体发灰，跟其它
+/// 设置页明显不是一套排版。
 class EmbyWatchStatsPage extends StatefulWidget {
   const EmbyWatchStatsPage({super.key});
 
@@ -23,7 +29,11 @@ class _EmbyWatchStatsPageState extends State<EmbyWatchStatsPage> {
     final top = stats.topTitles();
 
     return Scaffold(
+      backgroundColor: PvColors.page(context),
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        leading: const KzBackButton(),
         title: const Text('观看统计'),
         actions: [
           if (top.isNotEmpty)
@@ -35,7 +45,7 @@ class _EmbyWatchStatsPageState extends State<EmbyWatchStatsPage> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, pvSubDockClearance),
         children: [
           // ---- 总览三卡 ----
           Row(
@@ -49,22 +59,12 @@ class _EmbyWatchStatsPageState extends State<EmbyWatchStatsPage> {
           ),
           const SizedBox(height: 20),
           // ---- 14 天趋势 ----
-          Text(
-            '最近 14 天',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
+          Text('最近 14 天', style: PvText.section(context)),
           const SizedBox(height: 10),
           const _TrendChart(),
           const SizedBox(height: 24),
           // ---- 热门内容 ----
-          Text(
-            '看得最多的',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
+          Text('看得最多的', style: PvText.section(context)),
           const SizedBox(height: 6),
           if (top.isEmpty)
             Padding(
@@ -73,52 +73,41 @@ class _EmbyWatchStatsPageState extends State<EmbyWatchStatsPage> {
                 child: Text(
                   '还没有记录\n看一会儿视频再来吧',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.outline,
-                    height: 1.6,
-                  ),
+                  style: PvText.rowSub(context).copyWith(height: 1.6),
                 ),
               ),
             )
           else
-            ...[
-              for (var i = 0; i < top.length; i++)
-                _TitleRow(
-                  rank: i + 1,
-                  title: (top[i].value['t'] ?? '') as String,
-                  subtitle: (top[i].value['sub'] ?? '') as String,
-                  ms: (top[i].value['ms'] as num?)?.toInt() ?? 0,
-                  count: (top[i].value['count'] as num?)?.toInt() ?? 0,
-                  showDivider: i < top.length - 1,
-                ),
-            ],
+            PvGroup(
+              margin: const EdgeInsets.fromLTRB(0, 0, 0, 16),
+              children: [
+                for (var i = 0; i < top.length; i++)
+                  _TitleRow(
+                    rank: i + 1,
+                    title: (top[i].value['t'] ?? '') as String,
+                    subtitle: (top[i].value['sub'] ?? '') as String,
+                    ms: (top[i].value['ms'] as num?)?.toInt() ?? 0,
+                    count: (top[i].value['count'] as num?)?.toInt() ?? 0,
+                    showDivider: i < top.length - 1,
+                  ),
+              ],
+            ),
         ],
       ),
     );
   }
 
-  void _confirmClear() {
-    showDialog<void>(
+  Future<void> _confirmClear() async {
+    final clear = await showKzConfirm(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('清空统计'),
-        content: const Text('观看时长和热门记录会被全部删除，且无法恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await EmbyWatchStats.instance.clear();
-              if (mounted) setState(() {});
-            },
-            child: const Text('清空'),
-          ),
-        ],
-      ),
+      title: '清空统计',
+      message: '观看时长和热门记录会被全部删除，且无法恢复。',
+      confirmLabel: '清空',
+      destructive: true,
     );
+    if (!clear || !mounted) return;
+    await EmbyWatchStats.instance.clear();
+    if (mounted) setState(() {});
   }
 }
 
@@ -132,34 +121,23 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
         decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(14),
+          color: PvColors.card(context),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: scheme.outline,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            Text(label, style: PvText.statLabel(context)),
             const SizedBox(height: 6),
             Text(
               EmbyWatchStats.formatMs(ms),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
+              style: PvText.statNum.copyWith(color: PvColors.ink(context)),
             ),
           ],
         ),
@@ -175,13 +153,12 @@ class _TrendChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final values = EmbyWatchStats.instance.dailyMs(14);
-    final scheme = Theme.of(context).colorScheme;
     final maxMs = values.fold<int>(0, (a, b) => a > b ? a : b);
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(14),
+        color: PvColors.card(context),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -203,10 +180,10 @@ class _TrendChart extends StatelessWidget {
                         child: Container(
                           decoration: BoxDecoration(
                             color: values[i] > 0
-                                ? scheme.primary.withValues(
+                                ? PvColors.blue.withValues(
                                     alpha: i == values.length - 1 ? 1 : 0.62,
                                   )
-                                : scheme.outlineVariant.withValues(alpha: 0.5),
+                                : PvColors.hair(context),
                             borderRadius: BorderRadius.circular(3),
                           ),
                         ),
@@ -241,29 +218,27 @@ class _TitleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final name = subtitle.isNotEmpty && subtitle != title
         ? '$title · $subtitle'
         : title;
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
             children: [
               SizedBox(
-                width: 30,
+                width: 24,
                 child: Text(
                   '$rank',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: rank <= 3 ? scheme.primary : scheme.outline,
+                  style: PvText.rowTitle(context).copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: rank <= 3 ? PvColors.blue : PvColors.ink3(context),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -272,18 +247,12 @@ class _TitleRow extends StatelessWidget {
                       name.isEmpty ? '未知内容' : name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: PvText.rowTitle(context),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       '${EmbyWatchStats.formatMs(ms)} · $count 次观看',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: scheme.outline,
-                      ),
+                      style: PvText.rowSub(context),
                     ),
                   ],
                 ),
@@ -292,11 +261,7 @@ class _TitleRow extends StatelessWidget {
           ),
         ),
         if (showDivider)
-          Divider(
-            height: 1,
-            indent: 38,
-            color: scheme.outlineVariant.withValues(alpha: 0.4),
-          ),
+          Divider(height: 1, indent: 48, color: PvColors.hair(context)),
       ],
     );
   }

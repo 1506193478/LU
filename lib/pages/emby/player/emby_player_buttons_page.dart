@@ -50,7 +50,7 @@ class _EmbyPlayerButtonsPageState extends State<EmbyPlayerButtonsPage> {
       // 第一行不会被刘海/状态栏压住。
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.only(bottom: 32),
+          padding: const EdgeInsets.only(bottom: pvSubDockClearance),
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -64,11 +64,22 @@ class _EmbyPlayerButtonsPageState extends State<EmbyPlayerButtonsPage> {
               PvGroup(
                 children: [
                   for (final button in entry.value)
+                    // KzSwitchTile 默认 contentPadding = 0，塞进 PvGroup 后文字
+                    // 会贴卡片左边、开关贴右边，看起来像整组错位。这里和
+                    // PvRow 一样左右各留 14，并给行一点竖向呼吸。
                     KzSwitchTile(
-                      title: Text(button.label),
-                      subtitle: button.id == 'play'
-                          ? const Text('始终显示，无法隐藏')
-                          : null,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      title: Text(
+                        button.label,
+                        style: PvText.rowTitle(context).copyWith(
+                          color: button.id == 'play'
+                              ? PvColors.ink3(context)
+                              : null,
+                        ),
+                      ),
                       value: _prefs.shown(button.id),
                       onChanged: button.id == 'play'
                           ? null

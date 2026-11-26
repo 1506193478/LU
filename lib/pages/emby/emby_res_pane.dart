@@ -9,7 +9,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:XL/bean/dialog/dialog.dart';
-import 'package:XL/services/url_parse/url_parse_service.dart';
 import 'package:XL/theme/ios_interaction.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/pages/emby/emby_cloud_browse_page.dart';
@@ -26,8 +25,8 @@ import 'package:XL/services/emby/emby_pip_prefs.dart';
 import 'package:XL/pages/emby/emby_stream_settings_page.dart';
 import 'package:XL/pages/emby/emby_vault_lock_settings_page.dart';
 import 'package:XL/services/emby/vault_lock.dart';
-import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_play_behavior_page.dart';
+import 'package:XL/pages/emby/emby_url_page.dart';
 import 'package:XL/pages/emby/player/emby_player_buttons_page.dart';
 import 'package:XL/pages/emby/emby_scan_page.dart';
 import 'package:XL/pages/emby/emby_tab_manager.dart';
@@ -350,30 +349,11 @@ class _EmbyResourcePaneState extends State<EmbyResourcePane> {
   }
 
   Future<void> _addLink() async {
-    final url = await showKzPrompt(
-      context: context,
-      title: '网络链接',
-      hint: '粘贴视频直链，例如 https://.../a.mp4',
-      confirmLabel: '播放',
+    // 网络链接改成独立 URL 页：打开链接 / 下载两个入口共用一张输入面板，
+    // 打开时自动识别剪贴板里的网址。播放和下载的具体逻辑都在页面里。
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const EmbyUrlPage()),
     );
-    if (url == null || url.isEmpty) return;
-    // 配置了解析接口时，先换直链再播（302 / JSON / 纯文本自动判定）。
-    String playUrl = url.trim();
-    if (UrlParseService.enabled) {
-      try {
-        playUrl = await UrlParseService.resolve(playUrl);
-      } on UrlParseException catch (e) {
-        _toast(e.message);
-        return;
-      } catch (e) {
-        _toast('解析失败：${e.toString().split('\n').first}');
-        return;
-      }
-    }
-    final name = Uri.tryParse(playUrl)?.pathSegments.lastOrNull ?? '网络视频';
-    await LuMediaVault.instance.addEntries('link', [(name: name, source: playUrl)]);
-    if (!mounted) return;
-    luPlay(context, title: name, url: playUrl);
   }
 
   // ------------------------------------------------------------ 添加来源
@@ -2071,6 +2051,13 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                     builder: (_) => const EmbyPlayerButtonsPage(),
                   ),
                 ),
+              ),
+              PvRow(
+                icon: Icons.auto_awesome_mosaic_rounded,
+                iconColor: const Color(0xFFFF9F0A),
+                title: 'UI 优化预览',
+                subtitle: 'Hero / 骨架屏 / 空状态 / 统计等改进样板',
+                onTap: () => context.pushNamed('/emby/ui-preview'),
               ),
               PvRow(
                 icon: Icons.settings_rounded,
