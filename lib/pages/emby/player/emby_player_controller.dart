@@ -159,8 +159,26 @@ class EmbyPlayerController extends ChangeNotifier {
   late final PlayerPlaybackController playback;
   late final EmbyClient _client;
 
+  /// 逐帧位置 / 缓冲更新用的独立通知通道。
+  ///
+  /// position 流每秒回调 25~60 次，以前走 notifyListeners() 会让整个
+  /// 播放器页（顶栏 / 底栏 / 进度条 / 画面 Stack）跟着重建，是长时播放
+  /// 卡顿的第二大来源。现在只有底部进度条这一小棵子树听它，主控制器
+  /// 只保留低频状态（播放/暂停/加载/错误/轨道等）的通知。
+  final ValueNotifier<int> tickNotifier = ValueNotifier<int>(0);
+
+  void _notifyTick() {
+    if (_disposed) return;
+    tickNotifier.value++;
+  }
+
   String _url = '';
   String? _mediaSourceId;
+
+  /// 片源帧率（Emby MediaStreams 里的 RealFrameRate），播放器轨道信息
+  /// 拿不到时用于 HUD 显示；不是播放速度控制参数。
+  double? _sourceFps;
+
   int _index = 0;
 
   bool _disposed = false;
@@ -171,6 +189,9 @@ class EmbyPlayerController extends ChangeNotifier {
     final safe = _index.clamp(0, launch.episodes.length - 1);
     return launch.episodes[safe];
   }
+
+  /// 当前条目的片源帧率；拿不到时为 null。
+  double? get sourceFps => _sourceFps;
 
   int get index => _index;
   bool get hasNext => _index + 1 < launch.episodes.length;
@@ -690,6 +711,17 @@ class EmbyPlayerController extends ChangeNotifier {
       _outroUserStart = null;
       chapters = source?.chapters ?? const [];
 
+      // 片源帧率兜底：mpv 轨道表给不出 fps 时（尤其 AV 内核）用它显示。
+      double? fps;
+      if (source != null) {
+        for (final stream in source.mediaStreams) {
+          if (!stream.isVideo) continue;
+          fps = stream.frameRateFps;
+          if (fps != null) break;
+        }
+      }
+      _sourceFps = fps;
+
       // 用户自己标过的片头片尾优先：服务端一般不给这两项，而「在第一集
       // 标好、第二集就失效」正是没读这份本地记录造成的。
       final mark = _marksFor(item);
@@ -786,7 +818,8 @@ class EmbyPlayerController extends ChangeNotifier {
     bind(player.stream.position, (value) {
       position = value;
       _maybeSkipIntroOutro(value);
-      _notify();
+      // 逐帧更新只走轻量通道，别让整棵播放器树跟着每秒重建 25~60 次。
+      _notifyTick();
     });
     bind(player.stream.duration, (value) {
       duration = value;
@@ -794,7 +827,7 @@ class EmbyPlayerController extends ChangeNotifier {
     });
     bind(player.stream.buffer, (value) {
       buffer = value;
-      _notify();
+      _notifyTick();
     });
     bind(player.stream.playing, (value) {
       playing = value;
@@ -2314,6 +2347,7 @@ class EmbyPlayerController extends ChangeNotifier {
     unawaited(engine?.dispose());
     unawaited(_reportStopped());
     unawaited(playback.stop());
+    tickNotifier.dispose();
     super.dispose();
   }
 }

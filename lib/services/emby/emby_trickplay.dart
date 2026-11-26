@@ -34,10 +34,18 @@ class EmbyTrickplay {
   static final Map<String, Future<EmbyTrickplay?>> _pending = {};
   static final Map<String, EmbyTrickplay?> _ready = {};
 
+  /// 会话内只留最近 [maxReadyItems] 个条目的 BIF + 帧缓存。
+  ///
+  /// 以前这里无限增长：每看一部带缩略图的片子就常驻一份 Uint8List +
+  /// 两张 Int32List + 16 张解码图（GPU 纹理）。连看几十集后内存/显存
+  /// 阶梯上涨，App 和视频一起变卡。按插入顺序淘汰最旧的即可。
+  static const int maxReadyItems = 12;
+
   /// 解出的帧缓存（LRU，最多 [maxFrameCache] 张）。
   final Map<int, ui.Image> _frames = {};
   final Map<int, Future<ui.Image?>> _decoding = {};
   static const int maxFrameCache = 16;
+  bool _disposed = false;
 
   /// 加载条目的预览缩略图；服务端没生成 / 加载失败都返回 null。
   static Future<EmbyTrickplay?> forItem(
@@ -48,9 +56,21 @@ class EmbyTrickplay {
     final key = '${server.id}_$itemId';
     final hit = _ready[key];
     if (hit != null || _ready.containsKey(key)) {
+      // 命中即提到末尾，让淘汰真正按「最近使用」而不是「最早加载」。
+      // 同一条目会反复重进（切集、返回详情），不提升会把正在用的包淘汰掉。
+      _ready.remove(key);
+      _ready[key] = hit;
       return Future.value(hit);
     }
     return _pending.putIfAbsent(key, () => _load(server, itemId, key));
+  }
+
+  /// 淘汰最旧的条目，并释放它持有的所有 GPU 纹理。
+  static void _trimReady() {
+    while (_ready.length > maxReadyItems) {
+      final oldest = _ready.keys.first;
+      _ready.remove(oldest)?.dispose();
+    }
   }
 
   static Future<EmbyTrickplay?> _load(
@@ -87,10 +107,12 @@ class EmbyTrickplay {
       }
       final result = parsed;
       _ready[key] = result;
+      _trimReady();
       return result;
     } catch (e) {
       KazumiLogger().w('Emby trickplay: load failed for $itemId', error: e);
       _ready[key] = null;
+      _trimReady();
       return null;
     } finally {
       _pending.remove(key);
@@ -184,11 +206,17 @@ class EmbyTrickplay {
       if (start < 0 || end <= start || end > _data.length) return null;
       final bytes = Uint8List.sublistView(_data, start, end);
       final image = await decodeImageFromList(bytes);
-      // LRU：满了先移除最旧的。
-      if (_frames.length >= maxFrameCache) {
-        _frames.remove(_frames.keys.first);
+      // 条目刚被 LRU 淘汰：在途解码结果直接丢弃，别再写回造成泄漏。
+      if (_disposed) {
+        image.dispose();
+        return null;
       }
-      _frames.remove(index);
+      // LRU：满了先移除最旧的。ui.Image 持有 GPU 纹理，只从 Map 里移除
+      // 不会释放显存——必须 dispose，否则每拖一次进度条就漏一张图。
+      if (_frames.length >= maxFrameCache) {
+        _frames.remove(_frames.keys.first)?.dispose();
+      }
+      _frames.remove(index)?.dispose();
       _frames[index] = image;
       return image;
     } catch (e) {
@@ -199,12 +227,24 @@ class EmbyTrickplay {
     }
   }
 
-  void dispose() {
+  /// 释放已解码的帧，但保留 BIF 数据与 index 表。
+  ///
+  /// 播放器页退出时调用：纹理立刻还回去，下次再进同一条目只重解码，
+  /// 不用重新下载/解析 BIF。
+  void releaseFrames() {
     for (final image in _frames.values) {
       image.dispose();
     }
     _frames.clear();
+    // 让在途解码回包不再写回缓存。
     _decoding.clear();
+  }
+
+  /// 整份条目被 LRU 淘汰时调用：帧 + BIF 数据一并释放。
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    releaseFrames();
   }
 
   // ------------------------------------------------------------ 磁盘缓存

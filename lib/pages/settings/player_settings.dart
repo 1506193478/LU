@@ -31,6 +31,8 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
   late double defaultShortcutForwardPlaySpeed;
   late PlayerAspectRatio defaultAspectRatioMode;
   late bool hAenable;
+  late bool videoFrameInterpolation =
+      GStorage.getSetting(SettingsKeys.videoFrameInterpolation);
   late bool androidEnableOpenSLES;
   late bool androidAutoEnterPIP;
   late bool playResume;
@@ -328,6 +330,23 @@ class _PlayerSettingsPageState extends State<PlayerSettingsPage> {
                   context.pushNamed('/settings/player/super');
                 },
                 title: Text('超分辨率'),
+              ),
+              SettingsTile.switchTile(
+                leading: Icons.slow_motion_video_rounded,
+                onToggle: (value) async {
+                  videoFrameInterpolation = value ?? !videoFrameInterpolation;
+                  await GStorage.putSetting<bool>(
+                    SettingsKeys.videoFrameInterpolation,
+                    videoFrameInterpolation,
+                  );
+                  setState(() {});
+                },
+                title: Text('高刷插帧（实验性）'),
+                description: const Text(
+                  '把低帧率片源补到屏幕刷新率。仅 mpv 内核且设备支持时生效，'
+                  '可能增加耗电并出现鬼影；下次开播生效。',
+                ),
+                initialValue: videoFrameInterpolation,
               ),
             ],
           ),

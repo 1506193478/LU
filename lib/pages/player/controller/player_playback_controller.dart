@@ -419,6 +419,15 @@ abstract class _PlayerPlaybackController with Store {
         superResolutionMode = SuperResolutionMode.off;
       }
 
+      // 插帧必须在 VO attach（VideoController 创建）之前设：mpv 切
+      // video-sync 需要重建视频输出，VO 起来之后再改就只剩空设置了。
+      if (videoRenderer != 'mediacodec_embed') {
+        await applyFrameInterpolation(pp);
+        if (!isCurrentPlayer(player)) {
+          return await _discardIfNotCurrent(candidate);
+        }
+      }
+
       videoController ??= VideoController(
         player,
         configuration: VideoControllerConfiguration(
@@ -502,6 +511,24 @@ abstract class _PlayerPlaybackController with Store {
       }
       await candidate.dispose();
       Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  /// 高刷插帧（实验性，默认关闭）。
+  ///
+  /// mpv 官方的 reduce-judder 组合：video-sync=display-resample +
+  /// interpolation=yes，把 24/25/30 帧的片源补到屏幕刷新率（最高 120Hz）。
+  /// 这不是「播放器支持 120fps」——片源帧率不变，只是补出来的中间帧让
+  /// 运动看起来更顺。代价是鬼影/肥皂剧感 + GPU 负载上升，卡顿设备上别开。
+  Future<void> applyFrameInterpolation(NativePlayer pp) async {
+    if (!GStorage.getSetting(SettingsKeys.videoFrameInterpolation)) return;
+    try {
+      await pp.setProperty('video-sync', 'display-resample');
+      await pp.setProperty('interpolation', 'yes');
+      KazumiLogger().i('Player: frame interpolation enabled');
+    } catch (e) {
+      // 某些 VO / libmpv 构建没有 display-resample 支持；保持默认 audio 同步。
+      KazumiLogger().w('Player: frame interpolation unsupported', error: e);
     }
   }
 

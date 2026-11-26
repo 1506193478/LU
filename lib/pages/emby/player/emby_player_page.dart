@@ -1988,6 +1988,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
     // 锁屏 / 控制中心播放控制：跟着 1s tick 刷新进度与播放状态。
+    // 暂停时也刷新，保证 App 内 seek 后锁屏进度能跟上。
     _syncAudioServiceState();
 
     // 弹幕：按秒投喂 + 首次起播时自动匹配（dandanplay）。
@@ -2012,11 +2013,8 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     double? speed;
     if (controller.playing && _chromeShown) speed = await _readNetworkSpeed();
 
-    // 帧率：mpv 的 estimated-vf-fps 是实时估算值，AV 内核拿不到 → 不显示。
-    final String fpsText =
-        controller.playing && _chromeShown
-            ? (await _readFps())
-            : '';
+    // 帧率显示片源帧率（文件固定值），不是每秒跳动的 mpv 估算值。
+    final String fpsText = controller.playing && _chromeShown ? _readFps() : '';
 
     int? level = _batteryLevel;
     bool charging = _batteryCharging;
@@ -2047,21 +2045,28 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
     });
   }
 
-  /// mpv 实时估算帧率（estimated-vf-fps）。返回形如 "23.98fps"，
-  /// 拿不到（AV 内核 / 值非法）返回空串。
-  Future<String> _readFps() async {
-    if (controller.isAvBackend) return '';
-    final platform = controller.playback.mediaPlayer?.platform;
-    if (platform is! NativePlayer) return '';
-    try {
-      final raw = await platform.getProperty('estimated-vf-fps');
-      final fps = double.tryParse(raw) ?? 0;
-      if (fps <= 0 || fps > 1000) return '';
-      return '${fps.toStringAsFixed(fps >= 100 ? 0 : 1)}fps';
-    } catch (_) {
-      return '';
+  /// 片源帧率（媒体文件本身写死的帧率），返回形如 "23.98fps" / "25fps"。
+  ///
+  /// 以前读的是 mpv 的 estimated-vf-fps —— 那是每秒重算的「实时估算值」，
+  /// 用户看到的 25fps 就是它，且只用于显示、不控制播放速度。现在改读
+  /// 视频轨道的 demux-fps（文件固定帧率），拿不到再用 Emby PlaybackInfo
+  /// 的 RealFrameRate 兜底；这样状态行显示的是片源属性，不再跳。
+  String _readFps() {
+    double? fps;
+    final player = controller.playback.mediaPlayer;
+    if (!controller.isAvBackend && player != null) {
+      fps = player.state.tracks.video.firstOrNull?.fps;
     }
+    fps ??= _embySourceFps();
+    if (fps == null || fps <= 0 || fps > 1000) return '';
+    // 23.976 → 23.98；25 / 30 / 60 这种整数帧率不要拖个 ".0"。
+    if ((fps - fps.round()).abs() < 0.05) return '${fps.round()}fps';
+    return '${fps.toStringAsFixed(2)}fps';
   }
+
+  /// Emby 视频流的帧率，作为播放器轨道信息缺失时的兜底
+  /// （AV 内核没有 media_kit 的轨道表）。由控制器在解析 PlaybackInfo 时缓存。
+  double? _embySourceFps() => controller.sourceFps;
 
   /// mpv 内核的实时网络读取速度（bytes/s）。
   ///
@@ -2136,7 +2141,7 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
           const SizedBox(width: 5),
           Icon(Icons.speed_rounded, size: 13, color: dim),
           const SizedBox(width: 3),
-          Text(_fpsText, style: statusStyle),
+          Text('源 $_fpsText', style: statusStyle),
         ],
       ],
     );
@@ -2359,8 +2364,6 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
   }
 
   Widget _buildBottomBar() {
-    final Duration total = controller.duration;
-    final Duration shown = _dragging ? _dragPosition : controller.position;
     final bool hasEpisodes = widget.launch.episodes.length > 1;
 
     return Positioned(
@@ -2429,53 +2432,82 @@ class _EmbyPlayerPageState extends State<EmbyPlayerPage>
                   ],
                 ),
                 const SizedBox(height: 8),
-                // 时间分列两端。
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(_fmt(shown), style: _timeStyle(Colors.white, 13.5)),
-                    const Spacer(),
-                    Text(
-                      total == Duration.zero ? '--:--' : _fmt(total),
-                      style: _timeStyle(Colors.white.withValues(alpha: 0.55)),
-                    ),
-                  ],
+                // 时间 + 进度条只听 tickNotifier（position/buffer 的独立通道）。
+                // 以前 position 每秒回调 25~60 次都走 controller 主通知，
+                // 顶栏/底栏/画面整棵树跟着重建；现在只有这一小块重建。
+                ValueListenableBuilder<int>(
+                  valueListenable: controller.tickNotifier,
+                  builder: (context, _, child) {
+                    final Duration total = controller.duration;
+                    final Duration shown = _dragging
+                        ? _dragPosition
+                        : controller.position;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // 时间分列两端。
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              _fmt(shown),
+                              style: _timeStyle(Colors.white, 13.5),
+                            ),
+                            const Spacer(),
+                            Text(
+                              total == Duration.zero ? '--:--' : _fmt(total),
+                              style: _timeStyle(
+                                Colors.white.withValues(alpha: 0.55),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_shownButton('progress')) ...[
+                          const SizedBox(height: 2),
+                          _RexSeekBar(
+                            position: shown,
+                            duration: total,
+                            buffer: controller.buffer,
+                            // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
+                            enabled: total > Duration.zero &&
+                                _gesture.dragProgressBar,
+                            trickplay: _ensureTrickplay(),
+                            onDragStart: () {
+                              KazumiHaptics.tap();
+                              setState(() {
+                                _dragging = true;
+                                _dragPosition = controller.position;
+                              });
+                              _pauseAutoHide();
+                            },
+                            onDragUpdate: (value) {
+                              setState(() => _dragPosition = value);
+                              _showHud(
+                                _fmt(value),
+                                icon: Icons.fast_forward_rounded,
+                              );
+                            },
+                            onDragEnd: (value) {
+                              controller.seek(value);
+                              setState(() => _dragging = false);
+                              if (_gesture.hapticProgress) {
+                                KazumiHaptics.select();
+                              }
+                              _pauseAutoHide();
+                            },
+                            onTapSeek: (value) {
+                              KazumiHaptics.tap();
+                              controller.seek(value);
+                              _pauseAutoHide();
+                            },
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                      ],
+                    );
+                  },
                 ),
-                if (_shownButton('progress')) ...[
-                  const SizedBox(height: 2),
-                  _RexSeekBar(
-                    position: shown,
-                    duration: total,
-                    buffer: controller.buffer,
-                    // 「拖动进度条」关掉后只显示不让拖，防止横屏误触。
-                    enabled: total > Duration.zero && _gesture.dragProgressBar,
-                    trickplay: _ensureTrickplay(),
-                    onDragStart: () {
-                      KazumiHaptics.tap();
-                      setState(() {
-                        _dragging = true;
-                        _dragPosition = controller.position;
-                      });
-                      _pauseAutoHide();
-                    },
-                    onDragUpdate: (value) {
-                      setState(() => _dragPosition = value);
-                      _showHud(_fmt(value), icon: Icons.fast_forward_rounded);
-                    },
-                    onDragEnd: (value) {
-                      controller.seek(value);
-                      setState(() => _dragging = false);
-                      if (_gesture.hapticProgress) KazumiHaptics.select();
-                      _pauseAutoHide();
-                    },
-                    onTapSeek: (value) {
-                      KazumiHaptics.tap();
-                      controller.seek(value);
-                      _pauseAutoHide();
-                    },
-                  ),
-                  const SizedBox(height: 6),
-                ],
                 // 底行：锁定 | 上一集 / 播放暂停 / 下一集 | 选集。
                 Row(
                   children: [
@@ -3577,6 +3609,18 @@ class _RexSeekBarState extends State<_RexSeekBar> {
         if (value == null) _previewFrame = null;
       });
     });
+  }
+
+  @override
+  void dispose() {
+    // 让在途的加载/解码回包全部失效，避免 dispose 之后 setState。
+    _tpFutureId++;
+    _previewReqId++;
+    // 解码出的 ui.Image 持有 GPU 纹理，光把 State 丢掉不会释放。
+    // tp 对象本身仍留在 EmbyTrickplay 的 LRU 里，下次进来只重解码。
+    _tp?.releaseFrames();
+    _previewFrame = null;
+    super.dispose();
   }
 
   /// 指针位置对应的预览帧请求（同一帧只解一次，乱序回包按 id 丢弃）。

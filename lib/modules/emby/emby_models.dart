@@ -586,6 +586,7 @@ class EmbyMediaStream {
     this.isForced = false,
     this.isHearingImpaired = false,
     this.isTextSubtitle,
+    this.frameRate = '',
   });
 
   final int index;
@@ -611,7 +612,30 @@ class EmbyMediaStream {
   final bool? isTextSubtitle;
 
   bool get isAudio => type == 'Audio';
+  bool get isVideo => type == 'Video';
   bool get isSubtitle => type == 'Subtitle';
+
+  /// 服务端给的帧率字符串（RealFrameRate / AverageFrameRate），形如
+  /// "25/1"、"24000/1001" 或 "25"。仅作播放器轨道拿不到帧率时的兜底。
+  final String frameRate;
+
+  double? get frameRateFps {
+    if (frameRate.isEmpty) return null;
+    final raw = frameRate.trim();
+    if (raw.contains('/')) {
+      final parts = raw.split('/');
+      if (parts.length != 2) return null;
+      final numerator = double.tryParse(parts[0].trim());
+      final denominator = double.tryParse(parts[1].trim());
+      if (numerator == null || denominator == null || denominator == 0) {
+        return null;
+      }
+      final fps = numerator / denominator;
+      return fps > 0 && fps <= 1000 ? fps : null;
+    }
+    final fps = double.tryParse(raw);
+    return fps != null && fps > 0 && fps <= 1000 ? fps : null;
+  }
 
   /// 文本字幕：`IsTextSubtitleStream` 有就用，没有就按编码猜。
   bool get textLike {
@@ -630,20 +654,35 @@ class EmbyMediaStream {
     return parts.isEmpty ? '轨道 ${index + 1}' : parts.join(' · ');
   }
 
-  factory EmbyMediaStream.fromJson(Map<String, dynamic> json) => EmbyMediaStream(
-        index: _intOrNull(json['Index']) ?? 0,
-        type: json['Type']?.toString() ?? '',
-        codec: json['Codec']?.toString() ?? '',
-        language: json['Language']?.toString() ?? '',
-        displayTitle: (json['DisplayTitle'] ?? json['Title'] ?? '').toString(),
-        isDefault: json['IsDefault'] == true,
-        isExternal: json['IsExternal'] == true,
-        isForced: json['IsForced'] == true,
-        isHearingImpaired: json['IsHearingImpaired'] == true,
-        isTextSubtitle: json['IsTextSubtitleStream'] is bool
-            ? json['IsTextSubtitleStream'] as bool
-            : null,
-      );
+  factory EmbyMediaStream.fromJson(Map<String, dynamic> json) {
+    // Emby 在无帧率信息时会给 "0"、"0/0" 甚至 null，直接 toString 会把
+    // 无效值写进模型；这里先筛一遍，再让 AverageFrameRate 兜底。
+    String rate(Object? value) {
+      final s = value?.toString().trim() ?? '';
+      if (s.isEmpty || s == '0' || s == '0.0' || s == '0/0' || s == 'null') {
+        return '';
+      }
+      return s;
+    }
+
+    final real = rate(json['RealFrameRate']);
+    final average = rate(json['AverageFrameRate']);
+    return EmbyMediaStream(
+      index: _intOrNull(json['Index']) ?? 0,
+      type: json['Type']?.toString() ?? '',
+      codec: json['Codec']?.toString() ?? '',
+      language: json['Language']?.toString() ?? '',
+      displayTitle: (json['DisplayTitle'] ?? json['Title'] ?? '').toString(),
+      isDefault: json['IsDefault'] == true,
+      isExternal: json['IsExternal'] == true,
+      isForced: json['IsForced'] == true,
+      isHearingImpaired: json['IsHearingImpaired'] == true,
+      isTextSubtitle: json['IsTextSubtitleStream'] is bool
+          ? json['IsTextSubtitleStream'] as bool
+          : null,
+      frameRate: real.isNotEmpty ? real : average,
+    );
+  }
 }
 
 /// 服务端替我们找到的一条外挂字幕（OpenSubtitles 之类的插件给的）。

@@ -68,6 +68,14 @@ class SettingsKeys {
     'auto-safe',
     group: SettingGroup.player,
   );
+  /// 高刷插帧（实验性）：开启后给 mpv 设置 video-sync=display-resample +
+  /// interpolation=yes，把低帧率片源补到屏幕刷新率。默认关闭：会带来
+  /// 鬼影/肥皂剧感，且明显增加 GPU 负载，卡顿设备上不要开。
+  static const videoFrameInterpolation = SettingKey<bool>(
+    _SettingBoxKey.videoFrameInterpolation,
+    false,
+    group: SettingGroup.player,
+  );
   static const searchEnhanceEnable = SettingKey<bool>(
     _SettingBoxKey.searchEnhanceEnable,
     true,
@@ -714,6 +722,7 @@ class SettingsKeys {
   static final List<SettingKey<Object?>> all = [
     hAenable,
     hardwareDecoder,
+    videoFrameInterpolation,
     searchEnhanceEnable,
     autoUpdate,
     checkPluginUpdateOnStartup,
@@ -1064,6 +1073,7 @@ class SettingsKeys {
 class _SettingBoxKey {
   static const String hAenable = 'hAenable',
       hardwareDecoder = 'hardwareDecoder',
+      videoFrameInterpolation = 'videoFrameInterpolation',
       searchEnhanceEnable = 'searchEnhanceEnable',
       autoUpdate = 'autoUpdate',
       alwaysOntop = 'alwaysOntop',
