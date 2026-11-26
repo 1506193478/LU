@@ -771,12 +771,16 @@ class EmbyPlayerController extends ChangeNotifier {
   /// AVPlayer 起播失败后的兜底）。
   Future<void> _openMpv(int startAt) async {
     _mpvOpenedAt = DateTime.now();
+    final token = launch.server.accessToken;
+    final headers = <String, String>{
+      // HLS 的分片请求会继承这些头，只靠地址上的 api_key 不够。
+      // 本地直链没有 Emby 服务器，别把两个空的 token 头发给第三方 CDN。
+      if (token.isNotEmpty) 'X-Emby-Token': token,
+      if (token.isNotEmpty) 'Authorization': 'MediaBrowser Token="$token"',
+      ...?launch.httpHeaders,
+    };
     final player = await playback.createVideoController(
-      {
-        // HLS 的分片请求会继承这些头，只靠地址上的 api_key 不够。
-        'X-Emby-Token': launch.server.accessToken,
-        'Authorization': 'MediaBrowser Token="${launch.server.accessToken}"',
-      },
+      headers,
       false,
       canInstall: () => !_disposed,
       offset: startAt,
@@ -1005,6 +1009,7 @@ class EmbyPlayerController extends ChangeNotifier {
       headers: {
         'X-Emby-Token': launch.server.accessToken,
         'Authorization': 'MediaBrowser Token="${launch.server.accessToken}"',
+        ...?launch.httpHeaders,
       },
     );
     // 续播：此时 duration 多半还是 0，AVPlayer 支持「没就绪先 seek」，

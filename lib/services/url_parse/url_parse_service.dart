@@ -40,6 +40,56 @@ class UrlParseService {
   static bool get enabled =>
       GStorage.getSetting(SettingsKeys.urlParseApi).trim().isNotEmpty;
 
+  /// 明显的视频/音频直链。带这些扩展名的地址没必要再打一次解析接口——
+  /// 以前这里只判断了「模板有没有占位符」，结果用户配了接口之后连
+  /// `https://.../a.mp4` 都要绕远端一圈，慢的那几秒全花在解析请求上。
+  static const Set<String> _directExtensions = {
+    'mp4',
+    'mkv',
+    'mov',
+    'avi',
+    'flv',
+    'webm',
+    'm4v',
+    'ts',
+    'm2ts',
+    'm3u8',
+    'mpd',
+    'ism',
+    'mp3',
+    'm4a',
+    'aac',
+    'flac',
+    'ogg',
+    'opus',
+    'wav',
+  };
+
+  static bool isDirectPlayable(String url) {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || !uri.hasScheme) return false;
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') return false;
+    final path = uri.path.toLowerCase();
+    final last = path.split('/').lastOrNull ?? '';
+    final dot = last.lastIndexOf('.');
+    if (dot >= 0 && _directExtensions.contains(last.substring(dot + 1))) {
+      return true;
+    }
+    // 无扩展名的动态直链（.../video?id=1&format=m3u8）也别再套一层。
+    final query = uri.query.toLowerCase();
+    if (query.contains('m3u8') ||
+        query.contains('.mp4') ||
+        query.contains('.mkv')) {
+      return true;
+    }
+    return false;
+  }
+
+  /// 这条地址本次是否需要走解析接口。
+  static bool shouldParse(String url, {bool forceDirect = false}) =>
+      enabled && !forceDirect && !isDirectPlayable(url);
+
   /// 用模板拼出解析请求地址。
   static String buildRequestUrl(String template, String url) {
     final enc = Uri.encodeFull(url);
@@ -60,21 +110,24 @@ class UrlParseService {
     if (!template.contains('{url}') && !template.contains('{url_enc}')) {
       return raw;
     }
+    if (isDirectPlayable(raw)) return raw;
     final requestUrl = buildRequestUrl(template, raw);
     if (Uri.tryParse(requestUrl) == null) {
       throw const UrlParseException('解析接口地址不合法');
     }
 
-    final dio = Dio(BaseOptions(
-      method: 'GET',
-      // 关掉自动重定向：302 目标本身就是解析结果之一。
-      followRedirects: false,
-      validateStatus: (code) => code != null && code < 400,
-      connectTimeout: const Duration(seconds: 12),
-      receiveTimeout: const Duration(seconds: 15),
-      headers: {'user-agent': _ua, 'accept': '*/*'},
-      responseType: ResponseType.plain,
-    ));
+    final dio = Dio(
+      BaseOptions(
+        method: 'GET',
+        // 关掉自动重定向：302 目标本身就是解析结果之一。
+        followRedirects: false,
+        validateStatus: (code) => code != null && code < 400,
+        connectTimeout: const Duration(seconds: 12),
+        receiveTimeout: const Duration(seconds: 15),
+        headers: {'user-agent': _ua, 'accept': '*/*'},
+        responseType: ResponseType.plain,
+      ),
+    );
     try {
       final resp = await dio.fetch<dynamic>(
         RequestOptions(path: requestUrl, method: 'GET'),
@@ -96,9 +149,9 @@ class UrlParseService {
       if (body.startsWith('{') || body.startsWith('[')) {
         try {
           final json = jsonDecode(body);
-          final path = GStorage
-              .getSetting(SettingsKeys.urlParseJsonPath)
-              .trim();
+          final path = GStorage.getSetting(
+            SettingsKeys.urlParseJsonPath,
+          ).trim();
           final found = <String>[];
           if (path.isNotEmpty) {
             final v = _walk(json, path.split('.'));
@@ -196,4 +249,3 @@ class UrlParseService {
     }
   }
 }
-

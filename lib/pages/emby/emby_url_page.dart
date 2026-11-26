@@ -9,6 +9,7 @@ import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/request/clients/download_http_client.dart';
 import 'package:XL/services/emby/lu_media_vault.dart';
+import 'package:XL/services/logging/logger.dart';
 import 'package:XL/services/url_parse/url_parse_service.dart';
 import 'package:XL/theme/ios_interaction.dart';
 
@@ -31,68 +32,96 @@ class _EmbyUrlPageState extends State<EmbyUrlPage> {
   String _downloadName = '';
 
   Future<void> _openInput({required bool download}) async {
-    final result = await showModalBottomSheet<({String url, String ua})>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: PvColors.card(context),
-      builder: (_) => _UrlInputSheet(download: download),
-    );
+    final result =
+        await showModalBottomSheet<({String url, String ua, bool skipParse})>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          backgroundColor: PvColors.card(context),
+          builder: (_) => _UrlInputSheet(download: download),
+        );
     if (result == null || !mounted) return;
     final url = result.url.trim();
     if (url.isEmpty) return;
     if (download) {
-      await _download(url, result.ua.trim());
+      await _download(url, result.ua.trim(), skipParse: result.skipParse);
     } else {
-      await _play(url);
+      await _play(url, result.ua.trim(), skipParse: result.skipParse);
     }
   }
 
-  Future<void> _play(String rawUrl) async {
-    String playUrl = rawUrl;
-    if (UrlParseService.enabled) {
-      try {
-        playUrl = await UrlParseService.resolve(rawUrl);
-      } on UrlParseException catch (e) {
-        if (!mounted) return;
-        KazumiDialog.showError(message: e.message, context: context);
-        return;
-      } catch (e) {
-        if (!mounted) return;
-        KazumiDialog.showError(
-          message: '解析失败：${e.toString().split('\n').first}',
-          context: context,
-        );
-        return;
-      }
+  /// 把「要不要走解析接口」和耗时记下来。慢的时候给用户一条可见提示，
+  /// 免得只知道"卡"却不知道是不是接口拖的。
+  Future<({String url, bool parsed, Duration elapsed})> _resolve(
+    String rawUrl, {
+    required bool skipParse,
+  }) async {
+    final watch = Stopwatch()..start();
+    final raw = rawUrl.trim();
+    if (!UrlParseService.shouldParse(raw, forceDirect: skipParse)) {
+      return (url: raw, parsed: false, elapsed: watch.elapsed);
+    }
+    try {
+      final resolved = await UrlParseService.resolve(raw);
+      return (url: resolved.trim(), parsed: true, elapsed: watch.elapsed);
+    } on UrlParseException {
+      rethrow;
+    } catch (e) {
+      throw UrlParseException('解析失败：${e.toString().split('\n').first}');
+    }
+  }
+
+  Future<void> _play(
+    String rawUrl,
+    String ua, {
+    required bool skipParse,
+  }) async {
+    late final ({String url, bool parsed, Duration elapsed}) resolved;
+    try {
+      resolved = await _resolve(rawUrl, skipParse: skipParse);
+    } on UrlParseException catch (e) {
+      if (!mounted) return;
+      KazumiDialog.showError(message: e.message, context: context);
+      return;
     }
     if (!mounted) return;
+    KazumiLogger().i(
+      'URL play: parsed=${resolved.parsed} '
+      'elapsed=${resolved.elapsed.inMilliseconds}ms url=${resolved.url}',
+    );
+    if (resolved.parsed && resolved.elapsed.inMilliseconds >= 800) {
+      KazumiDialog.showToast(
+        message:
+            '解析接口耗时 ${(resolved.elapsed.inMilliseconds / 1000).toStringAsFixed(1)} 秒',
+        context: context,
+      );
+    }
+    final playUrl = resolved.url;
     final name = Uri.tryParse(playUrl)?.pathSegments.lastOrNull ?? '网络视频';
     await LuMediaVault.instance.addEntries('link', [
       (name: name, source: playUrl),
     ]);
     if (!mounted) return;
-    // 播放器参数里没有 UA 位；自定义 UA 只对下载请求生效。
-    luPlay(context, title: name, url: playUrl);
+    luPlay(
+      context,
+      title: name,
+      url: playUrl,
+      httpHeaders: ua.isEmpty ? null : {'user-agent': ua},
+    );
   }
 
-  Future<void> _download(String rawUrl, String ua) async {
-    String url = rawUrl;
-    if (UrlParseService.enabled) {
-      try {
-        url = await UrlParseService.resolve(rawUrl);
-      } on UrlParseException catch (e) {
-        if (!mounted) return;
-        KazumiDialog.showError(message: e.message, context: context);
-        return;
-      } catch (e) {
-        if (!mounted) return;
-        KazumiDialog.showError(
-          message: '解析失败：${e.toString().split('\n').first}',
-          context: context,
-        );
-        return;
-      }
+  Future<void> _download(
+    String rawUrl,
+    String ua, {
+    required bool skipParse,
+  }) async {
+    late final String url;
+    try {
+      url = (await _resolve(rawUrl, skipParse: skipParse)).url;
+    } on UrlParseException catch (e) {
+      if (!mounted) return;
+      KazumiDialog.showError(message: e.message, context: context);
+      return;
     }
 
     var name = 'video';
@@ -246,6 +275,7 @@ class _UrlInputSheetState extends State<_UrlInputSheet> {
   final _url = TextEditingController();
   final _ua = TextEditingController();
   bool _autoPasted = false;
+  bool _skipParse = false;
 
   @override
   void initState() {
@@ -295,7 +325,9 @@ class _UrlInputSheetState extends State<_UrlInputSheet> {
       KazumiDialog.showToast(message: '请先填写 URL', context: context);
       return;
     }
-    Navigator.of(context).pop((url: url, ua: _ua.text.trim()));
+    Navigator.of(
+      context,
+    ).pop((url: url, ua: _ua.text.trim(), skipParse: _skipParse));
   }
 
   @override
@@ -391,7 +423,7 @@ class _UrlInputSheetState extends State<_UrlInputSheet> {
                             autocorrect: false,
                             enableSuggestions: false,
                             decoration: const InputDecoration(
-                              hintText: '可选，仅下载时生效',
+                              hintText: '可选，播放和下载都生效',
                               border: InputBorder.none,
                               isDense: true,
                             ),
@@ -400,6 +432,26 @@ class _UrlInputSheetState extends State<_UrlInputSheet> {
                         const SizedBox(width: 14),
                       ],
                     ),
+                    if (UrlParseService.enabled) ...[
+                      Divider(
+                        height: 1,
+                        indent: 14,
+                        color: PvColors.hair(context),
+                      ),
+                      KzSwitchTile(
+                        contentPadding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+                        title: Text(
+                          '跳过解析，直连播放',
+                          style: PvText.rowTitle(context),
+                        ),
+                        subtitle: Text(
+                          '地址本身是直链时可不走解析接口',
+                          style: PvText.rowSub(context),
+                        ),
+                        value: _skipParse,
+                        onChanged: (v) => setState(() => _skipParse = v),
+                      ),
+                    ],
                   ],
                 ),
               ),

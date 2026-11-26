@@ -11,6 +11,7 @@ class EmbyPlaybackLaunch {
     required this.episodes,
     this.initialIndex = 0,
     this.startAt,
+    this.httpHeaders,
   });
 
   final EmbyServer server;
@@ -29,4 +30,7 @@ class EmbyPlaybackLaunch {
   /// 播放记录里的条目是本地缓存拼出来的（只有 id / 标题），没有 userData，
   /// 不带这个字段就永远从 0 开始——「点了播放记录却从头放」就是这么来的。
   final Duration? startAt;
+
+  /// 直链播放时附带的请求头（目前给「网络链接」的自定义 UA 用）。
+  final Map<String, String>? httpHeaders;
 }

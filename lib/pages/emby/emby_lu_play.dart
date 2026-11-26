@@ -16,6 +16,7 @@ void luPlay(
   String subtitle = '',
   List<({String title, String url})>? playlist,
   int index = 0,
+  Map<String, String>? httpHeaders,
 }) {
   final items = <EmbyItem>[];
   final list = playlist ?? [(title: title, url: url)];
@@ -45,6 +46,7 @@ void luPlay(
       title: title,
       episodes: items,
       initialIndex: start,
+      httpHeaders: httpHeaders,
     ),
   );
 }
