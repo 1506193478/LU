@@ -6,6 +6,7 @@ import 'package:flutter_modular/flutter_modular.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_style.dart';
+import 'package:XL/pages/emby/emby_ui_kit.dart';
 import 'package:XL/theme/rex_design.dart';
 import 'package:XL/pages/emby/emby_detail_page.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
@@ -188,13 +189,10 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
   Widget _buildResults(BuildContext context, EmbyServer? server) {
     final theme = Theme.of(context);
     if (_keyword.isEmpty) {
-      return Center(
-        child: Text(
-          '输入关键词开始搜索',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+      return const EmbyEmptyState(
+        icon: Icons.search_rounded,
+        title: '搜索媒体库',
+        message: '输入片名、剧名或演员名，跨所有媒体库一起找。',
       );
     }
     if (_error.isNotEmpty) {
@@ -212,13 +210,17 @@ class _EmbySearchPageState extends State<EmbySearchPage> {
       );
     }
     if (_results.isEmpty && !_loading) {
-      return Center(
-        child: Text(
-          '没有找到「$_keyword」',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+      return EmbyEmptyState(
+        icon: Icons.search_off_rounded,
+        title: '没有找到「$_keyword」',
+        message: '换个关键词试试，或者检查一下拼写。',
+        primaryLabel: '清除搜索',
+        onPrimary: () {
+          setState(() {
+            _controller.clear();
+            _keyword = '';
+          });
+        },
       );
     }
     if (server == null) {

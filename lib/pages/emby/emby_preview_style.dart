@@ -556,6 +556,7 @@ class PvSectionHead extends StatelessWidget {
     this.count,
     this.onMore,
     this.topPadding = 22,
+    this.subtitle,
   });
 
   final String title;
@@ -563,19 +564,46 @@ class PvSectionHead extends StatelessWidget {
   final VoidCallback? onMore;
   final double topPadding;
 
+  /// 可选副标题：给"接下来观看"这类推荐轨一句真实的推荐理由。
+  final String? subtitle;
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(20, topPadding, 20, 10),
       child: Row(
         children: [
-          Text(title, style: PvText.section(context)),
-          if (count != null && count!.isNotEmpty) ...[
-            const SizedBox(width: 8),
-            Text(count!, style: PvText.count(context)),
-          ],
-          if (onMore != null) ...[
-            const Spacer(),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: PvText.section(context),
+                      ),
+                    ),
+                    if (count != null && count!.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(count!, style: PvText.count(context)),
+                    ],
+                  ],
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle!,
+                    style: PvText.count(context).copyWith(fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (onMore != null)
             GestureDetector(
               onTap: onMore,
               behavior: HitTestBehavior.opaque,
@@ -585,7 +613,6 @@ class PvSectionHead extends StatelessWidget {
                 color: const Color(0xFFB0B0B6),
               ),
             ),
-          ],
         ],
       ),
     );

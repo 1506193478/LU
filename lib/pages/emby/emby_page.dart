@@ -1088,12 +1088,15 @@ class _HomeBodyState extends State<_HomeBody> {
                 PvSliverHead(
                   title: '接下来观看',
                   count: '${data.nextUp.length}',
+                  subtitle: '接着上次看的地方，为你排好的下一集',
                   onMore: () {},
                 ),
                 SliverToBoxAdapter(
                   child: _PosterRail(
                     server: server,
                     items: data.nextUp,
+                    // 只有这一轨开 Hero：海报飞进详情页的大图。
+                    enableHero: true,
                     onTap: (item) => item.isSeries
                         ? widget.onOpenDetail(item)
                         : widget.onPlay(item),
@@ -1219,8 +1222,14 @@ class PvSliverHead extends SliverToBoxAdapter {
     required String title,
     String? count,
     VoidCallback? onMore,
+    String? subtitle,
   }) : super(
-         child: PvSectionHead(title, count: count, onMore: onMore),
+         child: PvSectionHead(
+           title,
+           count: count,
+           onMore: onMore,
+           subtitle: subtitle,
+         ),
        );
 }
 
@@ -1625,11 +1634,16 @@ class _PosterRail extends StatelessWidget {
     required this.server,
     required this.items,
     required this.onTap,
+    this.enableHero = false,
   });
 
   final EmbyServer server;
   final List<EmbyItem> items;
   final ValueChanged<EmbyItem> onTap;
+
+  /// 是否给海报启用 Hero 转场到详情页。只给"接下来观看"轨开，
+  /// 因为同一条目可能同时出现在多个轨里，重复 tag 会让转场崩溃。
+  final bool enableHero;
 
   @override
   Widget build(BuildContext context) {
@@ -1650,6 +1664,9 @@ class _PosterRail extends StatelessWidget {
             tag: item.coverTag,
           ),
           headers: embyAuthHeaders(itemServer),
+          heroTag: enableHero && item.isSeries
+              ? 'emby-detail-${item.id}'
+              : null,
           // 预览稿海报右上角是集数徽标、右下角是评分。
           countBadge: item.isSeries && count > 0 ? _formatCount(count) : null,
           score: item.communityRating?.toStringAsFixed(1),

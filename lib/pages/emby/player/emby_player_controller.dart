@@ -2240,6 +2240,7 @@ class EmbyPlayerController extends ChangeNotifier {
       key: key,
       title: launch.title,
       subtitle: item.isEpisode ? item.name : '',
+      genre: item.genres.isNotEmpty ? item.genres.first : '',
     );
     await EmbyWatchLog.instance.put(
       EmbyWatchRecord(

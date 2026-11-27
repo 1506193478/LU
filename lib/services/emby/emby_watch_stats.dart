@@ -72,6 +72,7 @@ class EmbyWatchStats {
     required String key,
     required String title,
     String subtitle = '',
+    String genre = '',
     int deltaMs = 10000,
   }) {
     if (key.isEmpty || deltaMs <= 0) return;
@@ -84,6 +85,9 @@ class EmbyWatchStats {
     final entry = _titles[key] ?? <String, dynamic>{};
     entry['t'] = title;
     if (subtitle.isNotEmpty) entry['sub'] = subtitle;
+    // 类型占比用：只留第一个类型就够了，多了占比图反而碎。
+    // 旧记录没有这个字段，读取时归到「其它」，不用迁移。
+    if (genre.isNotEmpty) entry['g'] = genre;
     entry['ms'] = ((entry['ms'] as num?)?.toInt() ?? 0) + deltaMs;
     entry['at'] = now.millisecondsSinceEpoch;
     entry['count'] = ((entry['count'] as num?)?.toInt() ?? 0) + 1;
@@ -151,6 +155,25 @@ class EmbyWatchStats {
       for (var i = days - 1; i >= 0; i--)
         _days[_dayKey(now.subtract(Duration(days: i)))] ?? 0,
     ];
+  }
+
+  /// 类型占比：按累计观看时长聚合 [addTick] 记下的首个类型，
+  /// 返回 (类型, 占比 0~1)，按占比倒序，最多 6 项。旧记录无类型时归「其它」。
+  List<MapEntry<String, double>> genreShares() {
+    _ensureLoaded();
+    final byGenre = <String, int>{};
+    var total = 0;
+    for (final entry in _titles.values) {
+      final ms = (entry['ms'] as num?)?.toInt() ?? 0;
+      if (ms <= 0) continue;
+      final genre = (entry['g'] as String?) ?? '其它';
+      byGenre[genre] = (byGenre[genre] ?? 0) + ms;
+      total += ms;
+    }
+    if (total <= 0) return const [];
+    final sorted = byGenre.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(6).map((e) => MapEntry(e.key, e.value / total)).toList();
   }
 
   /// 热门内容，按累计时长倒序。返回 (key, data) 列表。

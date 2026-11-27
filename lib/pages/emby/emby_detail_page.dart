@@ -9,6 +9,7 @@ import 'package:XL/bean/dialog/dialog.dart';
 import 'package:XL/modules/emby/emby_models.dart';
 import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_style.dart';
+import 'package:XL/pages/emby/emby_ui_kit.dart';
 import 'package:XL/theme/rex_design.dart';
 import 'package:XL/pages/emby/emby_widgets.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
@@ -16,6 +17,7 @@ import 'package:XL/pages/history/history_controller.dart';
 import 'package:XL/services/emby/emby_playback_builder.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/logging/logger.dart';
+import 'package:XL/utils/motion.dart';
 
 /// 剧集 / 电影详情 —— 对齐 3.9.20 预览稿（视频 ca688619）。
 ///
@@ -129,6 +131,9 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
   bool _descending = false;
   bool _starting = false;
   bool _overviewExpanded = false;
+
+  /// 媒体信息卡是否展开技术详情（编码/分辨率/码率等）。
+  bool _techExpanded = false;
   bool _favorite = false;
   bool _played = false;
 
@@ -208,6 +213,7 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
 
   void _pick(List<EmbyItem> episodes, int index) {
     if (index < 0 || index >= episodes.length) return;
+    KazumiHaptics.select();
     setState(() => _picked = index);
     _ensureMedia(episodes[index]);
     // 集号圆点和集卡各自监听 picked 的变化，在自己的滚动视图里滚到选中项
@@ -243,6 +249,7 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
       return;
     }
     if (index < 0 || index >= items.length) return;
+    KazumiHaptics.success();
     setState(() => _starting = true);
     try {
       // 走 Emby 自己的播放器，不再借番剧那条链路（弹幕/一起看/假插件）。
@@ -265,6 +272,7 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
 
   Future<void> _toggleFavorite(EmbyServer server) async {
     final next = !_favorite;
+    KazumiHaptics.tap();
     setState(() => _favorite = next);
     try {
       await EmbyService.instance
@@ -278,6 +286,7 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
 
   Future<void> _togglePlayed(EmbyServer server) async {
     final next = !_played;
+    KazumiHaptics.tap();
     setState(() => _played = next);
     try {
       await EmbyService.instance
@@ -367,7 +376,12 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
         fit: StackFit.expand,
         children: [
           if (hasCover)
-            EmbyImage(url: cover, headers: embyAuthHeaders(server)),
+            EmbyImage(
+              url: cover,
+              headers: embyAuthHeaders(server),
+              // 和首页「接下来观看」海报同 tag，转场期间画面连续。
+              heroTag: 'emby-detail-${item.id}',
+            ),
           // 底部渐隐到页面底色，和真实详情页的视觉衔接。
           Align(
             alignment: Alignment.bottomCenter,
@@ -484,11 +498,14 @@ class _EmbyDetailPageState extends State<EmbyDetailPage> {
                 picked: _picked,
                 descending: _descending,
                 overviewExpanded: _overviewExpanded,
+                techExpanded: _techExpanded,
                 favorite: _favorite,
                 played: _played,
                 mediaCache: _mediaCache,
                 onToggleOverview: () =>
                     setState(() => _overviewExpanded = !_overviewExpanded),
+                onToggleTech: () =>
+                    setState(() => _techExpanded = !_techExpanded),
                 onToggleOrder: _toggleOrder,
                 onSwitchSeason: (id) => _switchSeason(server, id),
                 onPick: _pick,
@@ -566,7 +583,12 @@ class _Hero extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        EmbyImage(url: image, headers: embyAuthHeaders(server)),
+        EmbyImage(
+          url: image,
+          headers: embyAuthHeaders(server),
+          // 和骨架封面 / 首页海报同 tag，三次替换之间转场不断。
+          heroTag: 'emby-detail-${item.id}',
+        ),
         // 底部渐隐到页面底色，标题压在渐变上。
         DecoratedBox(
           decoration: BoxDecoration(
@@ -601,10 +623,12 @@ class _InfoColumn extends StatelessWidget {
     required this.picked,
     required this.descending,
     required this.overviewExpanded,
+    required this.techExpanded,
     required this.favorite,
     required this.played,
     required this.mediaCache,
     required this.onToggleOverview,
+    required this.onToggleTech,
     required this.onToggleOrder,
     required this.onSwitchSeason,
     required this.onPick,
@@ -626,10 +650,12 @@ class _InfoColumn extends StatelessWidget {
   final int picked;
   final bool descending;
   final bool overviewExpanded;
+  final bool techExpanded;
   final bool favorite;
   final bool played;
   final Map<String, EmbyMediaSource?> mediaCache;
   final VoidCallback onToggleOverview;
+  final VoidCallback onToggleTech;
   final VoidCallback onToggleOrder;
   final ValueChanged<String> onSwitchSeason;
   final void Function(List<EmbyItem> items, int index) onPick;
@@ -820,11 +846,19 @@ class _InfoColumn extends StatelessWidget {
                 },
               ),
             ],
-            // —— 媒体信息（选中集）
+            // —— 详细信息：基础元信息常驻，技术信息折叠，避免一屏塞满
             if (source != null && _streamsOf(source).isNotEmpty) ...[
               const SizedBox(height: 26),
               EmbySectionHeader(title: '媒体信息'),
-              _MediaInfoScroll(source: source, inset: inset),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: inset),
+                child: _TechInfoCard(
+                  item: item,
+                  source: source,
+                  expanded: techExpanded,
+                  onToggle: onToggleTech,
+                ),
+              ),
             ],
           ],
         );
@@ -1775,57 +1809,6 @@ class _EpisodeCard extends StatelessWidget {
   }
 }
 
-/// 媒体信息横滑胶囊：视频 / 音轨 / 字幕 / 容器。
-class _MediaInfoScroll extends StatelessWidget {
-  const _MediaInfoScroll({required this.source, required this.inset});
-
-  final EmbyMediaSource source;
-  final double inset;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = RexPalette.of(context);
-    final chips = <String>[
-      if (source.container.isNotEmpty) source.container.toUpperCase(),
-      ..._streamsOf(source),
-    ];
-    return SizedBox(
-      height: 30,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: inset),
-        children: [
-          for (final chip in chips)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: p.surface,
-                  borderRadius: BorderRadius.circular(15),
-                  border: Border.all(
-                    color: p.hairlineStrong.withValues(alpha: 0.6),
-                  ),
-                ),
-                child: Text(
-                  chip,
-                  style: TextStyle(
-                    color: p.inkSecondary,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 List<String> _streamsOf(EmbyMediaSource source) {
   final out = <String>[];
   for (final s in source.mediaStreams) {
@@ -1839,6 +1822,146 @@ List<String> _streamsOf(EmbyMediaSource source) {
     if (out.length >= 5) break;
   }
   return out;
+}
+
+/// 可折叠的媒体信息卡：基础行常驻，技术行（编码/分辨率/码率/音频/字幕）
+/// 点开才显示。数据全来自 [EmbyMediaSource] 的真实流，没有假数据。
+class _TechInfoCard extends StatelessWidget {
+  const _TechInfoCard({
+    required this.item,
+    required this.source,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  final EmbyItem item;
+  final EmbyMediaSource source;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = RexPalette.of(context);
+    final video = source.mediaStreams.where((s) => s.isVideo).firstOrNull;
+    final audio = source.mediaStreams.where((s) => s.isAudio).firstOrNull;
+    final subs = source.mediaStreams.where((s) => s.isSubtitle).length;
+    final fps = video?.frameRateFps;
+    final rows = <Widget>[
+      if (item.productionYear != null)
+        EmbyInfoRow(
+          icon: Icons.calendar_today_rounded,
+          label: '首播',
+          value: '${item.productionYear}',
+        ),
+      if (item.genres.isNotEmpty)
+        EmbyInfoRow(
+          icon: Icons.category_outlined,
+          label: '类型',
+          value: item.genres.take(3).join(' / '),
+        ),
+      if (source.container.isNotEmpty)
+        EmbyInfoRow(
+          icon: Icons.folder_outlined,
+          label: '容器',
+          value: source.container.toUpperCase(),
+        ),
+      if (video != null)
+        EmbyInfoRow(
+          icon: Icons.video_settings_outlined,
+          label: '视频',
+          value: [
+            video.codec.toUpperCase(),
+            video.displayTitle,
+            if (fps != null) '${fps.toStringAsFixed(fps >= 100 ? 0 : 1)}fps',
+          ].where((s) => s.isNotEmpty).join(' · '),
+        ),
+      if (audio != null)
+        EmbyInfoRow(
+          icon: Icons.audiotrack_rounded,
+          label: '音频',
+          value: [
+            audio.codec.toUpperCase(),
+            audio.displayTitle,
+          ].where((s) => s.isNotEmpty).join(' · '),
+          last: true,
+        ),
+      if (subs > 0)
+        EmbyInfoRow(
+          icon: Icons.subtitles_outlined,
+          label: '字幕',
+          value: '$subs 条',
+          last: true,
+        ),
+    ];
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: p.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            button: true,
+            label: expanded ? '收起技术信息' : '展开技术信息',
+            child: KzPressable(
+              onTap: onToggle,
+              child: Row(
+                children: [
+                  Icon(Icons.memory_rounded, size: 18, color: p.inkSecondary),
+                  const SizedBox(width: 10),
+                  Text(
+                    '详细信息',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: p.inkPrimary,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    expanded ? '收起' : '展开',
+                    style: TextStyle(fontSize: 12, color: p.inkTertiary),
+                  ),
+                  const SizedBox(width: 4),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: KazumiMotion.scale(
+                      context,
+                      const Duration(milliseconds: 180),
+                    ),
+                    child: Icon(
+                      Icons.expand_more_rounded,
+                      size: 20,
+                      color: p.inkTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: KazumiMotion.scale(
+              context,
+              const Duration(milliseconds: 200),
+            ),
+            curve: KazumiMotion.standard,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 12),
+                for (final row in rows) row,
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------- 全集列表页

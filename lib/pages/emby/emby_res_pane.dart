@@ -2053,13 +2053,6 @@ class _EmbyMinePaneState extends State<EmbyMinePane> {
                 ),
               ),
               PvRow(
-                icon: Icons.auto_awesome_mosaic_rounded,
-                iconColor: const Color(0xFFFF9F0A),
-                title: 'UI 优化预览',
-                subtitle: 'Hero / 骨架屏 / 空状态 / 统计等改进样板',
-                onTap: () => context.pushNamed('/emby/ui-preview'),
-              ),
-              PvRow(
                 icon: Icons.settings_rounded,
                 iconColor: const Color(0xFF8E8E93),
                 title: '全部设置',

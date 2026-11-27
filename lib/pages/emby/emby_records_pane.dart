@@ -7,6 +7,7 @@ import 'package:XL/modules/emby/emby_urls.dart';
 import 'package:XL/pages/emby/emby_lu_play.dart';
 import 'package:XL/pages/emby/emby_preview_style.dart';
 import 'package:XL/pages/emby/emby_style.dart';
+import 'package:XL/pages/emby/emby_ui_kit.dart';
 import 'package:XL/pages/emby/player/emby_player_args.dart';
 import 'package:XL/services/emby/emby_service.dart';
 import 'package:XL/services/emby/emby_watch_log.dart';
@@ -223,41 +224,11 @@ class _EmbyRecordsPaneState extends State<EmbyRecordsPane> {
 
   @override
   Widget build(BuildContext context) {
-    final dark = PvColors.isDark(context);
     if (_records.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.history_rounded,
-                size: 60,
-                color: dark ? Colors.white24 : const Color(0xFFC9C9CF),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                '还没有播放记录',
-                style: TextStyle(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w600,
-                  color: dark ? Colors.white54 : const Color(0xFF8A8A90),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '播过一集之后，这里会按服务器分开记下来，点一下就能接着看',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  height: 1.5,
-                  color: dark ? Colors.white30 : const Color(0xFFA8A8AE),
-                ),
-              ),
-            ],
-          ),
-        ),
+      return const EmbyEmptyState(
+        icon: Icons.history_rounded,
+        title: '还没有播放记录',
+        message: '播过一集之后，这里会按服务器分开记下来，点一下就能接着看。',
       );
     }
 

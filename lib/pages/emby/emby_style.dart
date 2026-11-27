@@ -43,12 +43,17 @@ class EmbyImage extends StatefulWidget {
     this.fit = BoxFit.cover,
     this.fadeIn = const Duration(milliseconds: 320),
     this.memCacheWidth,
+    this.heroTag,
   });
 
   final String url;
   final Map<String, String>? headers;
   final BoxFit fit;
   final Duration fadeIn;
+
+  /// 可选 Hero 标签。给海报→详情的图做无缝转场；不传就是不启用，
+  /// 对现有几十处调用零影响。
+  final Object? heroTag;
 
   /// 解码进内存的宽度上限（ResizeImage）。海报墙一屏十几张卡，服务端虽然
   /// 已经按 maxHeight 缩过图，降级重试（摘掉尺寸参数）时可能拉到原图，
@@ -120,20 +125,26 @@ class _EmbyImageState extends State<EmbyImage> {
 
   @override
   Widget build(BuildContext context) {
+    Widget image(String url) => CachedNetworkImage(
+          imageUrl: url,
+          httpHeaders: widget.headers,
+          fit: widget.fit,
+          width: double.infinity,
+          height: double.infinity,
+          memCacheWidth: widget.memCacheWidth,
+          fadeInDuration: widget.fadeIn,
+          fadeOutDuration: Duration.zero,
+          placeholder: (_, _) => const _EmbyImagePlaceholder(),
+          errorWidget: (_, _, _) => const _EmbyImagePlaceholder(),
+          errorListener: _onError,
+        );
     if (_url.isEmpty) return const _EmbyImagePlaceholder();
-    return CachedNetworkImage(
-      imageUrl: _url,
-      httpHeaders: widget.headers,
-      fit: widget.fit,
-      width: double.infinity,
-      height: double.infinity,
-      memCacheWidth: widget.memCacheWidth,
-      fadeInDuration: widget.fadeIn,
-      fadeOutDuration: Duration.zero,
-      placeholder: (_, _) => const _EmbyImagePlaceholder(),
-      errorWidget: (_, _, _) => const _EmbyImagePlaceholder(),
-      errorListener: _onError,
-    );
+    final Widget content = image(_url);
+    final Object? tag = widget.heroTag;
+    if (tag == null) return content;
+    // Hero 里包一个 ValueKey：升降级重试换了 URL 也沿用同一个 tag，
+    // 转场不会因地址变化而断掉。
+    return Hero(tag: tag, child: content);
   }
 }
 
@@ -394,6 +405,7 @@ class EmbyPosterTile extends StatefulWidget {
     this.countBadge,
     this.score,
     this.onLongPress,
+    this.heroTag,
   });
 
   final EmbyItem item;
@@ -402,6 +414,9 @@ class EmbyPosterTile extends StatefulWidget {
   final String? subtitle;
   final Map<String, String>? headers;
   final bool showProgress;
+
+  /// 可选 Hero 标签：海报→详情页转场用。不传就不启用。
+  final Object? heroTag;
 
   /// 右上角蓝色集数徽标（预览稿 `.poster .cnt`），空则不显示。
   final String? countBadge;
@@ -433,128 +448,134 @@ class _EmbyPosterTileState extends State<EmbyPosterTile> {
       onExit: (_) {
         if (desktop) setState(() => _hovering = false);
       },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOutCubic,
-          transform: Matrix4.translationValues(0, _hovering ? -3 : 0, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AspectRatio(
-                aspectRatio: 2 / 3,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(radius),
-                    border: Border.all(
-                      color: _hovering ? p.hairlineStrong : Colors.transparent,
-                      width: 1,
+      child: Semantics(
+        button: true,
+        label: widget.item.name,
+        hint: subtitle.isNotEmpty ? subtitle : null,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOutCubic,
+            transform: Matrix4.translationValues(0, _hovering ? -3 : 0, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(radius),
+                      border: Border.all(
+                        color: _hovering ? p.hairlineStrong : Colors.transparent,
+                        width: 1,
+                      ),
                     ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(radius - 1),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        EmbyImage(
-                          url: widget.imageUrl,
-                          headers: widget.headers,
-                        ),
-                        if (progress > 0)
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: _ProgressStrip(ratio: progress),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(radius - 1),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          EmbyImage(
+                            url: widget.imageUrl,
+                            headers: widget.headers,
+                            heroTag: widget.heroTag,
                           ),
-                        // 右上蓝色集数徽标（预览稿 .poster .cnt）。
-                        if (widget.countBadge != null &&
-                            widget.countBadge!.isNotEmpty)
-                          Positioned(
-                            top: 6,
-                            right: 6,
-                            child: Container(
-                              constraints: const BoxConstraints(minWidth: 21),
-                              height: 21,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                              ),
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF3E7BFA),
-                                borderRadius: BorderRadius.circular(11),
-                              ),
-                              child: Text(
-                                widget.countBadge!,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
+                          if (progress > 0)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: _ProgressStrip(ratio: progress),
+                            ),
+                          // 右上蓝色集数徽标（预览稿 .poster .cnt）。
+                          if (widget.countBadge != null &&
+                              widget.countBadge!.isNotEmpty)
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Container(
+                                constraints: const BoxConstraints(minWidth: 21),
+                                height: 21,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                ),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF3E7BFA),
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                                child: Text(
+                                  widget.countBadge!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
+                            )
+                          else if (widget.item.played)
+                            const Positioned(
+                              top: 6,
+                              right: 6,
+                              child: _WatchedBadge(),
                             ),
-                          )
-                        else if (widget.item.played)
-                          const Positioned(
-                            top: 6,
-                            right: 6,
-                            child: _WatchedBadge(),
-                          ),
-                        // 右下评分白字（预览稿 .poster .score）。
-                        if (widget.score != null && widget.score!.isNotEmpty)
-                          Positioned(
-                            right: 6,
-                            bottom: 6,
-                            child: Text(
-                              widget.score!,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w800,
-                                shadows: [
-                                  Shadow(
-                                    color: Color(0xB3000000),
-                                    blurRadius: 4,
-                                    offset: Offset(0, 1),
+                          // 右下评分白字（预览稿 .poster .score）。
+                          if (widget.score != null && widget.score!.isNotEmpty)
+                            Positioned(
+                              right: 6,
+                              bottom: 6,
+                              child: Text(
+                                widget.score!,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w800,
+                                  shadows: [
+                                    Shadow(
+                                      color: Color(0xB3000000),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 1),
+                                    ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ),
-                      ],
+                          ],
+                        ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 7),
-              // 预览稿 .poster .nm：一行截断。
-              Text(
-                widget.item.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: RexText.caption.copyWith(
-                  color: p.inkPrimary,
-                  fontWeight: FontWeight.w600,
-                  height: 1.25,
-                ),
-              ),
-              if (subtitle.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: RexText.micro.copyWith(
-                      color: p.inkTertiary,
-                      fontWeight: FontWeight.w400,
-                    ),
+                const SizedBox(height: 7),
+                // 预览稿 .poster .nm：一行截断。
+                Text(
+                  widget.item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: RexText.caption.copyWith(
+                    color: p.inkPrimary,
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
                   ),
                 ),
-            ],
+                if (subtitle.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: RexText.micro.copyWith(
+                        color: p.inkTertiary,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

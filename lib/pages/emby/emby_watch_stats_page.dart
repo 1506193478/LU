@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'package:XL/pages/emby/emby_preview_style.dart';
+import 'package:XL/pages/emby/emby_ui_kit.dart';
 import 'package:XL/services/emby/emby_watch_stats.dart';
 import 'package:XL/theme/ios_interaction.dart';
+import 'package:XL/utils/motion.dart';
 
 /// 观看统计页：本地记录的观看时长趋势 + 热门内容榜。
 ///
@@ -27,6 +29,7 @@ class _EmbyWatchStatsPageState extends State<EmbyWatchStatsPage> {
     final week = stats.msInDays(7);
     final month = stats.msInDays(30);
     final top = stats.topTitles();
+    final genres = stats.genreShares();
 
     return Scaffold(
       backgroundColor: PvColors.page(context),
@@ -59,22 +62,51 @@ class _EmbyWatchStatsPageState extends State<EmbyWatchStatsPage> {
           ),
           const SizedBox(height: 20),
           // ---- 14 天趋势 ----
-          Text('最近 14 天', style: PvText.section(context)),
+          Semantics(
+            header: true,
+            child: Text('最近 14 天', style: PvText.section(context)),
+          ),
           const SizedBox(height: 10),
           const _TrendChart(),
           const SizedBox(height: 24),
+          // ---- 类型占比（真实数据来自观看记录的首个类型）----
+          if (genres.isNotEmpty) ...[
+            Semantics(
+              header: true,
+              child: Text('类型分布', style: PvText.section(context)),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              decoration: BoxDecoration(
+                color: PvColors.card(context),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < genres.length; i++)
+                    EmbyGenreBar(
+                      label: genres[i].key,
+                      value: genres[i].value,
+                      last: i == genres.length - 1,
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
           // ---- 热门内容 ----
           Text('看得最多的', style: PvText.section(context)),
           const SizedBox(height: 6),
           if (top.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32),
-              child: Center(
-                child: Text(
-                  '还没有记录\n看一会儿视频再来吧',
-                  textAlign: TextAlign.center,
-                  style: PvText.rowSub(context).copyWith(height: 1.6),
-                ),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: EmbyEmptyState(
+                icon: Icons.bar_chart_rounded,
+                title: '还没有观看记录',
+                message: '看一会儿视频再来，这里会显示时长趋势和看得最多的节目。',
               ),
             )
           else
@@ -154,48 +186,89 @@ class _TrendChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final values = EmbyWatchStats.instance.dailyMs(14);
     final maxMs = values.fold<int>(0, (a, b) => a > b ? a : b);
+    // 14 天从旧到新，末尾是今天；只在周一和今天标字，避免一屏挤满。
+    final now = DateTime.now();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
         color: PvColors.card(context),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
         children: [
-          for (var i = 0; i < values.length; i++)
-            Expanded(
-              child: Tooltip(
-                message: EmbyWatchStats.formatMs(values[i]),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: SizedBox(
-                    height: 64,
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: FractionallySizedBox(
-                        heightFactor: maxMs <= 0
-                            ? 0.02
-                            : (values[i] / maxMs).clamp(0.02, 1.0),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: values[i] > 0
-                                ? PvColors.blue.withValues(
-                                    alpha: i == values.length - 1 ? 1 : 0.62,
-                                  )
-                                : PvColors.hair(context),
-                            borderRadius: BorderRadius.circular(3),
+          SizedBox(
+            height: 64,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var i = 0; i < values.length; i++)
+                  Expanded(
+                    child: Tooltip(
+                      message: EmbyWatchStats.formatMs(values[i]),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: SizedBox(
+                          height: 64,
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: TweenAnimationBuilder<double>(
+                              tween: Tween<double>(
+                                begin: 0,
+                                end: maxMs <= 0
+                                    ? 0.02
+                                    : (values[i] / maxMs).clamp(0.02, 1.0),
+                              ),
+                              duration: KazumiMotion.scale(
+                                context,
+                                const Duration(milliseconds: 600),
+                              ),
+                              curve: KazumiMotion.standard,
+                              builder: (context, factor, _) =>
+                                  FractionallySizedBox(
+                                heightFactor: factor,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: values[i] > 0
+                                        ? PvColors.blue.withValues(
+                                            alpha: i == values.length - 1
+                                                ? 1
+                                                : 0.62,
+                                          )
+                                        : PvColors.hair(context),
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ),
+              ],
             ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              for (var i = 0; i < values.length; i++)
+                Expanded(
+                  child: Text(
+                    _dayLabel(now.subtract(Duration(days: 13 - i)), i),
+                    textAlign: TextAlign.center,
+                    style: PvText.count(context).copyWith(fontSize: 10),
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );
+  }
+
+  static String _dayLabel(DateTime day, int index) {
+    if (index == 13) return '今天';
+    return day.weekday == DateTime.monday ? '一' : '';
   }
 }
 
